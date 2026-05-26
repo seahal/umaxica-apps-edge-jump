@@ -37,6 +37,20 @@ export type InboundJumpClaim = {
   url: string;
 };
 
+export type OutboundJumpClaim = {
+  schema: 1;
+  iss: string;
+  aud: string;
+  sub: 'jump-redirect';
+  iat: number;
+  nbf: number;
+  exp: number;
+  jti: string;
+  src: string;
+  dst: 'internal';
+  url: string;
+};
+
 export type JumpErrorCode =
   | 'malformed'
   | 'invalid_header'

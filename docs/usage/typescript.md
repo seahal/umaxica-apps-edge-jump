@@ -28,8 +28,11 @@ const rt = await new SignJWT({
   .setProtectedHeader({ typ: 'JWT', alg: 'EdDSA', kid: 'app-2026-05' })
   .sign(privateKey);
 
-console.log(`https://jump.example.net/?rt=${encodeURIComponent(rt)}`);
+console.log(`https://jump.example.net/?rt=${rt}`);
 ```
+
+This raw `rt` URL form applies only to JWT/JWS compact serialization, whose
+segments are base64url encoded.
 
 ## Browser Redirect Helper
 
@@ -70,7 +73,7 @@ app.get('/go/docs', async (c) => {
     .setProtectedHeader({ typ: 'JWT', alg: 'EdDSA', kid: 'app-2026-05' })
     .sign(key);
 
-  return c.redirect(`https://jump.example.net/?rt=${encodeURIComponent(rt)}`);
+  return c.redirect(`https://jump.example.net/?rt=${rt}`);
 });
 ```
 

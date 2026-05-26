@@ -50,8 +50,11 @@ const rt = await new SignJWT({
   .setProtectedHeader({ typ: 'JWT', alg: 'EdDSA', kid: 'issuer-key-2026-05' })
   .sign(privateKey);
 
-location.href = `https://jump.example.net/?rt=${encodeURIComponent(rt)}`;
+location.href = `https://jump.example.net/?rt=${rt}`;
 ```
+
+This raw `rt` URL form applies to JWT/JWS compact serialization only. Compact JWT
+segments are base64url encoded, so they are already safe in the query value.
 
 ## Local Runtime Checks
 
@@ -81,8 +84,8 @@ Expected health response includes:
 Cloudflare Workers:
 
 ```sh
-vp run cf:check
-vp run cf:dev
+vp run cloudflare:check
+vp run cloudflare:dev
 curl http://127.0.0.1:8787/health.json
 ```
 

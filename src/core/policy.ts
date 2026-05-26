@@ -1,5 +1,7 @@
 import { JumpError, type InboundJumpClaim, type IssuerConfig } from './types';
-import type { NormalizedUrl } from './normalize_url';
+import { normalizeOrigin, type NormalizedUrl } from './normalize_url';
+
+const POLICY_RUNTIME = { edge: 'unknown', region: 'policy', production: true } as const;
 
 export function assertDestinationPolicy(
   claim: InboundJumpClaim,
@@ -7,7 +9,7 @@ export function assertDestinationPolicy(
   target: NormalizedUrl,
 ) {
   if (claim.dst === 'internal') {
-    if (!issuer.allowed_dst_internal.includes(target.origin)) {
+    if (!originAllowed(issuer.allowed_dst_internal, target.origin)) {
       throw new JumpError('invalid_dst', 'internal destination rejected');
     }
     return;
@@ -16,9 +18,13 @@ export function assertDestinationPolicy(
   if (claim.dst === 'external') {
     const allowed = issuer.allowed_dst_external;
     if (allowed === true) return;
-    if (Array.isArray(allowed) && allowed.includes(target.origin)) return;
+    if (Array.isArray(allowed) && originAllowed(allowed, target.origin)) return;
     throw new JumpError('invalid_dst', 'external destination rejected');
   }
 
   throw new JumpError('invalid_dst', 'unknown dst');
+}
+
+function originAllowed(allowedOrigins: string[], targetOrigin: string) {
+  return allowedOrigins.some((origin) => normalizeOrigin(origin, POLICY_RUNTIME) === targetOrigin);
 }

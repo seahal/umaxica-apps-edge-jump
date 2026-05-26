@@ -36,15 +36,18 @@ payload = {
 }
 
 rt = JWT.encode(payload, private_key, "EdDSA", typ: "JWT", kid: JUMP_KID)
-jump_url = "https://jump.example.net/?rt=#{URI.encode_www_form_component(rt)}"
+jump_url = "https://jump.example.net/?rt=#{rt}"
 puts jump_url
 ```
+
+This raw `rt` URL form applies only to JWT/JWS compact serialization, whose
+segments are base64url encoded.
 
 ## Redirect Helper
 
 ```ruby
 def jump_redirect_url(rt)
-  "https://jump.example.net/?rt=#{URI.encode_www_form_component(rt)}"
+  "https://jump.example.net/?rt=#{rt}"
 end
 ```
 
