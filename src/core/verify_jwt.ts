@@ -6,6 +6,7 @@ import type { ReplayCache } from './replay_cache';
 
 const ALLOWED_ALGS = new Set(['EdDSA']);
 const SKEW = 60;
+const MAX_TTL = 30 * 24 * 3600;
 
 type Header = {
   typ?: unknown;
@@ -28,7 +29,7 @@ export async function verifyJumpJwt(
   if (parts.length !== 3) throw new JumpError('malformed', 'not compact jwt');
   for (const part of parts) assertBase64Url(part);
 
-  const header = decodeJson<Header>(parts[0] ?? '', 'invalid_header');
+  const header = decodeJson<Header>(String(parts[0]), 'invalid_header');
   if (header.typ !== 'JWT') throw new JumpError('invalid_header', 'typ rejected');
   if (typeof header.alg !== 'string' || !ALLOWED_ALGS.has(header.alg)) {
     throw new JumpError('invalid_header', 'alg rejected');
@@ -39,7 +40,7 @@ export async function verifyJumpJwt(
     throw new JumpError('invalid_header', 'embedded key hints rejected');
   }
 
-  const unsafePayload = decodeJson<JWTPayload>(parts[1] ?? '', 'malformed');
+  const unsafePayload = decodeJson<JWTPayload>(String(parts[1]), 'malformed');
   if (typeof unsafePayload.iss !== 'string') throw new JumpError('invalid_claim', 'iss required');
   const issuer = getIssuer(registry, unsafePayload.iss);
   if (!issuer) throw new JumpError('invalid_claim', 'issuer rejected');
@@ -70,6 +71,7 @@ export async function verifyJumpJwt(
       });
       payload = verified.payload;
     } catch (retryError) {
+      /* v8 ignore next -- defensive for JWKS cache failures after a signature retry */
       if (retryError instanceof JumpError) throw retryError;
       throw mapJoseVerifyError(retryError);
     }
@@ -116,14 +118,22 @@ function toBase64(value: string) {
 
 function validateClaim(payload: JWTPayload, iss: string, now: number): InboundJumpClaim {
   if (payload.schema !== 1) throw new JumpError('invalid_claim', 'schema rejected');
+  /* v8 ignore next -- jose issuer verification enforces this before local shape checks */
   if (payload.iss !== iss) throw new JumpError('invalid_claim', 'iss mismatch');
+  /* v8 ignore next -- jose audience verification enforces this before local shape checks */
   if (payload.aud !== SERVICE.origin) throw new JumpError('invalid_claim', 'aud rejected');
   if (payload.sub !== 'jump-redirect') throw new JumpError('invalid_claim', 'sub rejected');
   if (typeof payload.exp !== 'number') throw new JumpError('invalid_claim', 'exp required');
   if (typeof payload.nbf !== 'number') throw new JumpError('invalid_claim', 'nbf required');
   if (typeof payload.iat !== 'number') throw new JumpError('invalid_claim', 'iat required');
+  /* v8 ignore next -- jose expiration verification enforces this before local shape checks */
   if (payload.exp < now - SKEW) throw new JumpError('expired', 'expired');
+  /* v8 ignore next -- jose nbf verification enforces this before local shape checks */
   if (payload.nbf > now + SKEW) throw new JumpError('invalid_claim', 'nbf future');
+  if (payload.iat > now + SKEW) throw new JumpError('invalid_claim', 'iat future');
+  /* v8 ignore next -- jose rejects this as an invalid active window first */
+  if (payload.nbf > payload.exp) throw new JumpError('invalid_claim', 'nbf after exp');
+  if (payload.exp - payload.iat > MAX_TTL) throw new JumpError('invalid_claim', 'ttl exceeded');
   if (typeof payload.jti !== 'string' || !payload.jti)
     throw new JumpError('invalid_claim', 'jti required');
   if (payload.dst !== 'internal' && payload.dst !== 'external')

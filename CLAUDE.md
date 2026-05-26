@@ -19,7 +19,6 @@ All commands run from the repo root using **Vite+** (`vp`).
 | Run all tests              | `vp test`                            |
 | Run single test file       | `vp test run path/to/file.test.ts`   |
 | Run tests matching name    | `vp test run -t "test name"`         |
-| CF type generation         | `vp run cf-typegen`                  |
 | Dev server (per workspace) | `vp run --filter <workspace> server` |
 | Deploy (per workspace)     | `vp run --filter <workspace> deploy` |
 

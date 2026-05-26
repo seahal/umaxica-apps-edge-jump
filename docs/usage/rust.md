@@ -69,8 +69,11 @@ fn issue_jump_token(private_key_pem: &[u8]) -> jsonwebtoken::errors::Result<Stri
 
 ```rust
 let rt = issue_jump_token(private_key_pem)?;
-let jump_url = format!("https://jump.example.net/?rt={}", urlencoding::encode(&rt));
+let jump_url = format!("https://jump.example.net/?rt={rt}");
 ```
+
+This raw `rt` URL form applies only to JWT/JWS compact serialization, whose
+segments are base64url encoded.
 
 ## Reqwest Health Example
 
