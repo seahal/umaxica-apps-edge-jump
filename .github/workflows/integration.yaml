@@ -1,0 +1,159 @@
+name: CI
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --audit-level=high
+
+  outdated:
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm outdated || true
+
+  knip:
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec knip --include unlisted,unresolved,binaries
+
+  secret-scan:
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  format:
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec oxfmt --check .
+
+  lint:
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec oxlint .
+
+  typecheck:
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run type
+
+  test:
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test:cov
+
+  build-vite:
+    runs-on: ubuntu-slim
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - app/apex
+          - app/core
+          - com/apex
+          - com/core
+          - dev/status
+          - net/apex
+          - org/apex
+          - org/core
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - if: ${{ startsWith(matrix.target, 'dev/') }}
+        run: pnpm -C ${{ matrix.target }} run build
+      - if: ${{ !startsWith(matrix.target, 'dev/') }}
+        run: pnpm --dir ${{ matrix.target }} run build
+      - name: Report asset sizes
+        run: |
+          case "${{ matrix.target }}" in
+            */apex) asset_dir="${{ matrix.target }}/dist/client" ;;
+            *) asset_dir="${{ matrix.target }}/build/client" ;;
+          esac
+
+          if [[ ! -d "$asset_dir" ]]; then
+            echo "Asset directory not found: $asset_dir" >&2
+            exit 1
+          fi
+
+          echo "Asset directory: $asset_dir"
+          find "$asset_dir" -type f \( -name '*.js' -o -name '*.css' \) -printf '%P\t%s bytes\n' | sort

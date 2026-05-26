@@ -1,0 +1,165 @@
+{
+  "name": "umaxica-apps-jump-dc",
+  "dockerComposeFile": ["../compose.yaml", "./compose.override.yml"],
+  "service": "core",
+  "remoteUser": "jump",
+  "containerUser": "jump",
+  "workspaceFolder": "/home/jump/workspace",
+  "shutdownAction": "stopCompose",
+  "runServices": ["core"],
+  "overrideCommand": false,
+  "remoteEnv": {
+    "EDITOR": "code --wait --reuse-window",
+    "DEBUGGER_DISABLE": "1"
+  },
+
+  "forwardPorts": [
+    5173, 8780, 8781, 8782, 5102, 5103, 5104, 5105, 5302, 5303, 5304, 5305, 5402, 5403, 5404, 5405
+  ],
+  "portsAttributes": {
+    "8781": {
+      "label": "App Domain (app)",
+      "onAutoForward": "notify"
+    },
+    "8780": {
+      "label": "Com Domain (com)",
+      "onAutoForward": "notify"
+    },
+    "8782": {
+      "label": "Org Domain (org)",
+      "onAutoForward": "notify"
+    },
+    "5173": {
+      "label": "Net Domain (net)",
+      "onAutoForward": "notify"
+    },
+    "5102": {
+      "label": "Com Core JIT",
+      "onAutoForward": "silent"
+    },
+    "5103": {
+      "label": "Com Docs JIT",
+      "onAutoForward": "silent"
+    },
+    "5104": {
+      "label": "Com Help JIT",
+      "onAutoForward": "silent"
+    },
+    "5105": {
+      "label": "Com News JIT",
+      "onAutoForward": "silent"
+    },
+    "5302": {
+      "label": "Org Core JIT",
+      "onAutoForward": "silent"
+    },
+    "5303": {
+      "label": "Org Docs JIT",
+      "onAutoForward": "silent"
+    },
+    "5304": {
+      "label": "Org Help JIT",
+      "onAutoForward": "silent"
+    },
+    "5305": {
+      "label": "Org News JIT",
+      "onAutoForward": "silent"
+    },
+    "5402": {
+      "label": "App Core JIT",
+      "onAutoForward": "silent"
+    },
+    "5403": {
+      "label": "App Docs JIT",
+      "onAutoForward": "silent"
+    },
+    "5404": {
+      "label": "App Help JIT",
+      "onAutoForward": "silent"
+    },
+    "5405": {
+      "label": "App News JIT",
+      "onAutoForward": "silent"
+    }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "openai.chatgpt",
+        "anthropic.claude-code",
+        "bradlc.vscode-tailwindcss",
+        "github.vscode-github-actions",
+        "GitHub.vscode-pull-request-github",
+        "ms-azuretools.vscode-containers",
+        "ms-azuretools.vscode-docker",
+        "ms-vscode.remote-explorer",
+        "GitHub.codespaces",
+        "ms-vscode-remote.remote-containers",
+        "nicolo-ribaudo.oxfmt-vscode",
+        "nicolo-ribaudo.oxc-vscode",
+
+        "-dbaeumer.vscode-eslint",
+        "-esbenp.prettier-vscode",
+        "-eamodio.gitlens",
+        "-GitHub.copilot",
+        "-GitHub.copilot-chat"
+      ],
+      "settings": {
+        "claude.allowDangerouslySkipPermissions": true,
+        "extensions.verifySignature": false,
+        "editor.defaultFormatter": "nicolo-ribaudo.oxfmt-vscode",
+        "editor.formatOnSave": true,
+        "editor.tabSize": 2,
+        "editor.codeActionsOnSave": {
+          "source.fixAll": "explicit"
+        },
+        "files.trimTrailingWhitespace": true,
+        "files.insertFinalNewline": true,
+        "files.eol": "\n",
+        "files.associations": {
+          "compose.yaml": "yaml",
+          "*.yml": "yaml"
+        },
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "terminal.integrated.profiles.linux": {
+          "bash": {
+            "path": "/bin/bash"
+          },
+          "zsh": {
+            "path": "/bin/zsh"
+          }
+        }
+      }
+    }
+  },
+
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/marcosbolanos/devcontainer-features/neovim-prebuilt:1": {},
+    "ghcr.io/devcontainers/features/copilot-cli:1": {},
+    "ghcr.io/stu-bell/devcontainer-features/gemini-cli:0": {},
+    "ghcr.io/jsburckhardt/devcontainer-features/opencode:1": {},
+    "ghcr.io/jasonthedeveloper/features/trivy:1": {},
+    "ghcr.io/audacioustux/devcontainers/bun:1": {},
+    "ghcr.io/jsburckhardt/devcontainer-features/codex:1": {},
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
+  },
+  "containerEnv": {
+    "NODE_OPTIONS": "--max-old-space-size=4096"
+  },
+  "mounts": [
+    "source=${localEnv:HOME}/.claude,target=/home/jump/.claude,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.claude.json,target=/home/jump/.claude.json,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.copilot,target=/home/jump/.copilot,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.codex,target=/home/jump/.codex,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.gemini,target=/home/jump/.gemini,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.config/gh,target=/home/jump/.config/gh,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.config/git,target=/home/jump/.config/git,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.gitconfig,target=/home/jump/.gitconfig,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.ssh,target=/home/jump/.ssh,type=bind,consistency=cached",
+    "source=${localEnv:HOME}/.config/opencode,target=/home/jump/.config/opencode,type=bind,consistency=cached"
+  ],
+  "updateRemoteUserUID": true,
+  "postCreateCommand": "sudo chown -R jump:group /home/jump/ && vp install"
+}
