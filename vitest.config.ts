@@ -24,10 +24,6 @@ export default defineConfig({
         '**/locales/**',
         '**/zod.ts',
         '**/coverage/**',
-        '**/.next/**',
-        '**/.open-next/**',
-        '**/next.config.ts',
-        '**/open-next.config.ts',
         '**/src/config/**',
         '**/src/cloudflare.ts',
         '**/src/fastly.ts',
@@ -45,9 +41,7 @@ export default defineConfig({
     deps: {
       interopDefault: true,
     },
-    environment: 'happy-dom',
     globals: true,
     include: ['test/**/*.test.{ts,tsx}'],
-    setupFiles: ['./vitest.setup.ts'],
   },
 });

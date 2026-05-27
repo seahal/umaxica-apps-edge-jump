@@ -43,17 +43,13 @@ export default defineConfig({
     ],
   },
   lint: {
-    plugins: ['typescript', 'react', 'import', 'jsx-a11y'],
+    plugins: ['typescript', 'import'],
     env: {
       browser: true,
       es2024: true,
     },
     globals: {},
-    settings: {
-      react: {
-        version: '19',
-      },
-    },
+    settings: {},
     rules: {
       'no-unused-vars': 'error',
       'no-console': 'warn',
@@ -62,7 +58,6 @@ export default defineConfig({
       eqeqeq: 'error',
       'no-eval': 'error',
       'no-implied-eval': 'error',
-      'react/no-danger': 'warn',
       'typescript/no-explicit-any': 'error',
       'typescript/no-non-null-assertion': 'warn',
       'typescript/consistent-type-imports': 'error',

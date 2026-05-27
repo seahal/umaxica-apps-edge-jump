@@ -1,16 +1,60 @@
+import { importPKCS8 } from 'jose';
 import { createApp } from './index';
+import { JoseOutboundSigner, NoopOutboundSigner } from './core/sign_outbound';
 
-export type CloudflareEnv = Record<string, never>;
+const CLOUDFLARE_VERSION_TAG = 'UMAXICA-APPS-EDGE-JUMP-VERSION';
 
-const app = createApp({
-  runtime: {
-    edge: 'cloudflare',
-    production: true,
-  },
-});
+type SecretBinding = string | { get(): Promise<string> };
+type RateLimiter = {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+};
+type VersionMetadata = {
+  id: string;
+  tag?: string;
+  timestamp: string;
+};
+
+export type CloudflareEnv = {
+  CF_VERSION_METADATA?: VersionMetadata;
+  JUMP_PRIVATE_KEY_PEM?: SecretBinding;
+  JUMP_PRIVATE_KEY_KID?: SecretBinding;
+  RATE_LIMITER?: RateLimiter;
+};
 
 export default {
-  fetch(request: Request, env: CloudflareEnv, executionContext: ExecutionContext) {
+  async fetch(request: Request, env: CloudflareEnv, executionContext: ExecutionContext) {
+    const rateLimit = await checkRateLimit(request, env);
+    if (rateLimit) return rateLimit;
+
+    const app = createApp({
+      runtime: {
+        edge: 'cloudflare',
+        version: env.CF_VERSION_METADATA?.tag || CLOUDFLARE_VERSION_TAG,
+        production: true,
+      },
+      signer: await createSigner(env),
+    });
     return app.fetch(request, env, executionContext);
   },
 };
+
+async function checkRateLimit(request: Request, env: CloudflareEnv) {
+  if (!env.RATE_LIMITER) return null;
+  const { pathname } = new URL(request.url);
+  const { success } = await env.RATE_LIMITER.limit({ key: pathname });
+  if (success) return null;
+  return new Response(`429 Failure - rate limit exceeded for ${pathname}`, { status: 429 });
+}
+
+async function createSigner(env: CloudflareEnv) {
+  const pem = await readBinding(env.JUMP_PRIVATE_KEY_PEM);
+  if (!pem) return new NoopOutboundSigner();
+  const kid = (await readBinding(env.JUMP_PRIVATE_KEY_KID)) || 'jump-current';
+  return new JoseOutboundSigner(await importPKCS8(pem, 'EdDSA'), kid);
+}
+
+async function readBinding(binding: SecretBinding | undefined) {
+  if (!binding) return null;
+  if (typeof binding === 'string') return binding;
+  return binding.get();
+}

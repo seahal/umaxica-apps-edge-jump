@@ -2,8 +2,7 @@ packages:
   - .
 
 catalog:
-  '@cloudflare/workers-types': ^4.20260526.1
-  '@opennextjs/cloudflare': ^1.19.11
+  '@cloudflare/workers-types': 4.20260523.1
   '@types/node': ^25.7.0
   '@types/react': ^19.2.14
   '@types/react-dom': ^19.2.3
@@ -20,17 +19,6 @@ ignoredBuiltDependencies:
   - workerd
 
 minimumReleaseAge: 4320
-
-minimumReleaseAgeExclude:
-  - vite-plus
-  - '@voidzero-dev/*'
-  - oxlint
-  - '@oxlint/*'
-  - oxlint-tsgolint
-  - '@oxlint-tsgolint/*'
-  - oxfmt
-  - '@oxfmt/*'
-  - '@cloudflare/workers-types'
 
 overrides:
   vite: 'catalog:'
