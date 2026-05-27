@@ -30,10 +30,10 @@ async function fixture(): Promise<Fixture> {
 }
 
 async function fixtureWithOptions(options: Partial<JumpDeps> = {}): Promise<Fixture> {
-  const issuerKeys = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
-  const jumpKeys = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
+  const issuerKeys = await generateKeyPair('ES384');
+  const jumpKeys = await generateKeyPair('ES384');
   const issuerJwk = await exportJWK(issuerKeys.publicKey);
-  const publicJwk: JWK = { ...issuerJwk, kid: 'kid-1', alg: 'EdDSA', use: 'sig' };
+  const publicJwk: JWK = { ...issuerJwk, kid: 'kid-1', alg: 'ES384', use: 'sig' };
   let fetches = 0;
   const registry: IssuerRegistry = {
     'https://app.example.com': {
@@ -93,7 +93,7 @@ async function signPayload(
   header: Record<string, unknown> = {},
 ) {
   return new SignJWT(payload)
-    .setProtectedHeader({ typ: 'JWT', alg: 'EdDSA', kid: 'kid-1', ...header })
+    .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'kid-1', ...header })
     .sign(privateKey);
 }
 
@@ -309,7 +309,7 @@ describe('jump gateway routes', () => {
   });
 
   test('default signer failure maps to malformed error', async () => {
-    const issuerKeys = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
+    const issuerKeys = await generateKeyPair('ES384');
     const jwk = await exportJWK(issuerKeys.publicKey);
     const noSigner = createApp({
       registry: {
@@ -321,7 +321,7 @@ describe('jump gateway routes', () => {
         },
       },
       jwksCache: new JwksCache(async () => {
-        return { keys: [{ ...jwk, kid: 'kid-1', alg: 'EdDSA', use: 'sig' }] };
+        return { keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }] };
       }),
       replayCache: new NoopReplayCache(),
       runtime: { edge: 'local', production: true },
@@ -390,6 +390,46 @@ describe('jump token validation', () => {
     expect(res.headers.get('X-Jump-Error')).toBe('invalid_header');
   });
 
+  test('none algorithm token rejects', async () => {
+    const { app } = await fixture();
+    const token = [
+      b64(JSON.stringify({ typ: 'JWT', alg: 'none', kid: 'kid-1' })),
+      b64(JSON.stringify(baseClaim())),
+      'unsigned',
+    ].join('.');
+
+    const res = await jump(app, token);
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_header');
+  });
+
+  test('non-ES384 signed tokens reject before key lookup', async () => {
+    const { app } = await fixture();
+    const algorithms = [
+      { alg: 'ES256', keyPair: await generateKeyPair('ES256') },
+      { alg: 'RS256', keyPair: await generateKeyPair('RS256') },
+    ];
+
+    for (const { alg, keyPair } of algorithms) {
+      const token = await new SignJWT(baseClaim())
+        .setProtectedHeader({ typ: 'JWT', alg, kid: 'kid-1' })
+        .sign(keyPair.privateKey);
+
+      const res = await jump(app, token);
+      expect(res.headers.get('X-Jump-Error')).toBe('invalid_header');
+    }
+  });
+
+  test('legacy EdDSA token rejects before key lookup', async () => {
+    const { app } = await fixture();
+    const { privateKey } = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
+    const token = await new SignJWT(baseClaim())
+      .setProtectedHeader({ typ: 'JWT', alg: 'EdDSA', kid: 'kid-1' })
+      .sign(privateKey);
+
+    const res = await jump(app, token);
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_header');
+  });
+
   test('jku reject', async () => {
     const { app, signToken } = await fixture();
     const res = await jump(app, await signToken({}, { jku: 'https://evil.example/jwks.json' }));
@@ -403,13 +443,13 @@ describe('jump token validation', () => {
       (
         await jump(
           app,
-          replaceHeader(token, { typ: 'JWT', alg: 'EdDSA', kid: 'kid-1', crit: ['exp'] }),
+          replaceHeader(token, { typ: 'JWT', alg: 'ES384', kid: 'kid-1', crit: ['exp'] }),
         )
       ).headers.get('X-Jump-Error'),
     ).toBe('invalid_header');
     expect(
       (
-        await jump(app, replaceHeader(token, { typ: 'JWT', alg: 'EdDSA', kid: 'kid-1', jwk: {} }))
+        await jump(app, replaceHeader(token, { typ: 'JWT', alg: 'ES384', kid: 'kid-1', jwk: {} }))
       ).headers.get('X-Jump-Error'),
     ).toBe('invalid_header');
     expect(
@@ -418,7 +458,7 @@ describe('jump token validation', () => {
           app,
           replaceHeader(token, {
             typ: 'JWT',
-            alg: 'EdDSA',
+            alg: 'ES384',
             kid: 'kid-1',
             x5u: 'https://evil.example/cert',
           }),
@@ -530,9 +570,36 @@ describe('jump token validation', () => {
     expect(res.headers.get('X-Jump-Error')).toBe('invalid_signature');
   });
 
+  test('wrong elliptic curve key rejects for ES384', async () => {
+    const { privateKey } = await generateKeyPair('ES384');
+    const wrongCurveKeys = await generateKeyPair('ES256');
+    const wrongCurveJwk = await exportJWK(wrongCurveKeys.publicKey);
+    const registry: IssuerRegistry = {
+      'https://app.example.com': {
+        iss: 'https://app.example.com',
+        jwks_uri: 'https://app.example.com/.well-known/jwks.json',
+        allowed_dst_internal: ['https://app.example.com'],
+        allowed_dst_external: false,
+      },
+    };
+    const token = await signPayload(privateKey, baseClaim());
+
+    await expect(
+      verifyJumpJwt(
+        token,
+        registry,
+        new JwksCache(async () => ({
+          keys: [{ ...wrongCurveJwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
+        })),
+        new NoopReplayCache(),
+        NOW,
+      ),
+    ).rejects.toMatchObject({ code: 'invalid_signature' });
+  });
+
   test('signature verification retries against refreshed JWKS', async () => {
-    const staleKeys = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
-    const freshKeys = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
+    const staleKeys = await generateKeyPair('ES384');
+    const freshKeys = await generateKeyPair('ES384');
     const staleJwk = await exportJWK(staleKeys.publicKey);
     const freshJwk = await exportJWK(freshKeys.publicKey);
     let fetches = 0;
@@ -556,7 +623,7 @@ describe('jump token validation', () => {
             {
               ...(fetches === 1 ? staleJwk : freshJwk),
               kid: 'kid-1',
-              alg: 'EdDSA',
+              alg: 'ES384',
               use: 'sig',
             },
           ],
@@ -726,8 +793,8 @@ describe('jump token validation', () => {
     const rejected = await jump(app, await signToken({ url: 'https://app.example.com:444/path' }));
     expect(rejected.headers.get('X-Jump-Error')).toBe('invalid_dst');
 
-    const issuerKeys = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
-    const jumpKeys = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
+    const issuerKeys = await generateKeyPair('ES384');
+    const jumpKeys = await generateKeyPair('ES384');
     const jwk = await exportJWK(issuerKeys.publicKey);
     const registry: IssuerRegistry = {
       'https://app.example.com': {
@@ -740,7 +807,7 @@ describe('jump token validation', () => {
     const explicitApp = createApp({
       registry,
       jwksCache: new JwksCache(async () => ({
-        keys: [{ ...jwk, kid: 'kid-1', alg: 'EdDSA', use: 'sig' }],
+        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
       replayCache: new NoopReplayCache(),
       runtime: { edge: 'local', production: true },
@@ -779,13 +846,13 @@ describe('jump token validation', () => {
         allowed_dst_external: true,
       },
     };
-    const issuerKeys = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
-    const jumpKeys = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
+    const issuerKeys = await generateKeyPair('ES384');
+    const jumpKeys = await generateKeyPair('ES384');
     const jwk = await exportJWK(issuerKeys.publicKey);
     const app = createApp({
       registry,
       jwksCache: new JwksCache(async () => ({
-        keys: [{ ...jwk, kid: 'kid-1', alg: 'EdDSA', use: 'sig' }],
+        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
       replayCache: new NoopReplayCache(),
       runtime: { edge: 'local', production: true },
@@ -812,13 +879,13 @@ describe('jump token validation', () => {
         allowed_dst_external: true,
       },
     };
-    const issuerKeys = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
-    const jumpKeys = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
+    const issuerKeys = await generateKeyPair('ES384');
+    const jumpKeys = await generateKeyPair('ES384');
     const jwk = await exportJWK(issuerKeys.publicKey);
     const app = createApp({
       registry,
       jwksCache: new JwksCache(async () => ({
-        keys: [{ ...jwk, kid: 'kid-1', alg: 'EdDSA', use: 'sig' }],
+        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
       replayCache: new NoopReplayCache(),
       runtime: { edge: 'local', production: true },
@@ -846,7 +913,7 @@ describe('jump token validation', () => {
     const verified = await jwtVerify(rt ?? '', jumpPublicKey, {
       issuer: SERVICE.origin,
       audience: 'https://app.example.com',
-      algorithms: ['EdDSA'],
+      algorithms: ['ES384'],
       typ: 'JWT',
       currentDate: new Date(NOW * 1000),
     });
@@ -872,7 +939,7 @@ describe('jump token validation', () => {
     const verified = await jwtVerify(rt ?? '', jumpPublicKey, {
       issuer: SERVICE.origin,
       audience: 'https://app.example.com',
-      algorithms: ['EdDSA'],
+      algorithms: ['ES384'],
       typ: 'JWT',
       currentDate: new Date(NOW * 1000),
     });
@@ -892,8 +959,8 @@ describe('jump token validation', () => {
   });
 
   test('replay cache rejects repeated jti when enabled', async () => {
-    const issuerKeys = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
-    const jumpKeys = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
+    const issuerKeys = await generateKeyPair('ES384');
+    const jumpKeys = await generateKeyPair('ES384');
     const jwk = await exportJWK(issuerKeys.publicKey);
     const registry: IssuerRegistry = {
       'https://app.example.com': {
@@ -906,7 +973,7 @@ describe('jump token validation', () => {
     const app = createApp({
       registry,
       jwksCache: new JwksCache(async () => ({
-        keys: [{ ...jwk, kid: 'kid-1', alg: 'EdDSA', use: 'sig' }],
+        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
       replayCache: new MemoryReplayCache(),
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
@@ -937,8 +1004,8 @@ describe('jump token validation', () => {
   });
 
   test('handleJump uses current time and default outbound ttl when deps omit optional hooks', async () => {
-    const issuerKeys = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
-    const jumpKeys = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
+    const issuerKeys = await generateKeyPair('ES384');
+    const jumpKeys = await generateKeyPair('ES384');
     const jwk = await exportJWK(issuerKeys.publicKey);
     const now = Math.floor(Date.now() / 1000);
     const token = await signPayload(issuerKeys.privateKey, {
@@ -957,7 +1024,7 @@ describe('jump token validation', () => {
         },
       },
       jwksCache: new JwksCache(async () => ({
-        keys: [{ ...jwk, kid: 'kid-1', alg: 'EdDSA', use: 'sig' }],
+        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
       replayCache: new NoopReplayCache(),
       runtime: { edge: 'local', production: true },
@@ -967,8 +1034,8 @@ describe('jump token validation', () => {
   });
 
   test('app route can validate tokens without a test clock override', async () => {
-    const issuerKeys = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
-    const jumpKeys = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
+    const issuerKeys = await generateKeyPair('ES384');
+    const jumpKeys = await generateKeyPair('ES384');
     const jwk = await exportJWK(issuerKeys.publicKey);
     const now = Math.floor(Date.now() / 1000);
     const app = createApp({
@@ -981,7 +1048,7 @@ describe('jump token validation', () => {
         },
       },
       jwksCache: new JwksCache(async () => ({
-        keys: [{ ...jwk, kid: 'kid-1', alg: 'EdDSA', use: 'sig' }],
+        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
       replayCache: new NoopReplayCache(),
       runtime: { edge: 'local', production: true },
@@ -1011,7 +1078,7 @@ describe('jump token validation', () => {
 
   test('jwks cache rejects revoked and negative cached kids', async () => {
     const { signToken } = await fixture();
-    const issuerKeys = await generateKeyPair('EdDSA', { crv: 'Ed25519' });
+    const issuerKeys = await generateKeyPair('ES384');
     const jwk = await exportJWK(issuerKeys.publicKey);
     const issuer = {
       iss: 'https://app.example.com',
@@ -1021,12 +1088,12 @@ describe('jump token validation', () => {
       revoked_kids: ['revoked'],
     };
     const cache = new JwksCache(async () => ({
-      keys: [{ ...jwk, kid: 'kid-1', alg: 'EdDSA', use: 'sig' }],
+      keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
     }));
 
-    await expect(cache.getKey(issuer, 'revoked', 'EdDSA')).rejects.toThrow(JumpError);
-    await expect(cache.getKey(issuer, 'missing', 'EdDSA')).rejects.toThrow(JumpError);
-    await expect(cache.getKey(issuer, 'missing', 'EdDSA')).rejects.toThrow(JumpError);
+    await expect(cache.getKey(issuer, 'revoked', 'ES384')).rejects.toThrow(JumpError);
+    await expect(cache.getKey(issuer, 'missing', 'ES384')).rejects.toThrow(JumpError);
+    await expect(cache.getKey(issuer, 'missing', 'ES384')).rejects.toThrow(JumpError);
     expect(await signToken()).toBeTruthy();
   });
 

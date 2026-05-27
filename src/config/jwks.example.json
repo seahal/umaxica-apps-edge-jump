@@ -1,28 +1,31 @@
 {
   "keys": [
     {
-      "kty": "OKP",
-      "crv": "Ed25519",
+      "kty": "EC",
+      "x": "BtkYYRagLOFvW3uH7LpJ78VIKIWvs5hOty9Pa8ASxEHsFZeRQOowYxp5MLkKz8eM",
+      "y": "Gt_-EqyrGPswB55MZTCr13i0lToeBtQu0eCw5SBZP08sAknprDxdzh73RZrXWspk",
+      "crv": "P-384",
       "kid": "fastly-active-2026-05",
-      "alg": "EdDSA",
-      "use": "sig",
-      "x": "11qYAYKxCrfVS_3__XJ0Pqne0Wdcg4y3Md0DHCz9N7U"
+      "alg": "ES384",
+      "use": "sig"
     },
     {
-      "kty": "OKP",
-      "crv": "Ed25519",
+      "kty": "EC",
+      "x": "aVliHGIbfzOCH-_OHcko1TQuiVyBfpfcUdisWC_EvsEYSC3F5AVqxN-R6GgK6fnY",
+      "y": "mGwfPjzHLy_YedTy5EvmLD5VJC4TDhBQiVwoxlwRoPVEX_i86QB3e5RdgwwRBVux",
+      "crv": "P-384",
       "kid": "cloudflare-active-2026-05",
-      "alg": "EdDSA",
-      "use": "sig",
-      "x": "hSDwCYkwp1R0i33ctD73Wg2_OgH3nr0I_N9nEwB2T8M"
+      "alg": "ES384",
+      "use": "sig"
     },
     {
-      "kty": "OKP",
-      "crv": "Ed25519",
+      "kty": "EC",
+      "x": "XnzK4c8KL_Vxj7H4nkOCC3AhGj9Pwm7HqjpGxMhvaxs7QZ39MNGkBJWiQspJ8pcl",
+      "y": "78Ufg8ii8qbCjkPUotWNdoqd0tnORZ-GRvVZ5_xJacc7DsfNn9r-QolC9VVkn-Pd",
+      "crv": "P-384",
       "kid": "fastly-grace-2026-04",
-      "alg": "EdDSA",
-      "use": "sig",
-      "x": "S1ru_zrY7aN35xLXsSE3mcbM_-tQyrfQVpGUAJvEChs"
+      "alg": "ES384",
+      "use": "sig"
     }
   ]
 }

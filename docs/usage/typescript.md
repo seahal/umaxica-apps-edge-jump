@@ -10,7 +10,7 @@ import { importPKCS8, SignJWT } from 'jose';
 const privateKeyPem = process.env.JUMP_PRIVATE_KEY_PEM;
 if (!privateKeyPem) throw new Error('JUMP_PRIVATE_KEY_PEM is required');
 
-const privateKey = await importPKCS8(privateKeyPem, 'EdDSA');
+const privateKey = await importPKCS8(privateKeyPem, 'ES384');
 const now = Math.floor(Date.now() / 1000);
 
 const rt = await new SignJWT({
@@ -25,7 +25,7 @@ const rt = await new SignJWT({
   dst: 'internal',
   url: 'https://docs.example.com/getting-started',
 })
-  .setProtectedHeader({ typ: 'JWT', alg: 'EdDSA', kid: 'app-2026-05' })
+  .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'app-2026-05' })
   .sign(privateKey);
 
 console.log(`https://jump.example.net/?rt=${rt}`);
@@ -56,7 +56,7 @@ const app = new Hono();
 
 app.get('/go/docs', async (c) => {
   const pem = c.env.JUMP_PRIVATE_KEY_PEM;
-  const key = await importPKCS8(pem, 'EdDSA');
+  const key = await importPKCS8(pem, 'ES384');
   const now = Math.floor(Date.now() / 1000);
   const rt = await new SignJWT({
     schema: 1,
@@ -70,7 +70,7 @@ app.get('/go/docs', async (c) => {
     dst: 'internal',
     url: 'https://docs.example.com/',
   })
-    .setProtectedHeader({ typ: 'JWT', alg: 'EdDSA', kid: 'app-2026-05' })
+    .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'app-2026-05' })
     .sign(key);
 
   return c.redirect(`https://jump.example.net/?rt=${rt}`);
@@ -98,7 +98,7 @@ const jwks = createRemoteJWKSet(
 const { payload } = await jwtVerify(rt, jwks, {
   issuer: 'https://app.example.com',
   audience: 'https://jump.example.net',
-  algorithms: ['EdDSA'],
+  algorithms: ['ES384'],
 });
 
 console.log(payload.jti);

@@ -12,7 +12,7 @@ export class JoseOutboundSigner implements OutboundSigner {
   constructor(
     private readonly privateKey: SignKey,
     readonly kid: string,
-    private readonly alg = 'EdDSA',
+    private readonly alg = 'ES384',
   ) {}
 
   async sign(claim: OutboundJumpClaim): Promise<string> {

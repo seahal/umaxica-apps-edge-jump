@@ -24,9 +24,9 @@ Hono provides small Web Standard routing primitives without requiring a frontend
 
 Jump is an edge HTTP service, not a frontend app. The initial implementation should avoid deploy and bundler coupling.
 
-## Why Ed25519?
+## Why P-384?
 
-Ed25519 keys are small, fast, and map cleanly to OKP JWKs with `alg: EdDSA`.
+P-384 keys are small, fast, and map cleanly to EC JWKs with `alg: ES384`.
 
 ## Why Replay Cache Is Optional?
 

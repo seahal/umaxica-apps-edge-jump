@@ -57,11 +57,11 @@ fn issue_jump_token(private_key_pem: &[u8]) -> jsonwebtoken::errors::Result<Stri
         url: "https://docs.example.com/getting-started".to_string(),
     };
 
-    let mut header = Header::new(Algorithm::EdDSA);
+    let mut header = Header::new(Algorithm::ES384);
     header.typ = Some("JWT".to_string());
     header.kid = Some("app-2026-05".to_string());
 
-    jsonwebtoken::encode(&header, &claims, &EncodingKey::from_ed_pem(private_key_pem)?)
+    jsonwebtoken::encode(&header, &claims, &EncodingKey::from_ec_pem(private_key_pem)?)
 }
 ```
 
@@ -102,4 +102,4 @@ println!("{}", jwks);
 
 ## Notes
 
-Rust library support for EdDSA/JWKS verification differs by crate. Verify algorithm support in your selected JWT crate before production use.
+Rust library support for ES384/JWKS verification differs by crate. Verify algorithm support in your selected JWT crate before production use.

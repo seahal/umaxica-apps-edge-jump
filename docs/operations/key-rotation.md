@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This runbook rotates Ed25519 signing keys for Fastly and Cloudflare runtimes while keeping Jump verification available.
+This runbook rotates P-384 signing keys for Fastly and Cloudflare runtimes while keeping Jump verification available.
 
 ## Key States
 
@@ -13,20 +13,21 @@ This runbook rotates Ed25519 signing keys for Fastly and Cloudflare runtimes whi
 
 ## Manual Rotation Steps
 
-1. Generate a new Fastly Ed25519 key pair.
-2. Generate a new Cloudflare Ed25519 key pair.
+1. Generate a new Fastly P-384 key pair.
+2. Generate a new Cloudflare P-384 key pair.
 3. Derive public keys from the private keys.
 4. Convert public keys into JWK format.
 5. Add the new public JWKs into `/.well-known/jwks.json`.
 6. Keep old public JWKs during the grace period.
 7. Upload the new Fastly private key into Fastly Secret Store.
 8. Upload the new Cloudflare private key into Cloudflare Secrets.
-9. Configure issuers or runtime signing code to start signing with the new `kid`.
-10. Verify `/.well-known/jwks.json` returns active and grace public keys.
-11. Verify `/health` on Fastly and Cloudflare.
-12. Wait `max JWT TTL + leeway`.
-13. Remove old public JWKs from JWKS.
-14. Confirm old keys are no longer used for signing.
+9. Upload the new Cloudflare `kid` into the matching secret binding.
+10. Configure issuers or runtime signing code to start signing with the new `kid`.
+11. Verify `/.well-known/jwks.json` returns active and grace public keys.
+12. Verify `/health` on Fastly and Cloudflare.
+13. Wait `max JWT TTL + leeway`.
+14. Remove old public JWKs from JWKS.
+15. Confirm old keys are no longer used for signing.
 
 ## Compromise Procedure
 
@@ -45,7 +46,7 @@ Node.js:
 
 ```sh
 node -e "const { generateKeyPairSync } = require('crypto'); \
-const kp = generateKeyPairSync('ed25519'); \
+const kp = generateKeyPairSync('ec', { namedCurve: 'P-384' }); \
 console.log(kp.publicKey.export({format:'pem',type:'spki'})); \
 console.log(kp.privateKey.export({format:'pem',type:'pkcs8'}));"
 ```
@@ -53,7 +54,7 @@ console.log(kp.privateKey.export({format:'pem',type:'pkcs8'}));"
 OpenSSL:
 
 ```sh
-openssl genpkey -algorithm Ed25519 -out private.pem
+openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:secp384r1 -out private.pem
 openssl pkey -in private.pem -pubout -out public.pem
 ```
 
