@@ -2,15 +2,9 @@ packages:
   - .
 
 catalog:
-  '@cloudflare/workers-types': ^4.20260526.1
-  '@opennextjs/cloudflare': ^1.19.11
+  '@cloudflare/workers-types': ^4.20260527.1
   '@types/node': ^25.7.0
-  '@types/react': ^19.2.14
-  '@types/react-dom': ^19.2.3
-  next: 16.2.6
   nuqs: ^2.8.9
-  react: 19.2.6
-  react-dom: 19.2.6
   typescript: ^6.0.3
   vite: npm:@voidzero-dev/vite-plus-core@latest
   vite-plus: ^0.1.22

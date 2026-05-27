@@ -49,10 +49,8 @@ Each domain has an apex service built with Hono on Workers:
 
 ## Testing
 
-- **Vitest** with happy-dom environment, globals enabled
+- **Vitest** with globals enabled
 - Tests located in `<workspace>/test/` directories
-- Setup file: `vitest.setup.ts` (imports @testing-library/jest-dom)
-- Testing libraries: @testing-library/react, @testing-library/user-event
 
 ## Tooling
 

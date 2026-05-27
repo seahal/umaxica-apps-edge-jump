@@ -8,6 +8,7 @@ export type EdgeName = 'fastly' | 'cloudflare' | 'local' | 'unknown';
 
 export type RuntimeInfo = {
   edge: EdgeName;
+  version?: string;
   production: boolean;
 };
 

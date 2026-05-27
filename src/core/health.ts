@@ -4,7 +4,7 @@ export function healthJson(runtime: RuntimeInfo, now = new Date()) {
   return {
     ok: true,
     service: SERVICE.name,
-    version: SERVICE.version,
+    version: runtime.version || SERVICE.version,
     edge: runtime.edge,
     time: now.toISOString(),
   };
