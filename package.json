@@ -4,19 +4,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "format": "pnpm exec oxfmt --write .",
-    "formach:check": "pnpm exec oxfmt --check .",
-    "cloudflare:check": "wrangler deploy --dry-run --outdir dist/cloudflare",
-    "cloudflare:dev": "wrangler dev --local --ip 0.0.0.0 --port 8787",
+    "format": "vp fmt . --write",
+    "format:check": "vp fmt . --check",
+    "cloudflare:check": "vp exec wrangler deploy --dry-run --outdir dist/cloudflare",
+    "cloudflare:dev": "vp exec wrangler dev --local --ip 0.0.0.0 --port 8787",
     "fastly:build": "fastly compute build",
     "fastly:serve": "fastly compute serve --addr 0.0.0.0:7676",
     "fastly:serve:watch": "fastly compute serve --addr 0.0.0.0:7676 --watch",
     "lint": "vp lint --type-aware --fix .",
     "lint:check": "vp lint --type-aware .",
-    "type": "tsc -p tsconfig.json --noEmit",
-    "typecheck": "pnpm run type",
+    "type": "vp check --no-fmt --no-lint",
+    "typecheck": "vp run type",
     "test": "vp test run",
-    "test:cov": "vp test run --coverage",
     "prepare": "vp config"
   },
   "dependencies": {
@@ -26,17 +25,9 @@
     "jose": "^6.2.3"
   },
   "devDependencies": {
-    "@babel/preset-typescript": "^7.28.5",
-    "@cloudflare/vite-plugin": "^1.38.0",
     "@cloudflare/workers-types": "catalog:",
-    "@types/node": "^25.9.1",
-    "@typescript/native-preview": "7.0.0-dev.20260519.1",
-    "@vitest/coverage-v8": "4.1.7",
     "knip": "^6.14.2",
-    "miniflare": "^4.20260521.0",
     "vite-plus": "catalog:",
-    "vite-tsconfig-paths": "^6.1.1",
-    "vitest": "catalog:",
     "wrangler": "^4.94.0"
   },
   "packageManager": "pnpm@10.29.3",

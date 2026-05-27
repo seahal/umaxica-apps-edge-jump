@@ -1,4 +1,6 @@
 import type { NormalizedUrl } from './normalize_url';
+import { escapeAttribute, escapeHtml } from './escape';
+import { CUSHION_INLINE_SCRIPT } from './security_headers';
 
 export function renderCushion(target: NormalizedUrl) {
   const displayUrl = truncate(target.href, 180);
@@ -13,7 +15,7 @@ export function renderCushion(target: NormalizedUrl) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <title>Continue to external site</title>
-<script>history.replaceState(null,"",location.pathname)</script>
+<script>${CUSHION_INLINE_SCRIPT}</script>
 </head>
 <body>
 <main>
@@ -31,16 +33,4 @@ ${warning}
 
 function truncate(value: string, max: number) {
   return value.length > max ? `${value.slice(0, max - 1)}...` : value;
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
-}
-
-function escapeAttribute(value: string) {
-  return escapeHtml(value).replaceAll("'", '&#39;');
 }

@@ -1,9 +1,9 @@
 import { exportJWK, generateKeyPair, jwtVerify, SignJWT, type JWK } from 'jose';
-import { describe, expect, test } from 'vite-plus/test';
+import { describe, expect, test, vi } from 'vite-plus/test';
 import { createApp, detectRuntime, fetchExampleJwks } from '../src';
 import cloudflareWorker from '../src/cloudflare';
 import { handleJump, type JumpDeps } from '../src/core/handle_jump';
-import { healthJson, wantsJson } from '../src/core/health';
+import { healthJson, renderHealthHtml, wantsJson } from '../src/core/health';
 import { JwksCache } from '../src/core/jwks_cache';
 import { normalizeOrigin, normalizeUrl } from '../src/core/normalize_url';
 import { assertDestinationPolicy } from '../src/core/policy';
@@ -173,8 +173,29 @@ describe('jump gateway routes', () => {
   test('robots.txt is restrictive', async () => {
     const { app } = await fixture();
     expect(await (await app.request('https://jump.example.net/robots.txt')).text()).toBe(
-      'User-agent: *\nDisallow: /\nAllow: /about\n',
+      'User-agent: *\nDisallow: /\nAllow: /about\nSitemap: https://jump.example.net/sitemap.xml\n',
     );
+  });
+
+  test('sitemap.xml lists public routes', async () => {
+    const { app } = await fixture();
+    const res = await app.request('https://jump.example.net/sitemap.xml');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toBe('application/xml; charset=utf-8');
+    expect(await res.text()).toBe(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://jump.example.net/about</loc>
+  </url>
+</urlset>
+`);
+  });
+
+  test('favicon.ico is an explicit empty response', async () => {
+    const { app } = await fixture();
+    const res = await app.request('https://jump.example.net/favicon.ico');
+    expect(res.status).toBe(204);
+    expect(await res.text()).toBe('');
   });
 
   test('cloudflare worker serves robots without importing private key', async () => {
@@ -182,7 +203,26 @@ describe('jump gateway routes', () => {
       UMAXICA_JUMP_PRIVATE_KEY_PEM: 'not a pkcs8 key',
     });
     expect(res.status).toBe(200);
-    expect(await res.text()).toBe('User-agent: *\nDisallow: /\nAllow: /about\n');
+    expect(await res.text()).toBe(
+      'User-agent: *\nDisallow: /\nAllow: /about\nSitemap: https://jump.example.net/sitemap.xml\n',
+    );
+  });
+
+  test('cloudflare worker serves sitemap without importing private key', async () => {
+    const res = await fetchCloudflareWorker('/sitemap.xml', {
+      UMAXICA_JUMP_PRIVATE_KEY_PEM: 'not a pkcs8 key',
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toBe('application/xml; charset=utf-8');
+    expect(await res.text()).toContain('<loc>https://jump.example.net/about</loc>');
+  });
+
+  test('cloudflare worker serves favicon without importing private key', async () => {
+    const res = await fetchCloudflareWorker('/favicon.ico', {
+      UMAXICA_JUMP_PRIVATE_KEY_PEM: 'not a pkcs8 key',
+    });
+    expect(res.status).toBe(204);
+    expect(await res.text()).toBe('');
   });
 
   test('cloudflare worker serves health without importing private key', async () => {
@@ -190,7 +230,39 @@ describe('jump gateway routes', () => {
       UMAXICA_JUMP_PRIVATE_KEY_PEM: 'not a pkcs8 key',
     });
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ ok: true, edge: 'cloudflare' });
+    expect(await res.json()).toMatchObject({ ok: true, edge: 'cloudflare', version: null });
+  });
+
+  test('cloudflare worker reports version metadata id as health version', async () => {
+    const res = await fetchCloudflareWorker('/health.json', {
+      'UMAXICA-APPS-EDGE-JUMP-VERSION': {
+        id: 'cloudflare-revision-123',
+        tag: 'deploy-tag',
+        timestamp: '2026-05-27T00:00:00.000Z',
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      edge: 'cloudflare',
+      version: 'cloudflare-revision-123',
+    });
+  });
+
+  test('renderHealthHtml escapes html metacharacters in runtime fields', () => {
+    const html = renderHealthHtml({
+      edge: '<edge>' as 'local',
+      production: true,
+      version: `"><script>alert(1)</script>`,
+    });
+    expect(html).toContain('<dd>&lt;edge&gt;</dd>');
+    expect(html).toContain('<dd>&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;</dd>');
+    expect(html).not.toContain('<script>alert(1)</script>');
+  });
+
+  test('renderHealthHtml renders null version as empty string', () => {
+    const html = renderHealthHtml({ edge: 'cloudflare', production: true, version: null });
+    expect(html).toContain('<dt>version</dt><dd></dd>');
   });
 
   test('security headers are applied to static and well-known responses', async () => {
@@ -200,7 +272,9 @@ describe('jump gateway routes', () => {
       '/health',
       '/health.html',
       '/health.json',
+      '/favicon.ico',
       '/robots.txt',
+      '/sitemap.xml',
       '/.well-known/jwks.json',
     ]) {
       const res = await app.request(`https://jump.example.net${path}`, {
@@ -218,6 +292,20 @@ describe('jump gateway routes', () => {
       await signToken({ dst: 'external', url: 'https://example.org/a?b=1' }),
     );
     expectSecurityHeaders(cushion);
+  });
+
+  test('request logs redact rt tokens', async () => {
+    const { app } = await fixture();
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    let lines: string[] = [];
+    try {
+      await app.request('https://jump.example.net/?rt=header.payload.signature&x=1');
+      lines = log.mock.calls.map(([message]) => String(message));
+    } finally {
+      log.mockRestore();
+    }
+    expect(lines.some((line) => line.includes('header.payload.signature'))).toBe(false);
+    expect(lines.some((line) => line.includes('rt=[redacted]'))).toBe(true);
   });
 
   test('default signer failure maps to malformed error', async () => {
@@ -272,6 +360,13 @@ describe('jump token validation', () => {
     const { app } = await fixture();
     const res = await jump(app, 'abc.def');
     expect(res.status).toBe(400);
+  });
+
+  test('oversized rt rejects before jwt parsing', async () => {
+    const { app } = await fixture();
+    const res = await jump(app, `${'a'.repeat(8193)}.b.c`);
+    expect(res.status).toBe(400);
+    expect(res.headers.get('X-Jump-Error')).toBe('malformed');
   });
 
   test('invalid base64url reject', async () => {
@@ -957,6 +1052,9 @@ function expectSecurityHeaders(res: Response) {
   expect(res.headers.get('Content-Security-Policy')).not.toContain("'unsafe-inline'");
   expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
   expect(res.headers.get('X-Frame-Options')).toBe('DENY');
+  expect(res.headers.get('Cross-Origin-Embedder-Policy')).toBe('require-corp');
+  expect(res.headers.get('Cross-Origin-Opener-Policy')).toBe('same-origin');
+  expect(res.headers.get('Cross-Origin-Resource-Policy')).toBe('same-origin');
   expect(res.headers.get('Referrer-Policy')).toBe('no-referrer');
   expect(res.headers.get('Permissions-Policy')).toBeTruthy();
   expect(res.headers.get('Cache-Control')).toBe('no-store');

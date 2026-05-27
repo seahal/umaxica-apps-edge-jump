@@ -5,6 +5,7 @@ import { JumpError, SERVICE, type InboundJumpClaim, type IssuerRegistry } from '
 import type { ReplayCache } from './replay_cache';
 
 const ALLOWED_ALGS = new Set(['EdDSA']);
+const MAX_TOKEN_LENGTH = 8192;
 const SKEW = 60;
 const MAX_TTL = 30 * 24 * 3600;
 
@@ -25,6 +26,7 @@ export async function verifyJumpJwt(
   replayCache: ReplayCache,
   now = Math.floor(Date.now() / 1000),
 ) {
+  if (token.length > MAX_TOKEN_LENGTH) throw new JumpError('malformed', 'jwt too large');
   const parts = token.split('.');
   if (parts.length !== 3) throw new JumpError('malformed', 'not compact jwt');
   for (const part of parts) assertBase64Url(part);

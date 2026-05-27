@@ -4,11 +4,11 @@ export const SERVICE = {
   origin: 'https://jump.example.net',
 } as const;
 
-export type EdgeName = 'fastly' | 'cloudflare' | 'local' | 'unknown';
+type EdgeName = 'fastly' | 'cloudflare' | 'local' | 'unknown';
 
 export type RuntimeInfo = {
   edge: EdgeName;
-  version?: string;
+  version?: string | null;
   production: boolean;
 };
 
@@ -22,7 +22,7 @@ export type IssuerConfig = {
 
 export type IssuerRegistry = Record<string, IssuerConfig>;
 
-export type JumpDst = 'internal' | 'external';
+type JumpDst = 'internal' | 'external';
 
 export type InboundJumpClaim = {
   schema: 1;

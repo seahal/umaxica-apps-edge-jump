@@ -10,7 +10,7 @@ import { healthJson, renderHealthHtml, wantsJson } from './core/health';
 import { JwksCache, type FetchJwks } from './core/jwks_cache';
 import { MemoryReplayCache } from './core/replay_cache';
 import { renderAbout } from './core/render_about';
-import { renderRobots } from './core/render_robots';
+import { renderRobots, renderSitemap } from './core/render_discovery';
 import { jumpSecureHeaders, responseHygiene } from './core/security_headers';
 import { NoopOutboundSigner } from './core/sign_outbound';
 import type { RuntimeInfo } from './core/types';
@@ -27,7 +27,7 @@ export function createApp(options: AppOptions = {}) {
   const signer = options.signer ?? new NoopOutboundSigner();
 
   const app = new Hono({ strict: true });
-  app.use('*', logger());
+  app.use('*', logger(redactLogLine));
   app.use('*', requestId());
   app.use('*', timeout(1000));
   app.use('*', trimTrailingSlash());
@@ -52,7 +52,13 @@ export function createApp(options: AppOptions = {}) {
   });
   app.get('/health.json', (c) => json(c, healthJson(runtime)));
   app.get('/health.html', (c) => html(c, renderHealthHtml(runtime)));
-  app.get('/robots.txt', (c) => c.text(renderRobots()));
+  app.get('/favicon.ico', (c) => c.body(null, 204));
+  app.get('/robots.txt', (c) => c.text(renderRobots(new URL(c.req.url).origin)));
+  app.get('/sitemap.xml', (c) =>
+    c.body(renderSitemap(new URL(c.req.url).origin), 200, {
+      'Content-Type': 'application/xml; charset=utf-8',
+    }),
+  );
   app.get('/.well-known/jwks.json', (c) => json(c, exampleJwks));
 
   return app;
@@ -81,4 +87,7 @@ export async function fetchExampleJwks() {
   return exampleJwks;
 }
 
-export default createApp();
+function redactLogLine(message: string) {
+  // eslint-disable-next-line no-console -- request logging is intentional, but rt values are redacted.
+  console.log(message.replaceAll(/([?&]rt=)[^&\s]*/g, '$1[redacted]'));
+}
