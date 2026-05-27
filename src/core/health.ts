@@ -6,7 +6,6 @@ export function healthJson(runtime: RuntimeInfo, now = new Date()) {
     service: SERVICE.name,
     version: SERVICE.version,
     edge: runtime.edge,
-    region: runtime.region || 'unknown',
     time: now.toISOString(),
   };
 }
@@ -30,18 +29,9 @@ export function renderHealthHtml(runtime: RuntimeInfo) {
 <h1>OK</h1>
 <dl>
 <dt>edge</dt><dd>${h.edge}</dd>
-<dt>region</dt><dd>${escapeHtml(h.region)}</dd>
 <dt>version</dt><dd>${h.version}</dd>
 </dl>
 </main>
 </body>
 </html>`;
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;');
 }

@@ -5,7 +5,6 @@ export type CloudflareEnv = Record<string, never>;
 const app = createApp({
   runtime: {
     edge: 'cloudflare',
-    region: 'unknown',
     production: true,
   },
 });
