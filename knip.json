@@ -1,6 +1,12 @@
 {
   "$schema": "./node_modules/knip/schema.json",
-  "ignoreBinaries": [],
-  "ignoreUnresolved": ["^vite/client$"],
-  "ignore": ["**/.cache/**", "**/.wrangler/**", "**/dist/**", "**/build/**"]
+  "entry": [
+    "src/index.ts",
+    "src/fastly.ts",
+    "test/**/*.test.ts",
+    "vite.config.ts",
+    "vitest.config.ts"
+  ],
+  "ignoreDependencies": ["@cloudflare/workers-types", "wrangler"],
+  "ignoreBinaries": ["fastly"]
 }

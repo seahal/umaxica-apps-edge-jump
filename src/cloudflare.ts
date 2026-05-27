@@ -3,16 +3,14 @@ import { createApp } from './index';
 import { JoseOutboundSigner, NoopOutboundSigner, type OutboundSigner } from './core/sign_outbound';
 import type { OutboundJumpClaim } from './core/types';
 
-const CLOUDFLARE_VERSION_TAG = 'UMAXICA-APPS-EDGE-JUMP-VERSION';
-
 type SecretBinding = string | { get(): Promise<string> };
 type RateLimiter = {
   limit(options: { key: string }): Promise<{ success: boolean }>;
 };
 type VersionMetadata = {
-  id: string;
+  id?: string;
   tag?: string;
-  timestamp: string;
+  timestamp?: string;
 };
 
 export type CloudflareEnv = {
@@ -35,10 +33,7 @@ export default {
     const app = createApp({
       runtime: {
         edge: 'cloudflare',
-        version:
-          env.CF_VERSION_METADATA?.tag ||
-          env['UMAXICA-APPS-EDGE-JUMP-VERSION']?.tag ||
-          CLOUDFLARE_VERSION_TAG,
+        version: cloudflareRevision(env),
         production: true,
       },
       signer: shouldSignJump(url) ? createSigner(env) : new NoopOutboundSigner(),
@@ -46,6 +41,11 @@ export default {
     return app.fetch(request, env, executionContext);
   },
 };
+
+function cloudflareRevision(env: CloudflareEnv) {
+  const metadata = env['UMAXICA-APPS-EDGE-JUMP-VERSION'] ?? env.CF_VERSION_METADATA;
+  return metadata?.id ?? metadata?.tag ?? null;
+}
 
 function shouldSignJump(url: URL) {
   return url.pathname === '/' && url.searchParams.has('rt');
@@ -66,7 +66,7 @@ function createSigner(env: CloudflareEnv) {
 
 class LazyCloudflareSigner implements OutboundSigner {
   readonly kid = 'jump-current';
-  private signer: OutboundSigner | null = null;
+  private loading: Promise<OutboundSigner> | null = null;
 
   constructor(private readonly env: CloudflareEnv) {}
 
@@ -74,10 +74,9 @@ class LazyCloudflareSigner implements OutboundSigner {
     return (await this.loadSigner()).sign(claim);
   }
 
-  private async loadSigner() {
-    if (this.signer) return this.signer;
-    this.signer = await createJoseSigner(this.env);
-    return this.signer;
+  private loadSigner() {
+    if (!this.loading) this.loading = createJoseSigner(this.env);
+    return this.loading;
   }
 }
 

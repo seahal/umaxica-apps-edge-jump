@@ -1,10 +1,11 @@
 import { SERVICE, type RuntimeInfo } from './types';
+import { escapeHtml } from './escape';
 
 export function healthJson(runtime: RuntimeInfo, now = new Date()) {
   return {
     ok: true,
     service: SERVICE.name,
-    version: runtime.version || SERVICE.version,
+    version: runtime.version === undefined ? SERVICE.version : runtime.version,
     edge: runtime.edge,
     time: now.toISOString(),
   };
@@ -28,8 +29,8 @@ export function renderHealthHtml(runtime: RuntimeInfo) {
 <main>
 <h1>OK</h1>
 <dl>
-<dt>edge</dt><dd>${h.edge}</dd>
-<dt>version</dt><dd>${h.version}</dd>
+<dt>edge</dt><dd>${escapeHtml(h.edge)}</dd>
+<dt>version</dt><dd>${escapeHtml(h.version)}</dd>
 </dl>
 </main>
 </body>
