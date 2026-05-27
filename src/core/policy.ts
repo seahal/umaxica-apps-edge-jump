@@ -1,7 +1,7 @@
 import { JumpError, type InboundJumpClaim, type IssuerConfig } from './types';
 import { normalizeOrigin, type NormalizedUrl } from './normalize_url';
 
-const POLICY_RUNTIME = { edge: 'unknown', region: 'policy', production: true } as const;
+const POLICY_RUNTIME = { edge: 'unknown', production: true } as const;
 
 export function assertDestinationPolicy(
   claim: InboundJumpClaim,

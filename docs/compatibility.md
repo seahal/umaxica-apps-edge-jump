@@ -10,7 +10,7 @@ The intended algorithm is `EdDSA` with Ed25519 OKP JWKs. Runtime support must be
 
 ## Fastly And Cloudflare Differences
 
-Fastly and Cloudflare expose different runtime bindings, secret stores, region metadata, and cache behavior. Keep those differences outside `src/core`.
+Fastly and Cloudflare expose different runtime bindings, secret stores, and cache behavior. Keep those differences outside `src/core`.
 
 ## Clock Skew
 

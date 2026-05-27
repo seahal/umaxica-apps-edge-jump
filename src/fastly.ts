@@ -6,7 +6,6 @@ import { createApp } from './index';
 const app = createApp({
   runtime: {
     edge: 'fastly',
-    region: 'unknown',
     production: true,
   },
 });

@@ -2,7 +2,7 @@ import { exportJWK, generateKeyPair, jwtVerify, SignJWT, type JWK } from 'jose';
 import { describe, expect, test } from 'vite-plus/test';
 import { createApp, detectRuntime, fetchExampleJwks } from '../src';
 import { handleJump, type JumpDeps } from '../src/core/handle_jump';
-import { healthJson, renderHealthHtml, wantsJson } from '../src/core/health';
+import { healthJson, wantsJson } from '../src/core/health';
 import { JwksCache } from '../src/core/jwks_cache';
 import { normalizeOrigin, normalizeUrl } from '../src/core/normalize_url';
 import { assertDestinationPolicy } from '../src/core/policy';
@@ -49,7 +49,7 @@ async function fixtureWithOptions(options: Partial<JumpDeps> = {}): Promise<Fixt
       return { keys: [publicJwk] };
     }),
     replayCache: new NoopReplayCache(),
-    runtime: { edge: 'local', region: 'test', production: true },
+    runtime: { edge: 'local', production: true },
     signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
     now: () => NOW,
     ...options,
@@ -104,7 +104,7 @@ describe('jump gateway routes', () => {
   test('default app serves local health data', async () => {
     const app = createApp();
     const res = await app.request('https://jump.example.net/health.json');
-    expect(await res.json()).toMatchObject({ edge: 'local', region: 'unknown' });
+    expect(await res.json()).toMatchObject({ edge: 'local' });
     expect((await fetchExampleJwks()).keys.length).toBeGreaterThan(0);
   });
 
@@ -143,7 +143,6 @@ describe('jump gateway routes', () => {
       service: 'jump',
       version: '0.1.0',
       edge: 'local',
-      region: 'test',
     });
     const html = await app.request('https://jump.example.net/health.html');
     expect(await html.text()).toContain(
@@ -151,18 +150,12 @@ describe('jump gateway routes', () => {
     );
   });
 
-  test('health helpers cover accept parsing and HTML escaping', () => {
+  test('health helpers cover accept parsing', () => {
     expect(wantsJson(null)).toBe(false);
     expect(wantsJson('text/html, application/json')).toBe(true);
-    expect(healthJson({ edge: 'local', region: '', production: false }, new Date(0))).toMatchObject(
-      {
-        region: 'unknown',
-        time: '1970-01-01T00:00:00.000Z',
-      },
-    );
-    expect(renderHealthHtml({ edge: 'local', region: '<x&y"', production: false })).toContain(
-      '&lt;x&amp;y&quot;',
-    );
+    expect(healthJson({ edge: 'local', production: false }, new Date(0))).toMatchObject({
+      time: '1970-01-01T00:00:00.000Z',
+    });
   });
 
   test('robots.txt is restrictive', async () => {
@@ -215,7 +208,7 @@ describe('jump gateway routes', () => {
         return { keys: [{ ...jwk, kid: 'kid-1', alg: 'EdDSA', use: 'sig' }] };
       }),
       replayCache: new NoopReplayCache(),
-      runtime: { edge: 'local', region: 'test', production: true },
+      runtime: { edge: 'local', production: true },
       now: () => NOW,
     });
     const res = await noSigner.request(
@@ -487,7 +480,6 @@ describe('jump token validation', () => {
   test('non-production http is normalized by the URL parser', () => {
     const normalized = normalizeUrl('http://EXAMPLE.com.:80/a', {
       edge: 'local',
-      region: 'test',
       production: false,
     });
     expect(normalized).toMatchObject({
@@ -502,14 +494,12 @@ describe('jump token validation', () => {
     expect(
       normalizeUrl('https://192.0.2.1/path', {
         edge: 'local',
-        region: 'test',
         production: true,
       }).hostname,
     ).toBe('192.0.2.1');
     expect(
       normalizeUrl('https://[2001:db8::1]/path', {
         edge: 'local',
-        region: 'test',
         production: true,
       }).hostname,
     ).toBe('[2001:db8::1]');
@@ -523,9 +513,7 @@ describe('jump token validation', () => {
       'https://172.16.0.1/path',
       'https://0.0.0.0/path',
     ]) {
-      expect(() => normalizeUrl(url, { edge: 'local', region: 'test', production: true })).toThrow(
-        JumpError,
-      );
+      expect(() => normalizeUrl(url, { edge: 'local', production: true })).toThrow(JumpError);
     }
   });
 
@@ -533,7 +521,6 @@ describe('jump token validation', () => {
     expect(() =>
       normalizeOrigin('https://example.com/path', {
         edge: 'local',
-        region: 'test',
         production: true,
       }),
     ).toThrow(JumpError);
@@ -580,9 +567,7 @@ describe('jump token validation', () => {
 
   test('malformed IPv6 rejected when runtime parser accepts bracket form', () => {
     for (const url of ['https://[::1::2]/', 'https://[2001:db8::1::2]/']) {
-      expect(() => normalizeUrl(url, { edge: 'local', region: 'test', production: true })).toThrow(
-        JumpError,
-      );
+      expect(() => normalizeUrl(url, { edge: 'local', production: true })).toThrow(JumpError);
     }
   });
 
@@ -635,7 +620,7 @@ describe('jump token validation', () => {
         keys: [{ ...jwk, kid: 'kid-1', alg: 'EdDSA', use: 'sig' }],
       })),
       replayCache: new NoopReplayCache(),
-      runtime: { edge: 'local', region: 'test', production: true },
+      runtime: { edge: 'local', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       now: () => NOW,
     });
@@ -680,7 +665,7 @@ describe('jump token validation', () => {
         keys: [{ ...jwk, kid: 'kid-1', alg: 'EdDSA', use: 'sig' }],
       })),
       replayCache: new NoopReplayCache(),
-      runtime: { edge: 'local', region: 'test', production: true },
+      runtime: { edge: 'local', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       now: () => NOW,
     });
@@ -713,7 +698,7 @@ describe('jump token validation', () => {
         keys: [{ ...jwk, kid: 'kid-1', alg: 'EdDSA', use: 'sig' }],
       })),
       replayCache: new NoopReplayCache(),
-      runtime: { edge: 'local', region: 'test', production: true },
+      runtime: { edge: 'local', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       now: () => NOW,
     });
@@ -802,7 +787,7 @@ describe('jump token validation', () => {
       })),
       replayCache: new MemoryReplayCache(),
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
-      runtime: { edge: 'local', region: 'test', production: true },
+      runtime: { edge: 'local', production: true },
       now: () => NOW,
     });
     const token = await signToken(issuerKeys.privateKey, { jti: 'same-jti' });
@@ -814,7 +799,6 @@ describe('jump token validation', () => {
   test('direct policy helpers reject disabled external and unknown destinations', () => {
     const target = normalizeUrl('https://app.example.com/path', {
       edge: 'local',
-      region: 'test',
       production: true,
     });
     const issuer = {
@@ -853,7 +837,7 @@ describe('jump token validation', () => {
         keys: [{ ...jwk, kid: 'kid-1', alg: 'EdDSA', use: 'sig' }],
       })),
       replayCache: new NoopReplayCache(),
-      runtime: { edge: 'local', region: 'test', production: true },
+      runtime: { edge: 'local', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
     });
     expect(res.status).toBe(302);
@@ -877,7 +861,7 @@ describe('jump token validation', () => {
         keys: [{ ...jwk, kid: 'kid-1', alg: 'EdDSA', use: 'sig' }],
       })),
       replayCache: new NoopReplayCache(),
-      runtime: { edge: 'local', region: 'test', production: true },
+      runtime: { edge: 'local', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
     });
     const token = await signPayload(issuerKeys.privateKey, {

@@ -69,12 +69,12 @@ function json(c: Context, body: unknown) {
 export function detectRuntime(): RuntimeInfo {
   const globalEdge = globalThis as { FASTLY_SERVICE_VERSION?: string; WebSocketPair?: unknown };
   if (globalEdge.FASTLY_SERVICE_VERSION) {
-    return { edge: 'fastly', region: 'unknown', production: true };
+    return { edge: 'fastly', production: true };
   }
   if (globalEdge.WebSocketPair) {
-    return { edge: 'cloudflare', region: 'unknown', production: true };
+    return { edge: 'cloudflare', production: true };
   }
-  return { edge: 'local', region: 'unknown', production: false };
+  return { edge: 'local', production: false };
 }
 
 export async function fetchExampleJwks() {
