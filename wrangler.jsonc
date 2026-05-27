@@ -17,9 +17,13 @@
       }
     }
   ],
-  "secrets": {
-    "required": ["JUMP_PRIVATE_KEY_PEM"]
-  },
+  "secrets_store_secrets": [
+    {
+      "binding": "JUMP_PRIVATE_KEY_PEM",
+      "store_id": "eb74dec1a757471281526676fb6e6509",
+      "secret_name": "JUMP_PRIVATE_KEY_PEM"
+    }
+  ],
   "workers_dev": true,
   "observability": {
     "enabled": true
