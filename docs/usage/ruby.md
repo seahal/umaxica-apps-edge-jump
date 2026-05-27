@@ -35,7 +35,7 @@ payload = {
   url: "https://docs.example.com/getting-started"
 }
 
-rt = JWT.encode(payload, private_key, "EdDSA", typ: "JWT", kid: JUMP_KID)
+rt = JWT.encode(payload, private_key, "ES384", typ: "JWT", kid: JUMP_KID)
 jump_url = "https://jump.example.net/?rt=#{rt}"
 puts jump_url
 ```
@@ -74,7 +74,7 @@ decoded = JWT.decode(
   rt,
   nil,
   true,
-  algorithms: ["EdDSA"],
+  algorithms: ["ES384"],
   iss: "https://app.example.com",
   verify_iss: true,
   aud: "https://jump.example.net",

@@ -47,7 +47,7 @@ const rt = await new SignJWT({
   dst: 'internal',
   url: 'https://docs.example.com/path',
 })
-  .setProtectedHeader({ typ: 'JWT', alg: 'EdDSA', kid: 'issuer-key-2026-05' })
+  .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'issuer-key-2026-05' })
   .sign(privateKey);
 
 location.href = `https://jump.example.net/?rt=${rt}`;

@@ -84,7 +84,7 @@ async function createJoseSigner(env: CloudflareEnv) {
   const pem = await readPrivateKeyPem(env);
   if (!pem) return new NoopOutboundSigner();
   const kid = (await readPrivateKeyKid(env)) || 'jump-current';
-  return new JoseOutboundSigner(await importPKCS8(pem, 'EdDSA'), kid);
+  return new JoseOutboundSigner(await importPKCS8(pem, 'ES384'), kid);
 }
 
 async function readPrivateKeyPem(env: CloudflareEnv) {

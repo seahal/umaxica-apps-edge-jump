@@ -4,9 +4,9 @@
 
 Core code targets Web Standard APIs. Runtime adapters may be needed where Fastly Compute and Cloudflare Workers differ.
 
-## EdDSA And Ed25519
+## ES384 And P-384
 
-The intended algorithm is `EdDSA` with Ed25519 OKP JWKs. Runtime support must be verified in each target edge environment before production use.
+The intended algorithm is `ES384` with P-384 EC JWKs. Runtime support must be verified in each target edge environment before production use.
 
 ## Fastly And Cloudflare Differences
 
