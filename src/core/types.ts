@@ -1,8 +1,9 @@
 export const SERVICE = {
   name: 'jump',
   version: '0.1.0',
-  origin: 'https://jump.example.net',
 } as const;
+
+export const PRODUCTION_SERVICE_ORIGIN = 'https://jump.umaxica.net';
 
 type EdgeName = 'fastly' | 'cloudflare' | 'local' | 'unknown';
 
@@ -10,6 +11,10 @@ export type RuntimeInfo = {
   edge: EdgeName;
   version?: string | null;
   production: boolean;
+};
+
+export type JumpConfig = {
+  serviceOrigin: string;
 };
 
 export type IssuerConfig = {

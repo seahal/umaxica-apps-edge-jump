@@ -1,7 +1,12 @@
 import { errors, jwtVerify, type JWTPayload } from 'jose';
 import { getIssuer } from './registry';
 import type { JwksCache } from './jwks_cache';
-import { JumpError, SERVICE, type InboundJumpClaim, type IssuerRegistry } from './types';
+import {
+  JumpError,
+  PRODUCTION_SERVICE_ORIGIN,
+  type InboundJumpClaim,
+  type IssuerRegistry,
+} from './types';
 import type { ReplayCache } from './replay_cache';
 
 const ALLOWED_ALGS = new Set(['ES384']);
@@ -25,6 +30,7 @@ export async function verifyJumpJwt(
   jwksCache: JwksCache,
   replayCache: ReplayCache,
   now = Math.floor(Date.now() / 1000),
+  serviceOrigin: string = PRODUCTION_SERVICE_ORIGIN,
 ) {
   if (token.length > MAX_TOKEN_LENGTH) throw new JumpError('malformed', 'jwt too large');
   const parts = token.split('.');
@@ -52,7 +58,7 @@ export async function verifyJumpJwt(
     const key = await jwksCache.getKey(issuer, header.kid, header.alg);
     const verified = await jwtVerify(token, key, {
       issuer: issuer.iss,
-      audience: SERVICE.origin,
+      audience: serviceOrigin,
       algorithms: [header.alg],
       typ: 'JWT',
       clockTolerance: SKEW,
@@ -65,7 +71,7 @@ export async function verifyJumpJwt(
       const key = await jwksCache.getKey(issuer, header.kid, header.alg, true);
       const verified = await jwtVerify(token, key, {
         issuer: issuer.iss,
-        audience: SERVICE.origin,
+        audience: serviceOrigin,
         algorithms: [header.alg],
         typ: 'JWT',
         clockTolerance: SKEW,
@@ -79,7 +85,7 @@ export async function verifyJumpJwt(
     }
   }
 
-  const claim = validateClaim(payload, issuer.iss, now);
+  const claim = validateClaim(payload, issuer.iss, now, serviceOrigin);
   await replayCache.checkAndStore(claim.iss, claim.jti, claim.exp, now, SKEW);
   return { claim, issuer };
 }
@@ -118,12 +124,17 @@ function toBase64(value: string) {
   return padded + '='.repeat((4 - (padded.length % 4)) % 4);
 }
 
-function validateClaim(payload: JWTPayload, iss: string, now: number): InboundJumpClaim {
+function validateClaim(
+  payload: JWTPayload,
+  iss: string,
+  now: number,
+  serviceOrigin: string,
+): InboundJumpClaim {
   if (payload.schema !== 1) throw new JumpError('invalid_claim', 'schema rejected');
   /* v8 ignore next -- jose issuer verification enforces this before local shape checks */
   if (payload.iss !== iss) throw new JumpError('invalid_claim', 'iss mismatch');
   /* v8 ignore next -- jose audience verification enforces this before local shape checks */
-  if (payload.aud !== SERVICE.origin) throw new JumpError('invalid_claim', 'aud rejected');
+  if (payload.aud !== serviceOrigin) throw new JumpError('invalid_claim', 'aud rejected');
   if (payload.sub !== 'jump-redirect') throw new JumpError('invalid_claim', 'sub rejected');
   if (typeof payload.exp !== 'number') throw new JumpError('invalid_claim', 'exp required');
   if (typeof payload.nbf !== 'number') throw new JumpError('invalid_claim', 'nbf required');

@@ -5,7 +5,8 @@ import { renderError } from './render_error';
 import { verifyJumpJwt } from './verify_jwt';
 import {
   JumpError,
-  SERVICE,
+  PRODUCTION_SERVICE_ORIGIN,
+  type JumpConfig,
   type IssuerConfig,
   type IssuerRegistry,
   type OutboundJumpClaim,
@@ -23,6 +24,7 @@ export type JumpDeps = {
   replayCache: ReplayCache;
   runtime: RuntimeInfo;
   signer: OutboundSigner;
+  config?: JumpConfig;
   auditLog?: AuditLog;
   locale?: Locale;
   now?: () => number;
@@ -61,6 +63,7 @@ export async function handleJump(request: Request, deps: JumpDeps): Promise<Resp
       deps.jwksCache,
       deps.replayCache,
       now,
+      serviceOrigin(deps),
     );
     audit = {
       iss: claim.iss,
@@ -69,7 +72,7 @@ export async function handleJump(request: Request, deps: JumpDeps): Promise<Resp
     };
     const kid = readUntrustedAuditFields(String(tokens[0])).kid;
     if (kid) audit.kid = kid;
-    const target = normalizeUrl(claim.url, deps.runtime);
+    const target = normalizeUrl(claim.url, deps.runtime, serviceOrigin(deps));
     audit.dst_origin = target.origin;
     audit.dst_path = new URL(target.href).pathname;
     assertDestinationPolicy(claim, issuer, target);
@@ -123,7 +126,7 @@ async function buildInternalLocation(
   const ttl = deps.outboundTtl ?? DEFAULT_OUTBOUND_TTL;
   const outbound: OutboundJumpClaim = {
     schema: 1,
-    iss: SERVICE.origin,
+    iss: serviceOrigin(deps),
     aud: target.origin,
     sub: 'jump-redirect',
     iat: now,
@@ -138,6 +141,10 @@ async function buildInternalLocation(
   const destination = new URL(target.href);
   destination.searchParams.set('rt', token);
   return destination.href;
+}
+
+function serviceOrigin(deps: JumpDeps) {
+  return deps.config?.serviceOrigin ?? PRODUCTION_SERVICE_ORIGIN;
 }
 
 function readUntrustedAuditFields(token: string): Partial<JumpAuditLogEntry> {

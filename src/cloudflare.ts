@@ -3,7 +3,8 @@ import { registry as umaxicaRegistry } from './config/registry.umaxica';
 import { fetchRegistryJwks } from './core/fetch_jwks';
 import { createApp } from './index';
 import { JoseOutboundSigner, NoopOutboundSigner, type OutboundSigner } from './core/sign_outbound';
-import type { OutboundJumpClaim } from './core/types';
+import { PRODUCTION_SERVICE_ORIGIN, type OutboundJumpClaim } from './core/types';
+import { parseJumpJwks } from './core/jump_jwks';
 
 type SecretBinding = string | { get(): Promise<string> };
 type RateLimiter = {
@@ -22,6 +23,9 @@ export type CloudflareEnv = {
   RATE_LIMITER?: RateLimiter;
   UMAXICA_JUMP_PRIVATE_KEY_PEM?: SecretBinding;
   UMAXICA_JUMP_PRIVATE_KEY_KID?: SecretBinding;
+  UMAXICA_JUMP_ORIGIN?: string;
+  UMAXICA_JUMP_PUBLIC_JWKS?: SecretBinding;
+  UMAXICA_JUMP_PUBLIC_KEYSET?: SecretBinding;
   ratelimit?: RateLimiter;
   'UMAXICA-APPS-EDGE-JUMP-VERSION'?: VersionMetadata;
 };
@@ -31,10 +35,14 @@ export default {
     const rateLimit = await checkRateLimit(request, env);
     if (rateLimit) return rateLimit;
     const url = new URL(request.url);
+    const serviceOrigin = env.UMAXICA_JUMP_ORIGIN || PRODUCTION_SERVICE_ORIGIN;
+    const jumpJwks = await readJumpJwks(env);
 
     const app = createApp({
       registry: umaxicaRegistry,
       fetchJwks: fetchRegistryJwks,
+      config: { serviceOrigin },
+      ...(jumpJwks ? { jumpJwks } : {}),
       runtime: {
         edge: 'cloudflare',
         version: cloudflareRevision(env),
@@ -97,6 +105,11 @@ async function readPrivateKeyPem(env: CloudflareEnv) {
 
 async function readPrivateKeyKid(env: CloudflareEnv) {
   return readBinding(env.UMAXICA_JUMP_PRIVATE_KEY_KID ?? env.JUMP_PRIVATE_KEY_KID);
+}
+
+async function readJumpJwks(env: CloudflareEnv) {
+  const value = await readBinding(env.UMAXICA_JUMP_PUBLIC_JWKS ?? env.UMAXICA_JUMP_PUBLIC_KEYSET);
+  return value ? parseJumpJwks(value) : undefined;
 }
 
 async function readBinding(binding: SecretBinding | undefined) {

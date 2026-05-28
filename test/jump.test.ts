@@ -1,17 +1,22 @@
-import { exportJWK, generateKeyPair, jwtVerify, SignJWT, type JWK } from 'jose';
+import { exportJWK, generateKeyPair, importJWK, jwtVerify, SignJWT, type JWK } from 'jose';
 import { describe, expect, test, vi } from 'vite-plus/test';
 import { registry as umaxicaRegistry } from '../src/config/registry.umaxica';
-import { createApp, detectRuntime, fetchExampleJwks } from '../src';
+import { createApp, detectRuntime, fetchExampleJwks, type AppOptions } from '../src';
 import { fetchRegistryJwks } from '../src/core/fetch_jwks';
 import cloudflareWorker from '../src/cloudflare';
-import { handleJump, type JumpDeps } from '../src/core/handle_jump';
+import { handleJump } from '../src/core/handle_jump';
 import { healthJson, renderHealthHtml, wantsJson } from '../src/core/health';
 import { JwksCache } from '../src/core/jwks_cache';
 import { normalizeOrigin, normalizeUrl } from '../src/core/normalize_url';
 import { assertDestinationPolicy } from '../src/core/policy';
 import { MemoryReplayCache, NoopReplayCache } from '../src/core/replay_cache';
 import { JoseOutboundSigner, NoopOutboundSigner } from '../src/core/sign_outbound';
-import { JumpError, SERVICE, type InboundJumpClaim, type IssuerRegistry } from '../src/core/types';
+import {
+  JumpError,
+  PRODUCTION_SERVICE_ORIGIN,
+  type InboundJumpClaim,
+  type IssuerRegistry,
+} from '../src/core/types';
 import { assertBase64Url, verifyJumpJwt } from '../src/core/verify_jwt';
 
 const NOW = 1_800_000_000;
@@ -25,17 +30,20 @@ type Fixture = {
   signRaw: (payload: Record<string, unknown>, header?: Record<string, unknown>) => Promise<string>;
   fetchCount: () => number;
   jumpPublicKey: Parameters<SignJWT['sign']>[0];
+  jumpPublicJwk: JWK;
 };
 
 async function fixture(): Promise<Fixture> {
   return fixtureWithOptions();
 }
 
-async function fixtureWithOptions(options: Partial<JumpDeps> = {}): Promise<Fixture> {
+async function fixtureWithOptions(options: AppOptions = {}): Promise<Fixture> {
   const issuerKeys = await generateKeyPair('ES384');
   const jumpKeys = await generateKeyPair('ES384');
   const issuerJwk = await exportJWK(issuerKeys.publicKey);
+  const jumpJwk = await exportJWK(jumpKeys.publicKey);
   const publicJwk: JWK = { ...issuerJwk, kid: 'kid-1', alg: 'ES384', use: 'sig' };
+  const jumpPublicJwk: JWK = { ...jumpJwk, kid: 'jump-test', alg: 'ES384', use: 'sig' };
   let fetches = 0;
   const registry: IssuerRegistry = {
     'https://app.example.com': {
@@ -56,6 +64,7 @@ async function fixtureWithOptions(options: Partial<JumpDeps> = {}): Promise<Fixt
     signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
     now: () => NOW,
     ...options,
+    jumpJwks: options.jumpJwks ?? { keys: [jumpPublicJwk] },
   });
   return {
     app,
@@ -63,6 +72,7 @@ async function fixtureWithOptions(options: Partial<JumpDeps> = {}): Promise<Fixt
     signToken: (claim, header) => signToken(issuerKeys.privateKey, claim, header),
     signRaw: (payload, header) => signPayload(issuerKeys.privateKey, payload, header),
     jumpPublicKey: jumpKeys.publicKey,
+    jumpPublicJwk,
   };
 }
 
@@ -78,7 +88,7 @@ function baseClaim(): InboundJumpClaim {
   return {
     schema: 1,
     iss: 'https://app.example.com',
-    aud: SERVICE.origin,
+    aud: PRODUCTION_SERVICE_ORIGIN,
     sub: 'jump-redirect',
     iat: NOW,
     nbf: NOW,
@@ -310,6 +320,23 @@ describe('jump gateway routes', () => {
     expect(await res.json()).toMatchObject({ ok: true, edge: 'cloudflare', version: null });
   });
 
+  test('cloudflare worker uses configured production origin for about output', async () => {
+    const res = await fetchCloudflareWorker('/about', {});
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('https://jump.umaxica.net');
+  });
+
+  test('cloudflare worker serves configured Jump public jwks binding', async () => {
+    const { jumpPublicJwk } = await fixture();
+    const res = await fetchCloudflareWorker('/.well-known/jwks.json', {
+      UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({ keys: [jumpPublicJwk] }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ keys: [jumpPublicJwk] });
+  });
+
   test('cloudflare worker reports version metadata id as health version', async () => {
     const res = await fetchCloudflareWorker('/health.json', {
       'UMAXICA-APPS-EDGE-JUMP-VERSION': {
@@ -359,6 +386,34 @@ describe('jump gateway routes', () => {
       });
       expectSecurityHeaders(res);
     }
+  });
+
+  test('well-known jwks serves configured Jump public keyset', async () => {
+    const { app, jumpPublicJwk } = await fixture();
+    const res = await app.request('https://jump.example.net/.well-known/jwks.json');
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ keys: [jumpPublicJwk] });
+  });
+
+  test('production app refuses to publish example jwks without configured Jump public keyset', async () => {
+    const app = createApp({
+      runtime: { edge: 'cloudflare', production: true },
+    });
+    const res = await app.request('https://jump.umaxica.net/.well-known/jwks.json');
+
+    expect(res.status).toBe(503);
+  });
+
+  test('configured Jump jwks rejects private key material', async () => {
+    const { jumpPublicJwk } = await fixture();
+
+    expect(() =>
+      createApp({
+        runtime: { edge: 'cloudflare', production: true },
+        jumpJwks: { keys: [{ ...jumpPublicJwk, d: 'private' }] },
+      }),
+    ).toThrow(JumpError);
   });
 
   test('security headers are applied to invalid token and cushion responses', async () => {
@@ -803,7 +858,7 @@ describe('jump token validation', () => {
 
   test('self-link reject', async () => {
     const { app, signToken } = await fixture();
-    const res = await jump(app, await signToken({ url: 'https://jump.example.net/about' }));
+    const res = await jump(app, await signToken({ url: `${PRODUCTION_SERVICE_ORIGIN}/about` }));
     expect(res.headers.get('X-Jump-Error')).toBe('invalid_url');
   });
 
@@ -911,6 +966,21 @@ describe('jump token validation', () => {
   test('malformed IPv6 rejected when runtime parser accepts bracket form', () => {
     for (const url of ['https://[::1::2]/', 'https://[2001:db8::1::2]/']) {
       expect(() => normalizeUrl(url, { edge: 'local', production: true })).toThrow(JumpError);
+    }
+  });
+
+  test('IPv6 IPv4-compatible and 6to4 with private embedded IPv4 reject', async () => {
+    const { app, signToken } = await fixture();
+    for (const url of [
+      'https://[::10.0.0.1]/path',
+      'https://[::192.168.1.1]/path',
+      'https://[::169.254.169.254]/latest',
+      'https://[2002:0a00:0001::]/path',
+      'https://[2002:c0a8:0101::]/path',
+      'https://[2002:a9fe:a9fe::]/latest',
+    ]) {
+      const res = await jump(app, await signToken({ url }));
+      expect(res.headers.get('X-Jump-Error')).toBe('invalid_url');
     }
   });
 
@@ -1103,7 +1173,7 @@ describe('jump token validation', () => {
     const rt = url.searchParams.get('rt');
     expect(rt).toBeTruthy();
     const verified = await jwtVerify(rt ?? '', jumpPublicKey, {
-      issuer: SERVICE.origin,
+      issuer: PRODUCTION_SERVICE_ORIGIN,
       audience: 'https://app.example.com',
       algorithms: ['ES384'],
       typ: 'JWT',
@@ -1111,12 +1181,65 @@ describe('jump token validation', () => {
     });
     expect(verified.payload).toMatchObject({
       schema: 1,
-      iss: SERVICE.origin,
+      iss: PRODUCTION_SERVICE_ORIGIN,
       aud: 'https://app.example.com',
       sub: 'jump-redirect',
       dst: 'internal',
       src: 'https://app.example.com',
       url: 'https://app.example.com/path',
+    });
+  });
+
+  test('production service origin accepts umaxica audience without example origin', async () => {
+    const { app, signToken } = await fixtureWithOptions({
+      config: { serviceOrigin: 'https://jump.umaxica.net' },
+    });
+    const res = await app.request(
+      `https://jump.umaxica.net/?rt=${await signToken({
+        aud: 'https://jump.umaxica.net',
+        dst: 'internal',
+      })}`,
+    );
+
+    expect(res.status).toBe(302);
+  });
+
+  test('production internal redirect return rt verifies against Jump JWKS', async () => {
+    const { app, signToken } = await fixtureWithOptions({
+      config: { serviceOrigin: 'https://jump.umaxica.net' },
+    });
+    const inbound = await signToken({
+      aud: 'https://jump.umaxica.net',
+      dst: 'internal',
+      url: 'https://app.example.com/return',
+    });
+
+    const res = await app.request(`https://jump.umaxica.net/?rt=${inbound}`);
+    expect(res.status).toBe(302);
+    const location = res.headers.get('Location');
+    const returnedRt = new URL(location ?? '').searchParams.get('rt');
+    expect(returnedRt).toBeTruthy();
+
+    const jwksRes = await app.request('https://jump.umaxica.net/.well-known/jwks.json');
+    const jwks = (await jwksRes.json()) as { keys: JWK[] };
+    const jumpKey = jwks.keys.find((key) => key.kid === 'jump-test');
+    expect(jumpKey).toBeTruthy();
+    const verified = await jwtVerify(returnedRt ?? '', await importJWK(jumpKey ?? {}, 'ES384'), {
+      issuer: 'https://jump.umaxica.net',
+      audience: 'https://app.example.com',
+      algorithms: ['ES384'],
+      typ: 'JWT',
+      currentDate: new Date(NOW * 1000),
+    });
+    expect(verified.protectedHeader.kid).toBe('jump-test');
+    expect(verified.payload).toMatchObject({
+      schema: 1,
+      iss: 'https://jump.umaxica.net',
+      aud: 'https://app.example.com',
+      sub: 'jump-redirect',
+      dst: 'internal',
+      src: 'https://app.example.com',
+      url: 'https://app.example.com/return',
     });
   });
 
@@ -1129,7 +1252,7 @@ describe('jump token validation', () => {
     const location = res.headers.get('Location');
     const rt = new URL(location ?? '').searchParams.get('rt');
     const verified = await jwtVerify(rt ?? '', jumpPublicKey, {
-      issuer: SERVICE.origin,
+      issuer: PRODUCTION_SERVICE_ORIGIN,
       audience: 'https://app.example.com',
       algorithms: ['ES384'],
       typ: 'JWT',

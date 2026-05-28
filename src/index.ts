@@ -15,16 +15,19 @@ import {
 import { healthJson, renderHealthHtml, wantsJson } from './core/health';
 import { asLocale, type Locale } from './core/i18n';
 import { JwksCache, type FetchJwks } from './core/jwks_cache';
+import { validateJumpJwks, type JumpJwks } from './core/jump_jwks';
 import { MemoryReplayCache } from './core/replay_cache';
 import { renderAbout } from './core/render_about';
 import { renderRobots, renderSitemap } from './core/render_discovery';
 import { jumpSecureHeaders, responseHygiene } from './core/security_headers';
 import { NoopOutboundSigner } from './core/sign_outbound';
-import type { RuntimeInfo } from './core/types';
+import { PRODUCTION_SERVICE_ORIGIN, type JumpConfig, type RuntimeInfo } from './core/types';
 
-export type AppOptions = Partial<JumpDeps> & {
+export type AppOptions = Omit<Partial<JumpDeps>, 'config'> & {
   fetchJwks?: FetchJwks;
   auditLog?: AuditLog;
+  config?: Partial<JumpConfig>;
+  jumpJwks?: JumpJwks;
 };
 
 export function createApp(options: AppOptions = {}) {
@@ -33,6 +36,12 @@ export function createApp(options: AppOptions = {}) {
   const jwksCache = options.jwksCache ?? new JwksCache(options.fetchJwks ?? fetchExampleJwks);
   const replayCache = options.replayCache ?? new MemoryReplayCache();
   const signer = options.signer ?? new NoopOutboundSigner();
+  const config = resolveJumpConfig(runtime, options.config);
+  const jumpJwks = options.jumpJwks
+    ? validateJumpJwks(options.jumpJwks)
+    : runtime.production
+      ? null
+      : validateJumpJwks(exampleJwks);
 
   const app = new Hono<{ Variables: LanguageVariables }>({ strict: true });
   app.use('*', logger(redactLogLine));
@@ -54,7 +63,7 @@ export function createApp(options: AppOptions = {}) {
   app.get('/', async (c) => {
     const locale = requestLocale(c);
     if (c.req.query('rt') !== undefined) {
-      const deps: JumpDeps = { registry, jwksCache, replayCache, runtime, signer };
+      const deps: JumpDeps = { registry, jwksCache, replayCache, runtime, signer, config };
       deps.auditLog = options.auditLog ?? auditLog;
       deps.locale = locale;
       if (options.now) deps.now = options.now;
@@ -65,7 +74,9 @@ export function createApp(options: AppOptions = {}) {
     return c.redirect('/about', 302);
   });
 
-  app.get('/about', (c) => html(c, renderAbout(requestLocale(c)), requestLocale(c)));
+  app.get('/about', (c) =>
+    html(c, renderAbout(requestLocale(c), config.serviceOrigin), requestLocale(c)),
+  );
   app.get('/health', (c) => {
     if (wantsJson(c.req.header('Accept') ?? null)) return json(c, healthJson(runtime));
     const locale = requestLocale(c);
@@ -83,9 +94,21 @@ export function createApp(options: AppOptions = {}) {
       'Content-Type': 'application/xml; charset=utf-8',
     }),
   );
-  app.get('/.well-known/jwks.json', (c) => json(c, exampleJwks));
+  app.get('/.well-known/jwks.json', (c) => {
+    if (!jumpJwks) return c.body('jump jwks not configured', 503);
+    return json(c, jumpJwks);
+  });
 
   return app;
+}
+
+export function resolveJumpConfig(
+  _runtime: RuntimeInfo,
+  config: Partial<JumpConfig> = {},
+): JumpConfig {
+  return {
+    serviceOrigin: config.serviceOrigin ?? PRODUCTION_SERVICE_ORIGIN,
+  };
 }
 
 function requestLocale(c: Context<{ Variables: LanguageVariables }>): Locale {

@@ -1,4 +1,4 @@
-import { JumpError, SERVICE, type RuntimeInfo } from './types';
+import { JumpError, PRODUCTION_SERVICE_ORIGIN, type RuntimeInfo } from './types';
 
 export type NormalizedUrl = {
   href: string;
@@ -10,7 +10,11 @@ export type NormalizedUrl = {
 const FORBIDDEN_PROTOCOLS = new Set(['javascript:', 'data:', 'file:', 'blob:']);
 const METADATA_V4 = '169.254.169.254';
 
-export function normalizeUrl(input: string, runtime: RuntimeInfo): NormalizedUrl {
+export function normalizeUrl(
+  input: string,
+  runtime: RuntimeInfo,
+  serviceOrigin: string = PRODUCTION_SERVICE_ORIGIN,
+): NormalizedUrl {
   let parsed: URL;
   try {
     parsed = new URL(input);
@@ -33,7 +37,7 @@ export function normalizeUrl(input: string, runtime: RuntimeInfo): NormalizedUrl
     : rawHost.toLowerCase();
   parsed.hostname = hostname;
 
-  if (hostname === new URL(SERVICE.origin).hostname)
+  if (hostname === new URL(serviceOrigin).hostname)
     throw new JumpError('invalid_url', 'self link rejected');
   if (isForbiddenHost(hostname)) throw new JumpError('invalid_url', 'forbidden host');
 
@@ -95,11 +99,17 @@ function isForbiddenIpv6(address: string) {
   /* v8 ignore next -- WHATWG URL validates bracketed IPv6 before this point */
   if (!groups) return true;
 
+  if (groups.every((group) => group === 0)) return true;
+  if (groups.slice(0, 7).every((group) => group === 0) && groups[7] === 1) return true;
+
   const normalizedMapped = matchExpandedIpv4Mapped(groups);
   if (normalizedMapped) return isPrivateIpv4(normalizedMapped);
 
-  if (groups.every((group) => group === 0)) return true;
-  if (groups.slice(0, 7).every((group) => group === 0) && groups[7] === 1) return true;
+  const normalizedCompat = matchExpandedIpv4Compatible(groups);
+  if (normalizedCompat) return isPrivateIpv4(normalizedCompat);
+
+  const normalized6to4 = matchExpanded6to4(groups);
+  if (normalized6to4) return isPrivateIpv4(normalized6to4);
 
   const first = Number(groups[0]);
   if ((first & 0xffc0) === 0xfe80) return true;
@@ -115,6 +125,24 @@ function matchExpandedIpv4Mapped(groups: number[]): [number, number, number, num
   if (groups[5] !== 0xffff) return null;
   const high = Number(groups[6]);
   const low = Number(groups[7]);
+  return [high >> 8, high & 0xff, low >> 8, low & 0xff];
+}
+
+function matchExpandedIpv4Compatible(groups: number[]): [number, number, number, number] | null {
+  /* v8 ignore next -- callers pass expanded IPv6 groups */
+  if (groups.length !== 8) return null;
+  if (!groups.slice(0, 6).every((group) => group === 0)) return null;
+  const high = Number(groups[6]);
+  const low = Number(groups[7]);
+  return [high >> 8, high & 0xff, low >> 8, low & 0xff];
+}
+
+function matchExpanded6to4(groups: number[]): [number, number, number, number] | null {
+  /* v8 ignore next -- callers pass expanded IPv6 groups */
+  if (groups.length !== 8) return null;
+  if (groups[0] !== 0x2002) return null;
+  const high = Number(groups[1]);
+  const low = Number(groups[2]);
   return [high >> 8, high & 0xff, low >> 8, low & 0xff];
 }
 
