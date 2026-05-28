@@ -1,4 +1,4 @@
-import { importJWK, importPKCS8, jwtVerify, SignJWT, type JWK } from 'jose';
+import { exportJWK, importJWK, importPKCS8, jwtVerify, SignJWT, type JWK } from 'jose';
 import { registry as umaxicaRegistry } from './config/registry.umaxica';
 import { fetchRegistryJwks } from './core/fetch_jwks';
 import { createApp } from './index';
@@ -153,6 +153,8 @@ async function readPrivateKeyKid(env: CloudflareEnv) {
 }
 
 async function readJumpJwks(env: CloudflareEnv) {
+  const derived = await deriveJumpJwksFromPrivateKey(env);
+  if (derived) return derived;
   const value = await readBinding(env.UMAXICA_JUMP_PUBLIC_JWKS ?? env.UMAXICA_JUMP_PUBLIC_KEYSET);
   return value ? parseJumpJwks(value) : undefined;
 }
@@ -181,6 +183,44 @@ async function assertPrivateKeyMatchesPublicJwk(
     typ: 'JWT',
     currentDate: new Date(now * 1000),
   });
+}
+
+async function deriveJumpJwksFromPrivateKey(env: CloudflareEnv) {
+  const pem = await readPrivateKeyPem(env);
+  const kid = await readPrivateKeyKid(env);
+  if (!pem || !kid) return null;
+
+  try {
+    const privateKey = await importPKCS8(pem, 'ES384', { extractable: true });
+    const privateJwk = await exportJWK(privateKey);
+    const publicJwk = stripPrivateJwkFields({
+      ...privateJwk,
+      kid,
+      alg: 'ES384',
+      use: 'sig',
+    });
+    const jwks = parseJumpJwks(JSON.stringify({ keys: [publicJwk] }));
+    await assertPrivateKeyMatchesPublicJwk(privateKey, jwks.keys[0] as JWK, kid);
+    logDerivedJwks({
+      kid,
+      pair_check_ok: true,
+    });
+    return jwks;
+  } catch (error) {
+    logDerivedJwksFailed({
+      kid,
+      reason: error instanceof Error ? error.name : 'unknown',
+    });
+    return null;
+  }
+}
+
+function stripPrivateJwkFields(jwk: JWK): JWK {
+  const publicJwk = { ...jwk } as Record<string, unknown>;
+  for (const field of ['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k']) {
+    delete publicJwk[field];
+  }
+  return publicJwk;
 }
 
 function logSignerConfig(entry: {
@@ -254,6 +294,30 @@ function logSignerConfigured(entry: { kid: string; public_jwks_kids: string[] })
       signer_kid: entry.kid,
       private_key_imported: true,
       public_jwks_kids: entry.public_jwks_kids,
+    }),
+  );
+}
+
+function logDerivedJwks(entry: { kid: string; pair_check_ok: boolean }) {
+  // eslint-disable-next-line no-console -- safe signer diagnostics omit tokens and secret material.
+  console.info(
+    JSON.stringify({
+      event: 'jump_jwks_derived_from_private_key',
+      kid: entry.kid,
+      jwks_derived_from_private_key: true,
+      pair_check_ok: entry.pair_check_ok,
+    }),
+  );
+}
+
+function logDerivedJwksFailed(entry: { kid: string; reason: string }) {
+  // eslint-disable-next-line no-console -- safe signer diagnostics omit tokens and secret material.
+  console.warn(
+    JSON.stringify({
+      event: 'jump_jwks_derive_failed',
+      kid: entry.kid,
+      jwks_derived_from_private_key: false,
+      reason: entry.reason,
     }),
   );
 }

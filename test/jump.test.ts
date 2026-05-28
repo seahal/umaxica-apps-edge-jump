@@ -4,6 +4,7 @@ import {
   exportPKCS8,
   generateKeyPair,
   importJWK,
+  importPKCS8,
   jwtVerify,
   SignJWT,
   type JWK,
@@ -397,6 +398,41 @@ describe('jump gateway routes', () => {
     expect(await res.json()).toEqual({ keys: [jumpPublicJwk] });
   });
 
+  test('cloudflare worker derives Jump public jwks from private key secret', async () => {
+    const setup = await cloudflareInternalRedirectFixture();
+    try {
+      const res = await fetchCloudflareWorker('/.well-known/jwks.json', {
+        UMAXICA_JUMP_PRIVATE_KEY_PEM: setup.jumpPrivatePem,
+        UMAXICA_JUMP_PRIVATE_KEY_KID: 'cloudflare-active-2026-05',
+      });
+
+      expect(res.status).toBe(200);
+      const jwks = (await res.json()) as { keys: JWK[] };
+      expect(jwks.keys).toHaveLength(1);
+      expect(jwks.keys[0]).toMatchObject({
+        kid: 'cloudflare-active-2026-05',
+        kty: 'EC',
+        crv: 'P-384',
+        alg: 'ES384',
+        use: 'sig',
+      });
+      expect(jwks.keys[0]).not.toHaveProperty('d');
+
+      const privateKey = await importPKCS8(setup.jumpPrivatePem, 'ES384');
+      const token = await new SignJWT({ ok: true })
+        .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'cloudflare-active-2026-05' })
+        .sign(privateKey);
+      await expect(
+        jwtVerify(token, await importJWK(jwks.keys[0] ?? {}, 'ES384'), {
+          algorithms: ['ES384'],
+          typ: 'JWT',
+        }),
+      ).resolves.toBeTruthy();
+    } finally {
+      setup.restore();
+    }
+  });
+
   test('cloudflare worker reports signer_unavailable when private key import fails', async () => {
     const setup = await cloudflareInternalRedirectFixture();
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -446,7 +482,6 @@ describe('jump gateway routes', () => {
       const res = await fetchCloudflareWorker(`/?rt=${setup.inboundToken}`, {
         UMAXICA_JUMP_PRIVATE_KEY_PEM: `  ${setup.jumpPrivatePem.replaceAll('\n', '\\n')}  `,
         UMAXICA_JUMP_PRIVATE_KEY_KID: ' cloudflare-active-2026-05 ',
-        UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({ keys: [setup.jumpPublicJwk] }),
       });
 
       expect(res.status).toBe(302);
@@ -475,6 +510,7 @@ describe('jump gateway routes', () => {
       expect(infoLines).toContain('"signer_configured":true');
       expect(infoLines).toContain('"signer_kid":"cloudflare-active-2026-05"');
       expect(infoLines).toContain('"private_key_imported":true');
+      expect(infoLines).toContain('"jwks_derived_from_private_key":true');
     } finally {
       setup.restore();
       info.mockRestore();
@@ -1584,6 +1620,31 @@ describe('jump token validation', () => {
 
   test('noop outbound signer fails closed', async () => {
     await expect(new NoopOutboundSigner().sign()).rejects.toThrow('outbound signer not configured');
+  });
+
+  test('PKCS8 PEM can create JoseOutboundSigner', async () => {
+    const keys = await generateKeyPair('ES384', { extractable: true });
+    const privateKey = await importPKCS8(await exportPKCS8(keys.privateKey), 'ES384');
+    const signer = new JoseOutboundSigner(privateKey, 'cloudflare-active-2026-05');
+    const token = await signer.sign({
+      schema: 1,
+      iss: 'https://jump.umaxica.net',
+      aud: 'https://www.umaxica.app',
+      sub: 'jump-redirect',
+      iat: NOW,
+      nbf: NOW,
+      exp: NOW + 60,
+      jti: 'pkcs8-signer-test',
+      src: 'https://www.umaxica.app',
+      dst: 'internal',
+      url: 'https://www.umaxica.app/',
+    });
+
+    expect(decodeProtectedHeader(token)).toMatchObject({
+      typ: 'JWT',
+      alg: 'ES384',
+      kid: 'cloudflare-active-2026-05',
+    });
   });
 });
 
