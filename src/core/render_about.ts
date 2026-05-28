@@ -1,7 +1,10 @@
-import { SERVICE } from './types';
+import { PRODUCTION_SERVICE_ORIGIN, SERVICE } from './types';
 import { messages, type Locale } from './i18n';
 
-export function renderAbout(locale: Locale = 'ja') {
+export function renderAbout(
+  locale: Locale = 'ja',
+  serviceOrigin: string = PRODUCTION_SERVICE_ORIGIN,
+) {
   const t = messages[locale];
   return `<!doctype html>
 <html lang="${locale}">
@@ -14,7 +17,7 @@ export function renderAbout(locale: Locale = 'ja') {
 <body>
 <main>
 <h1>${t.aboutTitle}</h1>
-<p>${t.aboutDescription} ${SERVICE.origin}</p>
+<p>${t.aboutDescription} ${serviceOrigin}</p>
 <p>${t.version} ${SERVICE.version}</p>
 </main>
 </body>
