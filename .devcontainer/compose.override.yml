@@ -1,6 +1,7 @@
 name: umaxica-apps-jump-dc
 services:
   core:
+    image: localhost/umaxica-apps-jump-dc-core
     ports: !override
       - '7676:7676' # jump/fastly
       - '8787:8787' # jump/cloudflare

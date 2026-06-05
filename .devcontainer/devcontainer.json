@@ -146,8 +146,6 @@
   "features": {
     "ghcr.io/devcontainers/features/github-cli:1": {},
     "ghcr.io/marcosbolanos/devcontainer-features/neovim-prebuilt:1": {},
-    "ghcr.io/devcontainers/features/copilot-cli:1": {},
-    "ghcr.io/stu-bell/devcontainer-features/gemini-cli:0": {},
     "ghcr.io/jsburckhardt/devcontainer-features/opencode:1": {},
     "ghcr.io/jasonthedeveloper/features/trivy:1": {},
     "ghcr.io/audacioustux/devcontainers/bun:1": {},
@@ -160,15 +158,12 @@
   "mounts": [
     "source=${localEnv:HOME}/.claude,target=/home/jump/.claude,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.claude.json,target=/home/jump/.claude.json,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.copilot,target=/home/jump/.copilot,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.codex,target=/home/jump/.codex,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.gemini,target=/home/jump/.gemini,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.config/gh,target=/home/jump/.config/gh,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.config/git,target=/home/jump/.config/git,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.gitconfig,target=/home/jump/.gitconfig,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.ssh,target=/home/jump/.ssh,type=bind,consistency=cached",
     "source=${localEnv:HOME}/.config/opencode,target=/home/jump/.config/opencode,type=bind,consistency=cached"
   ],
-  "updateRemoteUserUID": true,
   "postCreateCommand": "sudo chown -R jump:group /home/jump/ && vp install"
 }
