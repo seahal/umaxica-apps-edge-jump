@@ -45,8 +45,8 @@ importers:
         specifier: ^1.60.0
         version: 1.60.0
       '@types/node':
-        specifier: ^25.9.2
-        version: 25.9.2
+        specifier: ^25.9.3
+        version: 25.9.3
       knip:
         specifier: ^6.16.1
         version: 6.16.1
@@ -55,10 +55,10 @@ importers:
         version: 4.22.4
       vite-plus:
         specifier: 'catalog:'
-        version: 0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.2)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.2)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)
+        version: 0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)
       wrangler:
-        specifier: ^4.98.0
-        version: 4.98.0(@cloudflare/workers-types@4.20260609.1)
+        specifier: ^4.100.0
+        version: 4.100.0(@cloudflare/workers-types@4.20260609.1)
 
 packages:
 
@@ -97,8 +97,8 @@ packages:
     resolution: {integrity: sha512-Av/XS3bJXE812P/bff3qtrJmehpgD0niK2A0fF3YIdM+jOD6E+mFrxOmuAgaIR0GNkpnm03+GE3ttt/+muqyCQ==}
     hasBin: true
 
-  '@bytecodealliance/jco@1.21.0':
-    resolution: {integrity: sha512-XFW7ZAmoTfUa/OTGFnHWbTv63pO80n4cU/56sQUIHvkPlEnW7epDvnzBYzG4gCBekiUPWnHd30S1XNdl4n1Ccg==}
+  '@bytecodealliance/jco@1.23.0':
+    resolution: {integrity: sha512-z7DjWfwcBmkE0UTyzUucTeW3UEpbTjREXfIJBF+TRlDf+16Sxp5E/WXhT+19t7uvDgAdahhuIOfthrfYqiU8yQ==}
     hasBin: true
 
   '@bytecodealliance/preview2-shim@0.17.9':
@@ -210,32 +210,32 @@ packages:
       workerd:
         optional: true
 
-  '@cloudflare/workerd-darwin-64@1.20260603.1':
-    resolution: {integrity: sha512-cEXDWu6V3ZrpmwWkM4OJE9AeXjdAgOY5rh8EHhcBVCuP5rxnzUbPzLtrVOHx0UUUAcCrFq0Xsa6mZKL1VUZsKQ==}
+  '@cloudflare/workerd-darwin-64@1.20260611.1':
+    resolution: {integrity: sha512-iJICldmi4sBGgi7IrQles8cStOGXM/Tmv95C4OODVs6VIbMsJPqThUM5h3uYVQNULuJ8I/aVvnJ3Eh/wZCKwuA==}
     engines: {node: '>=16'}
     cpu: [x64]
     os: [darwin]
 
-  '@cloudflare/workerd-darwin-arm64@1.20260603.1':
-    resolution: {integrity: sha512-uBPK4LaWJNbbCYwPnUAehlHbbVulhVZPZsdcAhBPfZhHb3QAuAEPAQepO/P67R3V6Cni4YGx1fLbL8A5wwoaNA==}
+  '@cloudflare/workerd-darwin-arm64@1.20260611.1':
+    resolution: {integrity: sha512-yBbVXvbZyltR3I7NJdC4C4ItkItjZSiabcA/3HzEWOUQjLVKFqRh4so6ToHr70VCYh8VGeR8EDZL23igLhXqFQ==}
     engines: {node: '>=16'}
     cpu: [arm64]
     os: [darwin]
 
-  '@cloudflare/workerd-linux-64@1.20260603.1':
-    resolution: {integrity: sha512-ht9l6/8Tk7Rp6kA4S9oFZ4X8u0VjnnFdmU/6B3fnABYKREYTKh2RdOqXqXxcp5eNJseireKnWik/hQOPK1CutQ==}
+  '@cloudflare/workerd-linux-64@1.20260611.1':
+    resolution: {integrity: sha512-PfNjpxOlaIgZFYuhD7+neEEewCN2Ud993wEEN0fmbtSOax1AK53LGqmXUDvFhnbkHxJLFAxYCSNISW8QbzaAIg==}
     engines: {node: '>=16'}
     cpu: [x64]
     os: [linux]
 
-  '@cloudflare/workerd-linux-arm64@1.20260603.1':
-    resolution: {integrity: sha512-LJZ6x00rAjSrobV4m0ZW0TpH5ilBbKcWBzlH+y+KOUsIE/CpTuhAzKV43TbSnFLRX5+jrWKiz2v0hO91lPXy6A==}
+  '@cloudflare/workerd-linux-arm64@1.20260611.1':
+    resolution: {integrity: sha512-GEp4XbuIKjlF8pakqXcUDJfKiJosD/Q7S83J0d+r+z9XIlYGfF3ntm08e2aiF5TFTwp3fnG4yMoPUAKNhNJpvQ==}
     engines: {node: '>=16'}
     cpu: [arm64]
     os: [linux]
 
-  '@cloudflare/workerd-windows-64@1.20260603.1':
-    resolution: {integrity: sha512-DvwqkXMAJRPoDN4PxapAwhlz/6ouD+6R1ttbAEK3cWD/QBvFF5STx7Ds/9Irf+rBly3np3uHWkeX+wZnNFEuzA==}
+  '@cloudflare/workerd-windows-64@1.20260611.1':
+    resolution: {integrity: sha512-S6JkS0kEbcCKs19RGqEPhjCRbP8GBkQwqYLp2fhBJtD/KTlwqLzOJ9E6PQ7gQKgWHtxy1NBG3oXarlNFRNU/dw==}
     engines: {node: '>=16'}
     cpu: [x64]
     os: [win32]
@@ -258,8 +258,8 @@ packages:
       '@csstools/css-parser-algorithms': ^4.0.0
       '@csstools/css-tokenizer': ^4.0.0
 
-  '@csstools/css-color-parser@4.1.1':
-    resolution: {integrity: sha512-eZ5XOtyhK+mggRafYUWzA0tvaYOFgdY8AkgQiCJF9qNAePnUo/zmsqqYubBBb3sQ8uNUaSKTY9s9klfRaAXL0g==}
+  '@csstools/css-color-parser@4.1.3':
+    resolution: {integrity: sha512-DOgvIPkikIOixQRlD4YF31VN6fLLUTdrzhfRbis8vm0kMTgIbEPX0Ip/YX9fOeV9iywAS4sUUbTclpan7yYP8Q==}
     engines: {node: '>=20.19.0'}
     peerDependencies:
       '@csstools/css-parser-algorithms': ^4.0.0
@@ -1094,8 +1094,8 @@ packages:
   '@napi-rs/wasm-runtime@0.2.12':
     resolution: {integrity: sha512-ZVWUcfwY4E/yPitQJl481FjFo3K22D6qF0DuFH6Y/nbnE11GY5uguDxZMGXPQ8WQ0128MXQD7TnfHyK4oWoIJQ==}
 
-  '@napi-rs/wasm-runtime@1.1.4':
-    resolution: {integrity: sha512-3NQNNgA1YSlJb/kMH1ildASP9HW7/7kYnRI2szWJaofaS1hWmbGI4H+d3+22aGzXXN9IJ+n+GiFVcGipJP18ow==}
+  '@napi-rs/wasm-runtime@1.1.5':
+    resolution: {integrity: sha512-AWPoBRJ9tsnVhor4sjO7rkni+7p+2IAEFj6cx06UgP10jkQHqay/36uRV/bFkgrh18D9vb4cr8Q0Pthskgzy+Q==}
     peerDependencies:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
@@ -1848,8 +1848,8 @@ packages:
   '@types/deep-eql@4.0.2':
     resolution: {integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==}
 
-  '@types/node@25.9.2':
-    resolution: {integrity: sha512-G05zqtJhcDLb8uslf5EjCxXg9G1KQxiV8OS0R26IC//Eoyitzqe8z37I7cqvnZlrlSfgocQRfSn/AHBZJJFyGw==}
+  '@types/node@25.9.3':
+    resolution: {integrity: sha512-603BddQMv3pUcr4U2dhujk83N2tTDVr/34wII2B6bJy6g+8WD6yUb11jszNs0gdi4PesVWl7ABt8nYMVpnLUcg==}
 
   '@types/whatwg-mimetype@3.0.2':
     resolution: {integrity: sha512-c2AKvDT8ToxLIOUlN51gTiHXflsfIFisS4pO7pDPoKouJCESkhZnEy623gwP9laCy5lnLDAw1vAzu2vM2YLOrA==}
@@ -2007,8 +2007,8 @@ packages:
     resolution: {integrity: sha512-HEHNfbars9v4pgpW6SO1KSPkfoS0xVOM/9UzkJltjlsHZmJasxg8aXkuZa7SMf8vKGIBhpUsPluQSqhJFCqebw==}
     engines: {node: '>=0.4.0'}
 
-  acorn@8.16.0:
-    resolution: {integrity: sha512-UVJyE9MttOsBQIDKw1skb9nAwQuR5wuGD3+82K6JgJlm/Y+KI92oNsMNGZCYdDsVtRHSak0pcV5Dno5+4jh9sw==}
+  acorn@8.17.0:
+    resolution: {integrity: sha512-xRQbDb9BnwDafYNn6Vwl839DYVjqXYb1XVGtWAZ1kcDc6iwAL4hg3B1dZlRiuENFeO2H53gFG3in621AdERVAg==}
     engines: {node: '>=0.4.0'}
     hasBin: true
 
@@ -2506,8 +2506,8 @@ packages:
     resolution: {integrity: sha512-VP79XUPxV2CigYP3jWwAUFSku2aKqBH7uTAapFWCBqutsbmDo96KY5o8uh6U+/YSIn5OxJnXp73beVkpqMIGhA==}
     engines: {node: '>=18'}
 
-  miniflare@4.20260603.0:
-    resolution: {integrity: sha512-+kMQYB82gC8MPOuojHur3icQsUeZUEJ+Sphuo5rVC3Ri9txBLAW/mH33b9OVrpmkogQeaaqPS4tPtugJZhk5Kw==}
+  miniflare@4.20260611.0:
+    resolution: {integrity: sha512-i+JwEo8vN96naz1WL3ntFgFyRluBDYL408zwhHKvR2jefJ464KsZ/gCmJAQ5k+oaWeb5Ug+s7yne5AyiAEswjg==}
     engines: {node: '>=22.0.0'}
     hasBin: true
 
@@ -2716,8 +2716,8 @@ packages:
     resolution: {integrity: sha512-e1QtP3YL5tWww8uKaOCQ18UxIT2laNBXHjV/S2WYCiK4udiv8lkG89KRIoCjUagnAmCBurjF4zEVX2ByBbnCjQ==}
     hasBin: true
 
-  semver@7.8.3:
-    resolution: {integrity: sha512-wnilbGyMxzbY7dNOl7jpKbLSjcfeweJWU5j4+u5qW+6/wuGD9KzIGOyZnQVSBM9E7DtWaaH3CyHkppYrKYoxwg==}
+  semver@7.8.4:
+    resolution: {integrity: sha512-rUCObTnP32Q08R2uuIrt7r9PlEonuTmtuXYcW6s5kjdlj3xbnwe+21yXptAUYcMAABLkYYTtnmzb3w3EDZfueA==}
     engines: {node: '>=10'}
     hasBin: true
 
@@ -2967,17 +2967,17 @@ packages:
     resolution: {integrity: sha512-fvO4ExWMFsqyhG3AiPAObMuY1lxaqgYcxbc49CNdWDDECOJNgQyvsOWVwbZc+qf3rzRtxojBK+CMEv0Ld5CYpw==}
     engines: {node: '>= 0.4'}
 
-  workerd@1.20260603.1:
-    resolution: {integrity: sha512-NPcbhI1++CS+fnELyXtsIR52en+5kwr/OrKeiQeYXGy10HxmPdsQBv9N+DU7hJIOOmBHhOGAAsoGDjyiQ2YCaA==}
+  workerd@1.20260611.1:
+    resolution: {integrity: sha512-CS/640T7pIJ2HYX6x2DwKFGbcSckAWN3tgcdq+ptB6SaqjWUhlzIgA/YhPuwIU+/NnMnGpqOFX/hC18Oyge63w==}
     engines: {node: '>=16'}
     hasBin: true
 
-  wrangler@4.98.0:
-    resolution: {integrity: sha512-cXfFUuF4rMIvE0hiMnXjEAB27ERryaCgquBJdUoPIjFzYYE1rbRdMUkEdQ18qDPUtsPvhJdqxLntixT9OfSzQw==}
+  wrangler@4.100.0:
+    resolution: {integrity: sha512-dSQO7DO+mD6XDzkVWIWBoGLO3yw+lacWSc/KhFvd7pgfpth+kX98qb5SGRHZN8ACCDhhfwzDLXwB6qHsIHhfBg==}
     engines: {node: '>=22.0.0'}
     hasBin: true
     peerDependencies:
-      '@cloudflare/workers-types': ^4.20260603.1
+      '@cloudflare/workers-types': ^4.20260611.1
     peerDependenciesMeta:
       '@cloudflare/workers-types':
         optional: true
@@ -3043,7 +3043,7 @@ snapshots:
     dependencies:
       '@asamuzakjp/generational-cache': 1.0.1
       '@csstools/css-calc': 3.2.1(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)
-      '@csstools/css-color-parser': 4.1.1(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)
+      '@csstools/css-color-parser': 4.1.3(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)
       '@csstools/css-parser-algorithms': 4.0.0(@csstools/css-tokenizer@4.0.0)
       '@csstools/css-tokenizer': 4.0.0
     optional: true
@@ -3078,7 +3078,7 @@ snapshots:
 
   '@bytecodealliance/componentize-js@0.19.3(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)':
     dependencies:
-      '@bytecodealliance/jco': 1.21.0(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
+      '@bytecodealliance/jco': 1.23.0(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
       '@bytecodealliance/wizer': 10.0.0
       es-module-lexer: 1.7.0
       oxc-parser: 0.76.0
@@ -3088,7 +3088,7 @@ snapshots:
 
   '@bytecodealliance/componentize-js@0.21.0(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)':
     dependencies:
-      '@bytecodealliance/jco': 1.21.0(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
+      '@bytecodealliance/jco': 1.23.0(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
       '@bytecodealliance/weval': 0.4.1(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
       '@bytecodealliance/wizer': 10.0.0
       es-module-lexer: 1.7.0
@@ -3097,7 +3097,7 @@ snapshots:
       - '@emnapi/core'
       - '@emnapi/runtime'
 
-  '@bytecodealliance/jco@1.21.0(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)':
+  '@bytecodealliance/jco@1.23.0(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)':
     dependencies:
       '@bytecodealliance/componentize-js': 0.21.0(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
       '@bytecodealliance/componentize-js-0-19-3': '@bytecodealliance/componentize-js@0.19.3(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)'
@@ -3194,25 +3194,25 @@ snapshots:
 
   '@cloudflare/kv-asset-handler@0.5.0': {}
 
-  '@cloudflare/unenv-preset@2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260603.1)':
+  '@cloudflare/unenv-preset@2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260611.1)':
     dependencies:
       unenv: 2.0.0-rc.24
     optionalDependencies:
-      workerd: 1.20260603.1
+      workerd: 1.20260611.1
 
-  '@cloudflare/workerd-darwin-64@1.20260603.1':
+  '@cloudflare/workerd-darwin-64@1.20260611.1':
     optional: true
 
-  '@cloudflare/workerd-darwin-arm64@1.20260603.1':
+  '@cloudflare/workerd-darwin-arm64@1.20260611.1':
     optional: true
 
-  '@cloudflare/workerd-linux-64@1.20260603.1':
+  '@cloudflare/workerd-linux-64@1.20260611.1':
     optional: true
 
-  '@cloudflare/workerd-linux-arm64@1.20260603.1':
+  '@cloudflare/workerd-linux-arm64@1.20260611.1':
     optional: true
 
-  '@cloudflare/workerd-windows-64@1.20260603.1':
+  '@cloudflare/workerd-windows-64@1.20260611.1':
     optional: true
 
   '@cloudflare/workers-types@4.20260609.1': {}
@@ -3230,7 +3230,7 @@ snapshots:
       '@csstools/css-tokenizer': 4.0.0
     optional: true
 
-  '@csstools/css-color-parser@4.1.1(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)':
+  '@csstools/css-color-parser@4.1.3(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)':
     dependencies:
       '@csstools/color-helpers': 6.0.2
       '@csstools/css-calc': 3.2.1(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)
@@ -3534,12 +3534,12 @@ snapshots:
 
   '@fastly/js-compute@3.42.1(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(typescript@5.9.3)':
     dependencies:
-      '@bytecodealliance/jco': 1.21.0(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
+      '@bytecodealliance/jco': 1.23.0(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
       '@bytecodealliance/weval': 0.3.4(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
       '@bytecodealliance/wizer': 7.0.5
       '@jridgewell/remapping': 2.3.5
       '@jridgewell/trace-mapping': 0.3.31
-      acorn: 8.16.0
+      acorn: 8.17.0
       acorn-walk: 8.3.5
       cosmiconfig: 9.0.2(typescript@5.9.3)
       esbuild: 0.25.12
@@ -3722,7 +3722,7 @@ snapshots:
 
   '@napi-rs/lzma-wasm32-wasi@1.4.5(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)':
     dependencies:
-      '@napi-rs/wasm-runtime': 1.1.4(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
+      '@napi-rs/wasm-runtime': 1.1.5(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -3767,14 +3767,14 @@ snapshots:
       '@tybys/wasm-util': 0.10.2
     optional: true
 
-  '@napi-rs/wasm-runtime@1.1.4(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)':
+  '@napi-rs/wasm-runtime@1.1.5(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)':
     dependencies:
       '@emnapi/core': 1.10.0
       '@emnapi/runtime': 1.10.0
       '@tybys/wasm-util': 0.10.2
     optional: true
 
-  '@napi-rs/wasm-runtime@1.1.4(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)':
+  '@napi-rs/wasm-runtime@1.1.5(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)':
     dependencies:
       '@emnapi/core': 1.11.0
       '@emnapi/runtime': 1.11.0
@@ -3875,7 +3875,7 @@ snapshots:
     dependencies:
       '@emnapi/core': 1.10.0
       '@emnapi/runtime': 1.10.0
-      '@napi-rs/wasm-runtime': 1.1.4(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)
+      '@napi-rs/wasm-runtime': 1.1.5(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)
     optional: true
 
   '@oxc-parser/binding-wasm32-wasi@0.76.0':
@@ -3960,7 +3960,7 @@ snapshots:
     dependencies:
       '@emnapi/core': 1.10.0
       '@emnapi/runtime': 1.10.0
-      '@napi-rs/wasm-runtime': 1.1.4(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)
+      '@napi-rs/wasm-runtime': 1.1.5(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)
     optional: true
 
   '@oxc-resolver/binding-win32-arm64-msvc@11.20.0':
@@ -4153,7 +4153,7 @@ snapshots:
 
   '@rolldown/binding-wasm32-wasi@1.0.0-rc.6(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)':
     dependencies:
-      '@napi-rs/wasm-runtime': 1.1.4(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
+      '@napi-rs/wasm-runtime': 1.1.5(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -4185,7 +4185,7 @@ snapshots:
 
   '@types/deep-eql@4.0.2': {}
 
-  '@types/node@25.9.2':
+  '@types/node@25.9.3':
     dependencies:
       undici-types: 7.24.6
 
@@ -4194,17 +4194,17 @@ snapshots:
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 25.9.2
+      '@types/node': 25.9.3
     optional: true
 
-  '@voidzero-dev/vite-plus-core@0.1.24(@types/node@25.9.2)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(yaml@2.9.0)':
+  '@voidzero-dev/vite-plus-core@0.1.24(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(yaml@2.9.0)':
     dependencies:
       '@oxc-project/runtime': 0.133.0
       '@oxc-project/types': 0.133.0
       lightningcss: 1.32.0
       postcss: 8.5.15
     optionalDependencies:
-      '@types/node': 25.9.2
+      '@types/node': 25.9.3
       esbuild: 0.27.3
       fsevents: 2.3.3
       jiti: 2.7.0
@@ -4231,11 +4231,11 @@ snapshots:
   '@voidzero-dev/vite-plus-linux-x64-musl@0.1.24':
     optional: true
 
-  '@voidzero-dev/vite-plus-test@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.2)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.2)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)':
+  '@voidzero-dev/vite-plus-test@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)':
     dependencies:
       '@standard-schema/spec': 1.1.0
       '@types/chai': 5.2.3
-      '@voidzero-dev/vite-plus-core': 0.1.24(@types/node@25.9.2)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(yaml@2.9.0)
+      '@voidzero-dev/vite-plus-core': 0.1.24(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(yaml@2.9.0)
       es-module-lexer: 1.7.0
       obug: 2.1.2
       pixelmatch: 7.2.0
@@ -4245,11 +4245,11 @@ snapshots:
       tinybench: 2.9.0
       tinyexec: 1.2.4
       tinyglobby: 0.2.17
-      vite: 8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.2)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0)
+      vite: 8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0)
       ws: 8.21.0
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
-      '@types/node': 25.9.2
+      '@types/node': 25.9.3
       happy-dom: 20.9.0
       jsdom: 29.1.1(@noble/hashes@1.8.0)
     transitivePeerDependencies:
@@ -4282,9 +4282,9 @@ snapshots:
 
   acorn-walk@8.3.5:
     dependencies:
-      acorn: 8.16.0
+      acorn: 8.17.0
 
-  acorn@8.16.0: {}
+  acorn@8.17.0: {}
 
   ansi-regex@6.2.2: {}
 
@@ -4631,7 +4631,7 @@ snapshots:
 
   happy-dom@20.9.0:
     dependencies:
-      '@types/node': 25.9.2
+      '@types/node': 25.9.3
       '@types/whatwg-mimetype': 3.0.2
       '@types/ws': 8.18.1
       entities: 7.0.1
@@ -4832,12 +4832,12 @@ snapshots:
 
   mimic-function@5.0.1: {}
 
-  miniflare@4.20260603.0:
+  miniflare@4.20260611.0:
     dependencies:
       '@cspotcode/source-map-support': 0.8.1
       sharp: 0.34.5
       undici: 7.24.8
-      workerd: 1.20260603.1
+      workerd: 1.20260611.1
       ws: 8.20.1
       youch: 4.1.0-beta.10
     transitivePeerDependencies:
@@ -4941,7 +4941,7 @@ snapshots:
       '@oxc-resolver/binding-win32-arm64-msvc': 11.20.0
       '@oxc-resolver/binding-win32-x64-msvc': 11.20.0
 
-  oxfmt@0.52.0(vite-plus@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.2)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.2)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)):
+  oxfmt@0.52.0(vite-plus@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)):
     dependencies:
       tinypool: 2.1.0
     optionalDependencies:
@@ -4964,7 +4964,7 @@ snapshots:
       '@oxfmt/binding-win32-arm64-msvc': 0.52.0
       '@oxfmt/binding-win32-ia32-msvc': 0.52.0
       '@oxfmt/binding-win32-x64-msvc': 0.52.0
-      vite-plus: 0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.2)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.2)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)
+      vite-plus: 0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)
 
   oxlint-tsgolint@0.23.0:
     optionalDependencies:
@@ -4975,7 +4975,7 @@ snapshots:
       '@oxlint-tsgolint/win32-arm64': 0.23.0
       '@oxlint-tsgolint/win32-x64': 0.23.0
 
-  oxlint@1.67.0(oxlint-tsgolint@0.23.0)(vite-plus@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.2)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.2)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)):
+  oxlint@1.67.0(oxlint-tsgolint@0.23.0)(vite-plus@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)):
     optionalDependencies:
       '@oxlint/binding-android-arm-eabi': 1.67.0
       '@oxlint/binding-android-arm64': 1.67.0
@@ -4997,7 +4997,7 @@ snapshots:
       '@oxlint/binding-win32-ia32-msvc': 1.67.0
       '@oxlint/binding-win32-x64-msvc': 1.67.0
       oxlint-tsgolint: 0.23.0
-      vite-plus: 0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.2)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.2)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)
+      vite-plus: 0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)
 
   parent-module@1.0.1:
     dependencies:
@@ -5140,7 +5140,7 @@ snapshots:
     dependencies:
       commander: 2.20.3
 
-  semver@7.8.3: {}
+  semver@7.8.4: {}
 
   set-function-length@1.2.2:
     dependencies:
@@ -5155,7 +5155,7 @@ snapshots:
     dependencies:
       '@img/colour': 1.1.0
       detect-libc: 2.1.2
-      semver: 7.8.3
+      semver: 7.8.4
     optionalDependencies:
       '@img/sharp-darwin-arm64': 0.34.5
       '@img/sharp-darwin-x64': 0.34.5
@@ -5243,7 +5243,7 @@ snapshots:
   terser@5.48.0:
     dependencies:
       '@jridgewell/source-map': 0.3.11
-      acorn: 8.16.0
+      acorn: 8.17.0
       commander: 2.20.3
       source-map-support: 0.5.21
 
@@ -5335,14 +5335,14 @@ snapshots:
 
   util-deprecate@1.0.2: {}
 
-  vite-plus@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.2)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.2)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0):
+  vite-plus@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0):
     dependencies:
       '@oxc-project/types': 0.133.0
       '@oxlint/plugins': 1.61.0
-      '@voidzero-dev/vite-plus-core': 0.1.24(@types/node@25.9.2)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(yaml@2.9.0)
-      '@voidzero-dev/vite-plus-test': 0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.2)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.2)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)
-      oxfmt: 0.52.0(vite-plus@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.2)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.2)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
-      oxlint: 1.67.0(oxlint-tsgolint@0.23.0)(vite-plus@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.2)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.2)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
+      '@voidzero-dev/vite-plus-core': 0.1.24(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(yaml@2.9.0)
+      '@voidzero-dev/vite-plus-test': 0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)
+      oxfmt: 0.52.0(vite-plus@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
+      oxlint: 1.67.0(oxlint-tsgolint@0.23.0)(vite-plus@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
       oxlint-tsgolint: 0.23.0
     optionalDependencies:
       '@voidzero-dev/vite-plus-darwin-arm64': 0.1.24
@@ -5385,7 +5385,7 @@ snapshots:
       - vite
       - yaml
 
-  vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.2)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0):
+  vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0):
     dependencies:
       '@oxc-project/runtime': 0.115.0
       lightningcss: 1.32.0
@@ -5394,7 +5394,7 @@ snapshots:
       rolldown: 1.0.0-rc.6(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
       tinyglobby: 0.2.17
     optionalDependencies:
-      '@types/node': 25.9.2
+      '@types/node': 25.9.3
       esbuild: 0.27.3
       fsevents: 2.3.3
       jiti: 2.7.0
@@ -5440,24 +5440,24 @@ snapshots:
       gopd: 1.2.0
       has-tostringtag: 1.0.2
 
-  workerd@1.20260603.1:
+  workerd@1.20260611.1:
     optionalDependencies:
-      '@cloudflare/workerd-darwin-64': 1.20260603.1
-      '@cloudflare/workerd-darwin-arm64': 1.20260603.1
-      '@cloudflare/workerd-linux-64': 1.20260603.1
-      '@cloudflare/workerd-linux-arm64': 1.20260603.1
-      '@cloudflare/workerd-windows-64': 1.20260603.1
+      '@cloudflare/workerd-darwin-64': 1.20260611.1
+      '@cloudflare/workerd-darwin-arm64': 1.20260611.1
+      '@cloudflare/workerd-linux-64': 1.20260611.1
+      '@cloudflare/workerd-linux-arm64': 1.20260611.1
+      '@cloudflare/workerd-windows-64': 1.20260611.1
 
-  wrangler@4.98.0(@cloudflare/workers-types@4.20260609.1):
+  wrangler@4.100.0(@cloudflare/workers-types@4.20260609.1):
     dependencies:
       '@cloudflare/kv-asset-handler': 0.5.0
-      '@cloudflare/unenv-preset': 2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260603.1)
+      '@cloudflare/unenv-preset': 2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260611.1)
       blake3-wasm: 2.1.5
       esbuild: 0.27.3
-      miniflare: 4.20260603.0
+      miniflare: 4.20260611.0
       path-to-regexp: 6.3.0
       unenv: 2.0.0-rc.24
-      workerd: 1.20260603.1
+      workerd: 1.20260611.1
     optionalDependencies:
       '@cloudflare/workers-types': 4.20260609.1
       fsevents: 2.3.3
