@@ -24,10 +24,10 @@ importers:
     dependencies:
       '@fastly/hono-fastly-compute':
         specifier: ^0.3.10
-        version: 0.3.10(@fastly/js-compute@3.42.1(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(typescript@5.9.3))(hono@4.12.25)
+        version: 0.3.10(@fastly/js-compute@3.42.1(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(typescript@5.9.3))(hono@4.12.25)
       '@fastly/js-compute':
         specifier: ^3.42.1
-        version: 3.42.1(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(typescript@5.9.3)
+        version: 3.42.1(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(typescript@5.9.3)
       hono:
         specifier: ^4.12.25
         version: 4.12.25
@@ -42,8 +42,8 @@ importers:
         specifier: ^2.0.4
         version: 2.0.4(hono@4.12.25)
       '@playwright/test':
-        specifier: ^1.60.0
-        version: 1.60.0
+        specifier: ^1.61.0
+        version: 1.61.0
       '@types/node':
         specifier: ^25.9.3
         version: 25.9.3
@@ -55,7 +55,7 @@ importers:
         version: 4.22.4
       vite-plus:
         specifier: 'catalog:'
-        version: 0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)
+        version: 0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)
       wrangler:
         specifier: ^4.100.0
         version: 4.100.0(@cloudflare/workers-types@4.20260609.1)
@@ -258,8 +258,8 @@ packages:
       '@csstools/css-parser-algorithms': ^4.0.0
       '@csstools/css-tokenizer': ^4.0.0
 
-  '@csstools/css-color-parser@4.1.3':
-    resolution: {integrity: sha512-DOgvIPkikIOixQRlD4YF31VN6fLLUTdrzhfRbis8vm0kMTgIbEPX0Ip/YX9fOeV9iywAS4sUUbTclpan7yYP8Q==}
+  '@csstools/css-color-parser@4.1.8':
+    resolution: {integrity: sha512-3chWb7PRLijpJpPIKkDxdu6IBeO5MrFACND57On0j8OPpc0wZibcGc3xAHrSEbOx/KDRyMHoIxGn0w1PhXMYHw==}
     engines: {node: '>=20.19.0'}
     peerDependencies:
       '@csstools/css-parser-algorithms': ^4.0.0
@@ -286,14 +286,17 @@ packages:
   '@emnapi/core@1.10.0':
     resolution: {integrity: sha512-yq6OkJ4p82CAfPl0u9mQebQHKPJkY7WrIuk205cTYnYe+k2Z8YBh11FrbRG/H6ihirqcacOgl2BIO8oyMQLeXw==}
 
-  '@emnapi/core@1.11.0':
-    resolution: {integrity: sha512-l9Oo58x0HOP5znGzVhYW9U3e5wVuA4LAZU2AGezTmkhO1CgQRFDhDg4nneHsu/t3WniXg9QrG2nIXL/ZS8ln8Q==}
+  '@emnapi/core@1.11.1':
+    resolution: {integrity: sha512-RSvbQmHzdKzNsLYa/wHrbc3KN4sYLKAdPZxqiM2HATqv/SBk2/ENSHpvXGaLOMcsAyz0poEGqkmmKYG3OWiJEQ==}
 
   '@emnapi/runtime@1.10.0':
     resolution: {integrity: sha512-ewvYlk86xUoGI0zQRNq/mC+16R1QeDlKQy21Ki3oSYXNgLb45GV1P6A0M+/s6nyCuNDqe5VpaY84BzXGwVbwFA==}
 
   '@emnapi/runtime@1.11.0':
     resolution: {integrity: sha512-55coeOFKHv1ywEcUXJtWU5f+Jr/W5tZDvZig8DLKSwUN1JpROQ4rk/SNOQiFWmaR/VKF4zuFyW1B8JduOSv6Pg==}
+
+  '@emnapi/runtime@1.11.1':
+    resolution: {integrity: sha512-vgj7R3y3Wgx24IQaGPA/R6YFXLHVMOZ0uVEyIQPaWs+rd1AzfEMXlAC22FYwO1XkKR6NPsq7mUandH8oIRdZFw==}
 
   '@emnapi/wasi-threads@1.2.1':
     resolution: {integrity: sha512-uTII7OYF+/Mes/MrcIOYp5yOtSMLBWSIoLPpcgwipoiKbli6k322tcoFsxoIIxPDqW01SQGAgko4EzZi2BNv2w==}
@@ -1728,8 +1731,8 @@ packages:
     resolution: {integrity: sha512-nkOyZEF1vH527CkdQtOp1HMrVFEM4ResURvI2JFeGoup+h+43J/k/FgdOR9b9Isxg+Yae7qVDa7y3nssE8b3TQ==}
     engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
 
-  '@playwright/test@1.60.0':
-    resolution: {integrity: sha512-O71yZIbAh/PxDMNGns37GHBIfrVkEVyn+AXyIa5dOTfb4/xNvRWV+Vv/NMbNCtODB/pO7vLlF2OTmMVLhmr7Ag==}
+  '@playwright/test@1.61.0':
+    resolution: {integrity: sha512-cKA5B6lpFEMyMGjxF54QihfYpB4FkEGH+qZhtArDEG+wezQAJY8Pq6C7T1SjWz+FFzt3TbyoXBQYk/0292TdJA==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -1850,6 +1853,9 @@ packages:
 
   '@types/node@25.9.3':
     resolution: {integrity: sha512-603BddQMv3pUcr4U2dhujk83N2tTDVr/34wII2B6bJy6g+8WD6yUb11jszNs0gdi4PesVWl7ABt8nYMVpnLUcg==}
+
+  '@types/node@25.9.4':
+    resolution: {integrity: sha512-dszCsrKb5U7ZsVZBWiHFklTloVl0mSEnWH/iZXfZUlI4rzCUnsvGmgqfuVRHL54ugE7/wRuxEIXRa2iMZ+BG6g==}
 
   '@types/whatwg-mimetype@3.0.2':
     resolution: {integrity: sha512-c2AKvDT8ToxLIOUlN51gTiHXflsfIFisS4pO7pDPoKouJCESkhZnEy623gwP9laCy5lnLDAw1vAzu2vM2YLOrA==}
@@ -2632,13 +2638,13 @@ packages:
     resolution: {integrity: sha512-xhcb4yHu9sM/G7foGzoLtXYcC0zHEaOXXjRKhGup0fw78Nf2Tkiapv4EQyMzrbcmQPsllAI7DbFY2UT7PlI9Pg==}
     hasBin: true
 
-  playwright-core@1.60.0:
-    resolution: {integrity: sha512-9bW6zvX/m0lEbgTKJ6YppOKx8H3VOPBMOCFh2irXFOT4BbHgrx5hPjwJYLT40Lu+4qtD36qKc/Hn56StUW57IA==}
+  playwright-core@1.61.0:
+    resolution: {integrity: sha512-caX7TrY3Ml6egyDX0WUcTHDxodl/b51y5wJOdCEA36QviK/s2g081hvmGs8eaE3DWb6NYZQ6BjO/QkNRPenoPA==}
     engines: {node: '>=18'}
     hasBin: true
 
-  playwright@1.60.0:
-    resolution: {integrity: sha512-hheHdokM8cdqCb0lcE3s+zT4t4W+vvjpGxsZlDnikarzx8tSzMebh3UiFtgqwFwnTnjYQcsyMF8ei2mCO/tpeA==}
+  playwright@1.61.0:
+    resolution: {integrity: sha512-Z+7BeeqQPRRzklHsVFP4KTGIyMxKUmfeRA4WisM6G3/XW6nwGeX6fX9qYaDa+CiUqpOkb2f6X3nar05R3kSuJQ==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -2811,11 +2817,11 @@ packages:
     resolution: {integrity: sha512-Pugqs6M0m7Lv1I7FtxN4aoyToKg1C4tu+/381vH35y8oENM/Ai7f7C4StcoK4/+BSw9ebcS8jRiVrORFKCALLw==}
     engines: {node: ^20.0.0 || >=22.0.0}
 
-  tldts-core@7.4.2:
-    resolution: {integrity: sha512-nwEyF4vl4RSJjwSjBUmOSxc3BFPoIFdlRthJ6e+5v9P3bHNsoD06UjuqMUspqp7vsEZ1beaHi1km+optiE17yA==}
+  tldts-core@7.4.3:
+    resolution: {integrity: sha512-27ep5H9PzdBrNd5OFM/j3WCU8F3kPwM9D0BOaOf7uYfxMJfyr0K5Tjj69Gri+sZlh2WXd5buIm47NuPF29CDiw==}
 
-  tldts@7.4.2:
-    resolution: {integrity: sha512-kCwffuaH8ntKtygnWe1b4BJKWiCUH30n5KfoTr6IchcXOwR7chAOFJxFrH3vjANafUYrIA4a7SDL+nn7SiR4Sw==}
+  tldts@7.4.3:
+    resolution: {integrity: sha512-A3BDQBeeukYPzB4QdQ1DtdlUmp4x2OCH8n5UVhEWbyANxNep8GavottKzd1xYKFJKjUgMyPT7EzOfnBO55s8Sg==}
     hasBin: true
 
   to-buffer@1.2.2:
@@ -2865,8 +2871,8 @@ packages:
     resolution: {integrity: sha512-6KQ/+QxK49Z/p3HO6E5ZCZWNnCasyZLa5ExaVYyvPxUwKtbCPMKELJOqh7EqOle0t9cH/7d2TaaTRRa6Nhs4YQ==}
     engines: {node: '>=20.18.1'}
 
-  undici@7.27.2:
-    resolution: {integrity: sha512-uZsKNuzQxDMUY6M3pIMvy5tvlGmtq8XJ2oLAkfRKGNu+1VQAIvLy2xIVG5ATZl5wDXl/tddByAWCizRbOme+TA==}
+  undici@7.28.0:
+    resolution: {integrity: sha512-cRZYrTDwWznlnRiPjggAGxZXanty6M8RV1ff8Wm4LWXBp7/IG8v5DnOm74DtUBp9OONpK75YlPnIjQqX0dBDtA==}
     engines: {node: '>=20.18.1'}
 
   unenv@2.0.0-rc.24:
@@ -3043,7 +3049,7 @@ snapshots:
     dependencies:
       '@asamuzakjp/generational-cache': 1.0.1
       '@csstools/css-calc': 3.2.1(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)
-      '@csstools/css-color-parser': 4.1.3(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)
+      '@csstools/css-color-parser': 4.1.8(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)
       '@csstools/css-parser-algorithms': 4.0.0(@csstools/css-tokenizer@4.0.0)
       '@csstools/css-tokenizer': 4.0.0
     optional: true
@@ -3076,9 +3082,9 @@ snapshots:
       css-tree: 3.2.1
     optional: true
 
-  '@bytecodealliance/componentize-js@0.19.3(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)':
+  '@bytecodealliance/componentize-js@0.19.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)':
     dependencies:
-      '@bytecodealliance/jco': 1.23.0(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
+      '@bytecodealliance/jco': 1.23.0(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)
       '@bytecodealliance/wizer': 10.0.0
       es-module-lexer: 1.7.0
       oxc-parser: 0.76.0
@@ -3086,10 +3092,10 @@ snapshots:
       - '@emnapi/core'
       - '@emnapi/runtime'
 
-  '@bytecodealliance/componentize-js@0.21.0(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)':
+  '@bytecodealliance/componentize-js@0.21.0(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)':
     dependencies:
-      '@bytecodealliance/jco': 1.23.0(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
-      '@bytecodealliance/weval': 0.4.1(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
+      '@bytecodealliance/jco': 1.23.0(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)
+      '@bytecodealliance/weval': 0.4.1(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)
       '@bytecodealliance/wizer': 10.0.0
       es-module-lexer: 1.7.0
       oxc-parser: 0.76.0
@@ -3097,10 +3103,10 @@ snapshots:
       - '@emnapi/core'
       - '@emnapi/runtime'
 
-  '@bytecodealliance/jco@1.23.0(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)':
+  '@bytecodealliance/jco@1.23.0(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)':
     dependencies:
-      '@bytecodealliance/componentize-js': 0.21.0(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
-      '@bytecodealliance/componentize-js-0-19-3': '@bytecodealliance/componentize-js@0.19.3(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)'
+      '@bytecodealliance/componentize-js': 0.21.0(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)
+      '@bytecodealliance/componentize-js-0-19-3': '@bytecodealliance/componentize-js@0.19.3(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)'
       '@bytecodealliance/preview2-shim': 0.17.9
       '@bytecodealliance/preview3-shim': 0.1.2
       binaryen: 123.0.0
@@ -3118,9 +3124,9 @@ snapshots:
     dependencies:
       '@bytecodealliance/preview2-shim': 0.17.9
 
-  '@bytecodealliance/weval@0.3.4(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)':
+  '@bytecodealliance/weval@0.3.4(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)':
     dependencies:
-      '@napi-rs/lzma': 1.4.5(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
+      '@napi-rs/lzma': 1.4.5(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)
       decompress: 4.2.1
       decompress-tar: 4.1.1
       decompress-unzip: 4.0.1
@@ -3128,9 +3134,9 @@ snapshots:
       - '@emnapi/core'
       - '@emnapi/runtime'
 
-  '@bytecodealliance/weval@0.4.1(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)':
+  '@bytecodealliance/weval@0.4.1(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)':
     dependencies:
-      '@napi-rs/lzma': 1.4.5(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
+      '@napi-rs/lzma': 1.4.5(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)
       decompress: 4.2.1
       decompress-tar: 4.1.1
       decompress-unzip: 4.0.1
@@ -3230,7 +3236,7 @@ snapshots:
       '@csstools/css-tokenizer': 4.0.0
     optional: true
 
-  '@csstools/css-color-parser@4.1.3(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)':
+  '@csstools/css-color-parser@4.1.8(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)':
     dependencies:
       '@csstools/color-helpers': 6.0.2
       '@csstools/css-calc': 3.2.1(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)
@@ -3257,7 +3263,7 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
-  '@emnapi/core@1.11.0':
+  '@emnapi/core@1.11.1':
     dependencies:
       '@emnapi/wasi-threads': 1.2.2
       tslib: 2.8.1
@@ -3269,6 +3275,11 @@ snapshots:
     optional: true
 
   '@emnapi/runtime@1.11.0':
+    dependencies:
+      tslib: 2.8.1
+    optional: true
+
+  '@emnapi/runtime@1.11.1':
     dependencies:
       tslib: 2.8.1
     optional: true
@@ -3522,20 +3533,20 @@ snapshots:
       '@noble/hashes': 1.8.0
     optional: true
 
-  '@fastly/compute-js-context@0.5.6(@fastly/js-compute@3.42.1(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(typescript@5.9.3))':
+  '@fastly/compute-js-context@0.5.6(@fastly/js-compute@3.42.1(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(typescript@5.9.3))':
     dependencies:
-      '@fastly/js-compute': 3.42.1(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(typescript@5.9.3)
+      '@fastly/js-compute': 3.42.1(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(typescript@5.9.3)
 
-  '@fastly/hono-fastly-compute@0.3.10(@fastly/js-compute@3.42.1(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(typescript@5.9.3))(hono@4.12.25)':
+  '@fastly/hono-fastly-compute@0.3.10(@fastly/js-compute@3.42.1(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(typescript@5.9.3))(hono@4.12.25)':
     dependencies:
-      '@fastly/compute-js-context': 0.5.6(@fastly/js-compute@3.42.1(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(typescript@5.9.3))
-      '@fastly/js-compute': 3.42.1(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(typescript@5.9.3)
+      '@fastly/compute-js-context': 0.5.6(@fastly/js-compute@3.42.1(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(typescript@5.9.3))
+      '@fastly/js-compute': 3.42.1(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(typescript@5.9.3)
       hono: 4.12.25
 
-  '@fastly/js-compute@3.42.1(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(typescript@5.9.3)':
+  '@fastly/js-compute@3.42.1(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(typescript@5.9.3)':
     dependencies:
-      '@bytecodealliance/jco': 1.23.0(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
-      '@bytecodealliance/weval': 0.3.4(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
+      '@bytecodealliance/jco': 1.23.0(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)
+      '@bytecodealliance/weval': 0.3.4(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)
       '@bytecodealliance/wizer': 7.0.5
       '@jridgewell/remapping': 2.3.5
       '@jridgewell/trace-mapping': 0.3.31
@@ -3720,9 +3731,9 @@ snapshots:
   '@napi-rs/lzma-linux-x64-musl@1.4.5':
     optional: true
 
-  '@napi-rs/lzma-wasm32-wasi@1.4.5(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)':
+  '@napi-rs/lzma-wasm32-wasi@1.4.5(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)':
     dependencies:
-      '@napi-rs/wasm-runtime': 1.1.5(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
+      '@napi-rs/wasm-runtime': 1.1.5(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -3737,7 +3748,7 @@ snapshots:
   '@napi-rs/lzma-win32-x64-msvc@1.4.5':
     optional: true
 
-  '@napi-rs/lzma@1.4.5(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)':
+  '@napi-rs/lzma@1.4.5(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)':
     optionalDependencies:
       '@napi-rs/lzma-android-arm-eabi': 1.4.5
       '@napi-rs/lzma-android-arm64': 1.4.5
@@ -3752,7 +3763,7 @@ snapshots:
       '@napi-rs/lzma-linux-s390x-gnu': 1.4.5
       '@napi-rs/lzma-linux-x64-gnu': 1.4.5
       '@napi-rs/lzma-linux-x64-musl': 1.4.5
-      '@napi-rs/lzma-wasm32-wasi': 1.4.5(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
+      '@napi-rs/lzma-wasm32-wasi': 1.4.5(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)
       '@napi-rs/lzma-win32-arm64-msvc': 1.4.5
       '@napi-rs/lzma-win32-ia32-msvc': 1.4.5
       '@napi-rs/lzma-win32-x64-msvc': 1.4.5
@@ -3762,8 +3773,8 @@ snapshots:
 
   '@napi-rs/wasm-runtime@0.2.12':
     dependencies:
-      '@emnapi/core': 1.11.0
-      '@emnapi/runtime': 1.11.0
+      '@emnapi/core': 1.11.1
+      '@emnapi/runtime': 1.11.1
       '@tybys/wasm-util': 0.10.2
     optional: true
 
@@ -3774,10 +3785,10 @@ snapshots:
       '@tybys/wasm-util': 0.10.2
     optional: true
 
-  '@napi-rs/wasm-runtime@1.1.5(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)':
+  '@napi-rs/wasm-runtime@1.1.5(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)':
     dependencies:
-      '@emnapi/core': 1.11.0
-      '@emnapi/runtime': 1.11.0
+      '@emnapi/core': 1.11.1
+      '@emnapi/runtime': 1.11.1
       '@tybys/wasm-util': 0.10.2
     optional: true
 
@@ -4103,9 +4114,9 @@ snapshots:
 
   '@oxlint/plugins@1.61.0': {}
 
-  '@playwright/test@1.60.0':
+  '@playwright/test@1.61.0':
     dependencies:
-      playwright: 1.60.0
+      playwright: 1.61.0
 
   '@polka/url@1.0.0-next.29': {}
 
@@ -4151,9 +4162,9 @@ snapshots:
   '@rolldown/binding-openharmony-arm64@1.0.0-rc.6':
     optional: true
 
-  '@rolldown/binding-wasm32-wasi@1.0.0-rc.6(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)':
+  '@rolldown/binding-wasm32-wasi@1.0.0-rc.6(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)':
     dependencies:
-      '@napi-rs/wasm-runtime': 1.1.5(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
+      '@napi-rs/wasm-runtime': 1.1.5(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -4189,12 +4200,17 @@ snapshots:
     dependencies:
       undici-types: 7.24.6
 
+  '@types/node@25.9.4':
+    dependencies:
+      undici-types: 7.24.6
+    optional: true
+
   '@types/whatwg-mimetype@3.0.2':
     optional: true
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 25.9.3
+      '@types/node': 25.9.4
     optional: true
 
   '@voidzero-dev/vite-plus-core@0.1.24(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(yaml@2.9.0)':
@@ -4231,7 +4247,7 @@ snapshots:
   '@voidzero-dev/vite-plus-linux-x64-musl@0.1.24':
     optional: true
 
-  '@voidzero-dev/vite-plus-test@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)':
+  '@voidzero-dev/vite-plus-test@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)':
     dependencies:
       '@standard-schema/spec': 1.1.0
       '@types/chai': 5.2.3
@@ -4245,7 +4261,7 @@ snapshots:
       tinybench: 2.9.0
       tinyexec: 1.2.4
       tinyglobby: 0.2.17
-      vite: 8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0)
+      vite: 8.0.0-beta.16(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0)
       ws: 8.21.0
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
@@ -4631,7 +4647,7 @@ snapshots:
 
   happy-dom@20.9.0:
     dependencies:
-      '@types/node': 25.9.3
+      '@types/node': 25.9.4
       '@types/whatwg-mimetype': 3.0.2
       '@types/ws': 8.18.1
       entities: 7.0.1
@@ -4726,7 +4742,7 @@ snapshots:
       saxes: 6.0.0
       symbol-tree: 3.2.4
       tough-cookie: 6.0.1
-      undici: 7.27.2
+      undici: 7.28.0
       w3c-xmlserializer: 5.0.0
       webidl-conversions: 8.0.1
       whatwg-mimetype: 5.0.0
@@ -4941,7 +4957,7 @@ snapshots:
       '@oxc-resolver/binding-win32-arm64-msvc': 11.20.0
       '@oxc-resolver/binding-win32-x64-msvc': 11.20.0
 
-  oxfmt@0.52.0(vite-plus@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)):
+  oxfmt@0.52.0(vite-plus@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)):
     dependencies:
       tinypool: 2.1.0
     optionalDependencies:
@@ -4964,7 +4980,7 @@ snapshots:
       '@oxfmt/binding-win32-arm64-msvc': 0.52.0
       '@oxfmt/binding-win32-ia32-msvc': 0.52.0
       '@oxfmt/binding-win32-x64-msvc': 0.52.0
-      vite-plus: 0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)
+      vite-plus: 0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)
 
   oxlint-tsgolint@0.23.0:
     optionalDependencies:
@@ -4975,7 +4991,7 @@ snapshots:
       '@oxlint-tsgolint/win32-arm64': 0.23.0
       '@oxlint-tsgolint/win32-x64': 0.23.0
 
-  oxlint@1.67.0(oxlint-tsgolint@0.23.0)(vite-plus@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)):
+  oxlint@1.67.0(oxlint-tsgolint@0.23.0)(vite-plus@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)):
     optionalDependencies:
       '@oxlint/binding-android-arm-eabi': 1.67.0
       '@oxlint/binding-android-arm64': 1.67.0
@@ -4997,7 +5013,7 @@ snapshots:
       '@oxlint/binding-win32-ia32-msvc': 1.67.0
       '@oxlint/binding-win32-x64-msvc': 1.67.0
       oxlint-tsgolint: 0.23.0
-      vite-plus: 0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)
+      vite-plus: 0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)
 
   parent-module@1.0.1:
     dependencies:
@@ -5039,11 +5055,11 @@ snapshots:
     dependencies:
       pngjs: 7.0.0
 
-  playwright-core@1.60.0: {}
+  playwright-core@1.61.0: {}
 
-  playwright@1.60.0:
+  playwright@1.61.0:
     dependencies:
-      playwright-core: 1.60.0
+      playwright-core: 1.61.0
     optionalDependencies:
       fsevents: 2.3.2
 
@@ -5105,7 +5121,7 @@ snapshots:
       onetime: 7.0.0
       signal-exit: 4.1.0
 
-  rolldown@1.0.0-rc.6(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0):
+  rolldown@1.0.0-rc.6(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1):
     dependencies:
       '@oxc-project/types': 0.115.0
       '@rolldown/pluginutils': 1.0.0-rc.6
@@ -5120,7 +5136,7 @@ snapshots:
       '@rolldown/binding-linux-x64-gnu': 1.0.0-rc.6
       '@rolldown/binding-linux-x64-musl': 1.0.0-rc.6
       '@rolldown/binding-openharmony-arm64': 1.0.0-rc.6
-      '@rolldown/binding-wasm32-wasi': 1.0.0-rc.6(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
+      '@rolldown/binding-wasm32-wasi': 1.0.0-rc.6(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)
       '@rolldown/binding-win32-arm64-msvc': 1.0.0-rc.6
       '@rolldown/binding-win32-x64-msvc': 1.0.0-rc.6
     transitivePeerDependencies:
@@ -5260,12 +5276,12 @@ snapshots:
 
   tinypool@2.1.0: {}
 
-  tldts-core@7.4.2:
+  tldts-core@7.4.3:
     optional: true
 
-  tldts@7.4.2:
+  tldts@7.4.3:
     dependencies:
-      tldts-core: 7.4.2
+      tldts-core: 7.4.3
     optional: true
 
   to-buffer@1.2.2:
@@ -5278,7 +5294,7 @@ snapshots:
 
   tough-cookie@6.0.1:
     dependencies:
-      tldts: 7.4.2
+      tldts: 7.4.3
     optional: true
 
   tr46@6.0.0:
@@ -5315,7 +5331,7 @@ snapshots:
 
   undici@7.24.8: {}
 
-  undici@7.27.2:
+  undici@7.28.0:
     optional: true
 
   unenv@2.0.0-rc.24:
@@ -5335,14 +5351,14 @@ snapshots:
 
   util-deprecate@1.0.2: {}
 
-  vite-plus@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0):
+  vite-plus@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0):
     dependencies:
       '@oxc-project/types': 0.133.0
       '@oxlint/plugins': 1.61.0
       '@voidzero-dev/vite-plus-core': 0.1.24(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(yaml@2.9.0)
-      '@voidzero-dev/vite-plus-test': 0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)
-      oxfmt: 0.52.0(vite-plus@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
-      oxlint: 1.67.0(oxlint-tsgolint@0.23.0)(vite-plus@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
+      '@voidzero-dev/vite-plus-test': 0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0)
+      oxfmt: 0.52.0(vite-plus@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
+      oxlint: 1.67.0(oxlint-tsgolint@0.23.0)(vite-plus@0.1.24(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(esbuild@0.27.3)(happy-dom@20.9.0)(jiti@2.7.0)(jsdom@29.1.1(@noble/hashes@1.8.0))(terser@5.48.0)(tsx@4.22.4)(typescript@5.9.3)(vite@8.0.0-beta.16(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0))(yaml@2.9.0))
       oxlint-tsgolint: 0.23.0
     optionalDependencies:
       '@voidzero-dev/vite-plus-darwin-arm64': 0.1.24
@@ -5385,13 +5401,13 @@ snapshots:
       - vite
       - yaml
 
-  vite@8.0.0-beta.16(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0):
+  vite@8.0.0-beta.16(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(@types/node@25.9.3)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0):
     dependencies:
       '@oxc-project/runtime': 0.115.0
       lightningcss: 1.32.0
       picomatch: 4.0.4
       postcss: 8.5.15
-      rolldown: 1.0.0-rc.6(@emnapi/core@1.11.0)(@emnapi/runtime@1.11.0)
+      rolldown: 1.0.0-rc.6(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)
       tinyglobby: 0.2.17
     optionalDependencies:
       '@types/node': 25.9.3
