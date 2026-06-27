@@ -8,6 +8,7 @@
   "shutdownAction": "stopCompose",
   "runServices": ["core"],
   "overrideCommand": false,
+  "updateRemoteUserUID": false,
   "remoteEnv": {
     "EDITOR": "code --wait --reuse-window",
     "DEBUGGER_DISABLE": "1"
@@ -155,15 +156,19 @@
   "containerEnv": {
     "NODE_OPTIONS": "--max-old-space-size=4096"
   },
+  // Host bind mounts that hold general config are readonly so in-container
+  // feature/post-create writes cannot re-own them on the host under rootless podman.
+  // Tool auth/state directories stay writable because Claude Code and Codex
+  // rewrite their own state during normal use.
   "mounts": [
-    "source=${localEnv:HOME}/.claude,target=/home/jump/.claude,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.claude.json,target=/home/jump/.claude.json,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.codex,target=/home/jump/.codex,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.config/gh,target=/home/jump/.config/gh,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.config/git,target=/home/jump/.config/git,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.gitconfig,target=/home/jump/.gitconfig,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.ssh,target=/home/jump/.ssh,type=bind,consistency=cached",
-    "source=${localEnv:HOME}/.config/opencode,target=/home/jump/.config/opencode,type=bind,consistency=cached"
+    "source=${localEnv:HOME}/.claude,target=/home/jump/.claude,type=bind",
+    "source=${localEnv:HOME}/.claude.json,target=/home/jump/.claude.json,type=bind",
+    "source=${localEnv:HOME}/.codex,target=/home/jump/.codex,type=bind",
+    "source=${localEnv:HOME}/.config/gh,target=/home/jump/.config/gh,type=bind,readonly",
+    "source=${localEnv:HOME}/.config/git,target=/home/jump/.config/git,type=bind,readonly",
+    "source=${localEnv:HOME}/.gitconfig,target=/home/jump/.gitconfig,type=bind,readonly",
+    "source=${localEnv:HOME}/.ssh,target=/home/jump/.ssh,type=bind,readonly",
+    "source=${localEnv:HOME}/.config/opencode,target=/home/jump/.config/opencode,type=bind,readonly"
   ],
-  "postCreateCommand": "sudo chown -R jump:group /home/jump/ && vp install"
+  "postCreateCommand": "vp install"
 }

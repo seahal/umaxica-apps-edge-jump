@@ -111,6 +111,7 @@ RUN rm -rf "${HOME}/.local"
 
 # Install Vite+ (unified toolchain)
 RUN curl -fsSL https://vite.plus | bash
+RUN chown -R "${DOCKER_UID}:${DOCKER_GID}" "${HOME}"
 
 USER ${DOCKER_USER}:${DOCKER_GROUP}
 
