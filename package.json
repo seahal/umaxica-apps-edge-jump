@@ -31,7 +31,7 @@
     "@cloudflare/workers-types": "catalog:",
     "@hono/node-server": "^2.0.4",
     "@playwright/test": "^1.60.0",
-    "@types/node": "^25.9.3",
+    "@types/node": "^26.0.0",
     "knip": "^6.16.1",
     "tsx": "^4.22.4",
     "vite-plus": "catalog:",
