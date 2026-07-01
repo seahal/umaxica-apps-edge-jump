@@ -4,8 +4,8 @@ services:
     image: localhost/umaxica-apps-jump-dc-core
     build:
       args:
-        DOCKER_UID: "${UID:-1000}"
-        DOCKER_GID: "${GID:-1000}"
+        DOCKER_UID: '${UID:-1000}'
+        DOCKER_GID: '${GID:-1000}'
     userns_mode: keep-id
     # `userns_mode: keep-id` maps the host UID to the image user built from
     # DOCKER_UID/DOCKER_GID. Keeping compose's `user:` on top double-maps under
@@ -13,8 +13,8 @@ services:
     user: !reset null
     volumes: !override
       - type: bind
-        source: "."
-        target: "/home/jump/workspace"
+        source: '.'
+        target: '/home/jump/workspace'
         bind:
           selinux: Z
       - type: volume
