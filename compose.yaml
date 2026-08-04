@@ -20,6 +20,9 @@ services:
         target: /home/jump/workspace/node_modules
         volume:
           nocopy: true
+      - type: volume
+        source: vite-plus-volume
+        target: /home/jump/.vite-plus
     ports:
       - '7676:7676' # jump/fastly
       - '8787:8787' # jump/cloudflare
@@ -63,6 +66,8 @@ services:
     restart: unless-stopped
 volumes:
   node-volume:
+    driver: local
+  vite-plus-volume:
     driver: local
   postgres-data:
     driver: local

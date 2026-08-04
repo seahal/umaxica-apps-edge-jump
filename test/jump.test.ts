@@ -141,12 +141,24 @@ async function fetchCloudflareWorker(
 }
 
 async function cloudflareInternalRedirectFixture() {
+  return cloudflareHandshakeFixture({
+    issuerOrigin: 'https://www.umaxica.app',
+    destinationOrigin: 'https://www.umaxica.app',
+    issuerKid: 'rails-kid-1',
+  });
+}
+
+async function cloudflareHandshakeFixture(options: {
+  issuerOrigin: string;
+  destinationOrigin: string;
+  issuerKid: string;
+}) {
   const previousFetch = globalThis.fetch;
   const issuerKeys = await generateKeyPair('ES384');
   const jumpKeys = await generateKeyPair('ES384', { extractable: true });
   const issuerJwk = await exportJWK(issuerKeys.publicKey);
   const jumpJwk = await exportJWK(jumpKeys.publicKey);
-  const issuerPublicJwk: JWK = { ...issuerJwk, kid: 'rails-kid-1', alg: 'ES384', use: 'sig' };
+  const issuerPublicJwk: JWK = { ...issuerJwk, kid: options.issuerKid, alg: 'ES384', use: 'sig' };
   const jumpPublicJwk: JWK = {
     ...jumpJwk,
     kid: 'cloudflare-active-2026-05',
@@ -159,16 +171,16 @@ async function cloudflareInternalRedirectFixture() {
     issuerKeys.privateKey,
     {
       ...baseClaim(),
-      iss: 'https://www.umaxica.app',
+      iss: options.issuerOrigin,
       aud: 'https://jump.umaxica.net',
       iat: now,
       nbf: now,
       exp: now + 3600,
       jti: crypto.randomUUID(),
       dst: 'internal',
-      url: 'https://www.umaxica.app/',
+      url: `${options.destinationOrigin}/`,
     },
-    { kid: 'rails-kid-1' },
+    { kid: options.issuerKid },
   );
   return {
     inboundToken,
@@ -209,6 +221,26 @@ describe('jump gateway routes', () => {
     expect(umaxicaRegistry['https://www.umaxica.app']).toMatchObject({
       jwks_uri: 'https://www.umaxica.app/.well-known/jwks.json',
       allowed_dst_internal: ['https://www.umaxica.app', 'https://id.umaxica.app'],
+      allowed_dst_external: false,
+    });
+    expect(umaxicaRegistry['https://id.umaxica.com']).toMatchObject({
+      jwks_uri: 'https://id.umaxica.com/.well-known/jwks.json',
+      allowed_dst_internal: ['https://id.umaxica.com', 'https://www.umaxica.com'],
+      allowed_dst_external: false,
+    });
+    expect(umaxicaRegistry['https://www.umaxica.com']).toMatchObject({
+      jwks_uri: 'https://www.umaxica.com/.well-known/jwks.json',
+      allowed_dst_internal: ['https://www.umaxica.com'],
+      allowed_dst_external: false,
+    });
+    expect(umaxicaRegistry['https://id.umaxica.org']).toMatchObject({
+      jwks_uri: 'https://id.umaxica.org/.well-known/jwks.json',
+      allowed_dst_internal: ['https://id.umaxica.org', 'https://www.umaxica.org'],
+      allowed_dst_external: false,
+    });
+    expect(umaxicaRegistry['https://www.umaxica.org']).toMatchObject({
+      jwks_uri: 'https://www.umaxica.org/.well-known/jwks.json',
+      allowed_dst_internal: ['https://www.umaxica.org'],
       allowed_dst_external: false,
     });
     for (const issuer of Object.values(umaxicaRegistry)) {
@@ -600,6 +632,97 @@ describe('jump gateway routes', () => {
         dst: 'internal',
         url: locationUrl.href,
       });
+    } finally {
+      setup.restore();
+    }
+  });
+
+  test.each([
+    ['com', 'https://www.umaxica.com'],
+    ['org', 'https://www.umaxica.org'],
+  ])('cloudflare worker live rails %s handshake contract stays stable', async (family, origin) => {
+    expect(family).toMatch(/^(com|org)$/);
+    const setup = await cloudflareHandshakeFixture({
+      issuerOrigin: origin,
+      destinationOrigin: origin,
+      issuerKid: 'rails-kid-1',
+    });
+    try {
+      const env = {
+        UMAXICA_JUMP_PRIVATE_KEY_PEM: setup.jumpPrivatePem,
+        UMAXICA_JUMP_PRIVATE_KEY_KID: 'cloudflare-active-2026-05',
+      };
+      const res = await fetchCloudflareWorker(`/?rt=${setup.inboundToken}`, env);
+
+      expect(res.status).toBe(302);
+      expect(res.headers.get('X-Jump-Error')).toBeNull();
+      const location = res.headers.get('Location');
+      expect(location).toBeTruthy();
+      const locationUrl = new URL(location ?? '');
+      expect(locationUrl.origin).toBe(origin);
+      expect(locationUrl.pathname).toBe('/');
+      expect(locationUrl.searchParams.getAll('rt')).toHaveLength(1);
+      expect(locationUrl.searchParams.has('jump_rt')).toBe(false);
+      expect(locationUrl.searchParams.has('jump_probe')).toBe(false);
+
+      const returnedRt = locationUrl.searchParams.get('rt') ?? '';
+      expect(decodeProtectedHeader(returnedRt)).toEqual({
+        typ: 'JWT',
+        alg: 'ES384',
+        kid: 'cloudflare-active-2026-05',
+      });
+
+      const jwksRes = await fetchCloudflareWorker('/.well-known/jwks.json', env);
+      expect(jwksRes.status).toBe(200);
+      const jwks = (await jwksRes.json()) as { keys: JWK[] };
+      expect(jwks.keys).toHaveLength(1);
+      expect(jwks.keys[0]).toMatchObject({
+        kid: 'cloudflare-active-2026-05',
+        kty: 'EC',
+        crv: 'P-384',
+        alg: 'ES384',
+        use: 'sig',
+      });
+      expect(jwks.keys[0]).not.toHaveProperty('d');
+
+      const verified = await jwtVerify(returnedRt, await importJWK(jwks.keys[0] ?? {}, 'ES384'), {
+        issuer: 'https://jump.umaxica.net',
+        audience: origin,
+        algorithms: ['ES384'],
+        typ: 'JWT',
+        currentDate: new Date(),
+      });
+      locationUrl.searchParams.delete('rt');
+      expect(locationUrl.href).toBe(`${origin}/`);
+      expect(verified.payload).toMatchObject({
+        schema: 1,
+        iss: 'https://jump.umaxica.net',
+        aud: origin,
+        sub: 'jump-redirect',
+        src: origin,
+        dst: 'internal',
+        url: locationUrl.href,
+      });
+    } finally {
+      setup.restore();
+    }
+  });
+
+  test('cloudflare worker rejects foreign issuers before registry lookup can succeed', async () => {
+    const setup = await cloudflareHandshakeFixture({
+      issuerOrigin: 'https://foreign.example',
+      destinationOrigin: 'https://www.umaxica.com',
+      issuerKid: 'rails-kid-1',
+    });
+    try {
+      const env = {
+        UMAXICA_JUMP_PRIVATE_KEY_PEM: setup.jumpPrivatePem,
+        UMAXICA_JUMP_PRIVATE_KEY_KID: 'cloudflare-active-2026-05',
+      };
+      const res = await fetchCloudflareWorker(`/?rt=${setup.inboundToken}`, env);
+
+      expect(res.status).toBe(400);
+      expect(res.headers.get('X-Jump-Error')).toBe('invalid_claim');
     } finally {
       setup.restore();
     }

@@ -30,7 +30,8 @@ The long-term production shape is:
 - DNS: `jump.umaxica.net` points to the selected edge runtime.
 - TLS: certificate is issued and managed by the edge provider for
   `jump.umaxica.net`.
-- Runtime: Cloudflare Workers or Fastly Compute runs the production entry point.
+- Runtime: Cloudflare Workers is the current production entry point; Fastly
+  Compute remains the alternate runtime.
 - Private key: stored only in the provider secret backend.
 - Private key `kid`: stored in the provider secret backend or non-secret runtime
   config.
@@ -40,6 +41,10 @@ The long-term production shape is:
   verification result, `dst`, normalized destination origin, and normalized path.
 
 ## Cloudflare Workers
+
+Cloudflare Workers is the first production target in this repository. Keep the
+`jump.umaxica.net` contract aligned here before mirroring any runtime-specific
+changes elsewhere.
 
 `wrangler.jsonc` already binds `jump.umaxica.net` as a custom domain and binds
 `UMAXICA_JUMP_PRIVATE_KEY_PEM` from Secrets Store.
