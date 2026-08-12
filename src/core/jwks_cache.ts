@@ -11,11 +11,14 @@ export type FetchJwks = (issuer: IssuerConfig) => Promise<{ keys: JWK[] }>;
 export class JwksCache {
   private readonly cache = new Map<string, CachedSet>();
   private readonly negative = new Map<string, number>();
+  private readonly inFlight = new Map<string, Promise<CachedSet>>();
+  private readonly nextForcedRefresh = new Map<string, number>();
 
   constructor(
     private readonly fetchJwks: FetchJwks,
     private readonly ttlMs = 300_000,
     private readonly negativeTtlMs = 30_000,
+    private readonly forcedRefreshCooldownMs = 10_000,
   ) {}
 
   async getKey(
@@ -45,6 +48,28 @@ export class JwksCache {
     const now = Date.now();
     const cached = this.cache.get(issuer.iss);
     if (!forceRefresh && cached && cached.expiresAt > now) return cached;
+    if (forceRefresh && cached && (this.nextForcedRefresh.get(issuer.iss) ?? 0) > now) {
+      return cached;
+    }
+
+    const existing = this.inFlight.get(issuer.iss);
+    if (existing) return existing;
+
+    if (forceRefresh) {
+      // Start the cooldown before fetching so a failed issuer response cannot
+      // turn every invalid signature into another immediate upstream request.
+      this.nextForcedRefresh.set(issuer.iss, now + this.forcedRefreshCooldownMs);
+    }
+    const loading = this.fetchAndCache(issuer, now);
+    this.inFlight.set(issuer.iss, loading);
+    try {
+      return await loading;
+    } finally {
+      this.inFlight.delete(issuer.iss);
+    }
+  }
+
+  private async fetchAndCache(issuer: IssuerConfig, now: number) {
     const next = await this.fetchJwks(issuer);
     const cachedSet = { keys: next.keys, expiresAt: now + this.ttlMs };
     this.cache.set(issuer.iss, cachedSet);

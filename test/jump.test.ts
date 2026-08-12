@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs';
 import {
   decodeProtectedHeader,
   exportJWK,
@@ -17,7 +18,9 @@ import cloudflareWorker from '../src/cloudflare';
 import { handleJump } from '../src/core/handle_jump';
 import { healthJson, renderHealthHtml, wantsJson } from '../src/core/health';
 import { JwksCache } from '../src/core/jwks_cache';
+import { messages } from '../src/core/i18n';
 import { normalizeOrigin, normalizeUrl } from '../src/core/normalize_url';
+import { brandTitle } from '../src/core/page';
 import { assertDestinationPolicy } from '../src/core/policy';
 import { MemoryReplayCache, NoopReplayCache } from '../src/core/replay_cache';
 import { JoseOutboundSigner, NoopOutboundSigner } from '../src/core/sign_outbound';
@@ -325,7 +328,7 @@ describe('jump gateway routes', () => {
     const html = await app.request('https://jump.example.net/health.html');
     const healthHtml = await html.text();
     expect(healthHtml).toContain('<meta name="robots" content="noindex,nofollow,noarchive"/>');
-    expect(healthHtml).toContain('<title>UMAXICA Jump Gateway | Health status</title>');
+    expect(healthHtml).toContain('<title>サーバー状態 — UMAXICA (NET)</title>');
     expect(healthHtml).toContain('<header><a href="/">UMAXICA</a></header>');
     expect(healthHtml).toContain('<h1>status</h1>');
     expect(healthHtml).toContain('<dt>status</dt><dd>OK</dd>');
@@ -349,7 +352,7 @@ describe('jump gateway routes', () => {
 
     expect(ja.headers.get('Content-Language')).toBe('ja');
     const jaHtml = await ja.text();
-    expect(jaHtml).toContain('<title>UMAXICA Jump Gateway | About</title>');
+    expect(jaHtml).toContain('<title>サイトについて — UMAXICA (NET)</title>');
     expect(jaHtml).toContain('<header><a href="/">UMAXICA</a></header>');
     expect(jaHtml).toContain('<footer>© 2026 UMAXICA</footer>');
     expect(en.headers.get('Content-Language')).toBe('en');
@@ -391,6 +394,18 @@ describe('jump gateway routes', () => {
     const res = await app.request('https://jump.example.net/favicon.ico');
     expect(res.status).toBe(204);
     expect(await res.text()).toBe('');
+  });
+
+  // Cloudflare serves this file as a static asset ahead of the Worker
+  // (wrangler.jsonc "assets"), so app.request() cannot reach it. Guard the
+  // asset itself instead: a missing or wrong-format file would ship silently.
+  test('public/favicon.ico is a real ICO asset', () => {
+    const faviconPath = new URL('../public/favicon.ico', import.meta.url);
+    expect(existsSync(faviconPath)).toBe(true);
+    const bytes = readFileSync(faviconPath);
+    expect(bytes.byteLength).toBeGreaterThan(0);
+    // ICO header: reserved 0x0000, type 0x0001 (icon), little-endian.
+    expect([...bytes.subarray(0, 4)]).toEqual([0x00, 0x00, 0x01, 0x00]);
   });
 
   test('cloudflare worker serves robots without importing private key', async () => {
@@ -848,13 +863,15 @@ describe('jump gateway routes', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     let lines: string[] = [];
     try {
-      await app.request('https://jump.example.net/?rt=header.payload.signature&x=1');
+      for (const name of ['rt', 'r%74', '%72t']) {
+        await app.request(`https://jump.example.net/?${name}=header.payload.signature&x=1`);
+      }
       lines = log.mock.calls.map(([message]) => String(message));
     } finally {
       log.mockRestore();
     }
     expect(lines.some((line) => line.includes('header.payload.signature'))).toBe(false);
-    expect(lines.some((line) => line.includes('rt=[redacted]'))).toBe(true);
+    expect(lines.filter((line) => line.includes('rt=%5Bredacted%5D'))).toHaveLength(6);
   });
 
   test('signer unavailable maps to 503 for internal redirects', async () => {
@@ -1232,6 +1249,84 @@ describe('jump token validation', () => {
     );
     expect(verified.claim.jti).toBe(claim.jti);
     expect(fetches).toBe(2);
+  });
+
+  test('signature failures cannot force repeated JWKS refreshes during cooldown', async () => {
+    const trustedKeys = await generateKeyPair('ES384');
+    const attackerKeys = await generateKeyPair('ES384');
+    const trustedJwk = await exportJWK(trustedKeys.publicKey);
+    let fetches = 0;
+    const registry: IssuerRegistry = {
+      'https://app.example.com': {
+        iss: 'https://app.example.com',
+        jwks_uri: 'https://app.example.com/.well-known/jwks.json',
+        allowed_dst_internal: ['https://app.example.com'],
+        allowed_dst_external: false,
+      },
+    };
+    const cache = new JwksCache(async () => {
+      fetches += 1;
+      return { keys: [{ ...trustedJwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }] };
+    });
+    const invalidToken = await signPayload(attackerKeys.privateKey, baseClaim());
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await expect(
+        verifyJumpJwt(invalidToken, registry, cache, new NoopReplayCache(), NOW),
+      ).rejects.toMatchObject({ code: 'invalid_signature' });
+    }
+
+    expect(fetches).toBe(2);
+  });
+
+  test('a failed forced refresh also starts the JWKS cooldown', async () => {
+    const trustedKeys = await generateKeyPair('ES384');
+    const attackerKeys = await generateKeyPair('ES384');
+    const trustedJwk = await exportJWK(trustedKeys.publicKey);
+    let fetches = 0;
+    const registry: IssuerRegistry = {
+      'https://app.example.com': {
+        iss: 'https://app.example.com',
+        jwks_uri: 'https://app.example.com/.well-known/jwks.json',
+        allowed_dst_internal: ['https://app.example.com'],
+        allowed_dst_external: false,
+      },
+    };
+    const cache = new JwksCache(async () => {
+      fetches += 1;
+      if (fetches > 1) throw new Error('issuer unavailable');
+      return { keys: [{ ...trustedJwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }] };
+    });
+    const invalidToken = await signPayload(attackerKeys.privateKey, baseClaim());
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await expect(
+        verifyJumpJwt(invalidToken, registry, cache, new NoopReplayCache(), NOW),
+      ).rejects.toMatchObject({ code: 'invalid_signature' });
+    }
+
+    expect(fetches).toBe(2);
+  });
+
+  test('concurrent cache misses share JWKS fetches', async () => {
+    const trustedKeys = await generateKeyPair('ES384');
+    const trustedJwk = await exportJWK(trustedKeys.publicKey);
+    let fetches = 0;
+    const issuer = {
+      iss: 'https://app.example.com',
+      jwks_uri: 'https://app.example.com/.well-known/jwks.json',
+      allowed_dst_internal: ['https://app.example.com'],
+      allowed_dst_external: false,
+    } satisfies IssuerRegistry[string];
+    const cache = new JwksCache(async () => {
+      fetches += 1;
+      await Promise.resolve();
+      return { keys: [{ ...trustedJwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }] };
+    });
+
+    await Promise.all(Array.from({ length: 10 }, () => cache.getKey(issuer, 'kid-1', 'ES384')));
+
+    expect(fetches).toBe(1);
   });
 
   test('skew handling permits recently expired token', async () => {
@@ -1886,3 +1981,306 @@ function expectSecurityHeaders(res: Response) {
   expect(res.headers.get('Strict-Transport-Security')).toContain('max-age=63072000');
   expect(res.headers.get('Set-Cookie')).toBeNull();
 }
+
+// --- UMAXICA HTML title contract -------------------------------------------
+// Contract: root = "UMAXICA (NET)", page = "{PAGE} — UMAXICA (NET)" (EM DASH).
+// The TLD comes from the user-facing FQDN https://jump.umaxica.net.
+
+const TITLE_BRAND = 'UMAXICA (NET)';
+const EM_DASH = '—';
+
+/** Surface / runtime / deployment names that must never leak into <title>. */
+const FORBIDDEN_TITLE_TERMS = [
+  'Jump',
+  'jump',
+  'edge-jump',
+  'Edge',
+  'edge',
+  'Hono',
+  'Workers',
+  'Cloudflare',
+  'Vercel',
+  'Gateway',
+];
+
+function extractTitles(html: string) {
+  return [...html.matchAll(/<title>([\s\S]*?)<\/title>/g)].map((match) => String(match[1]));
+}
+
+function assertTitleContract(html: string, expected: string) {
+  const titles = extractTitles(html);
+  expect(titles).toHaveLength(1);
+  const title = String(titles[0]);
+  expect(title.trim()).not.toBe('');
+  expect(title).toBe(expected);
+  expect(title).toContain('UMAXICA');
+  expect(title).toContain('(NET)');
+  // Brand must be exactly upper case: no other casing may appear.
+  expect(/umaxica/i.test(title)).toBe(true);
+  expect(title.replaceAll('UMAXICA', '')).not.toMatch(/umaxica/i);
+  for (const term of FORBIDDEN_TITLE_TERMS) {
+    expect(title).not.toContain(term);
+  }
+}
+
+describe('UMAXICA title contract', () => {
+  test('brandTitle composes root and page titles', () => {
+    expect(brandTitle()).toBe(TITLE_BRAND);
+    expect(brandTitle('About')).toBe(`About ${EM_DASH} ${TITLE_BRAND}`);
+    // page-first ordering
+    expect(brandTitle('About').indexOf('About')).toBeLessThan(
+      brandTitle('About').indexOf('UMAXICA'),
+    );
+    expect(brandTitle('About')).toContain(EM_DASH);
+    expect(brandTitle('About')).not.toContain('|');
+    expect(brandTitle()).not.toContain(EM_DASH);
+    // blank page titles collapse to the root form rather than emitting a dangling dash
+    expect(brandTitle('   ')).toBe(TITLE_BRAND);
+  });
+
+  test('brandTitle never leaks surface or runtime names', () => {
+    for (const value of [brandTitle(), brandTitle('About'), brandTitle('Health status')]) {
+      for (const term of FORBIDDEN_TITLE_TERMS) {
+        expect(value).not.toContain(term);
+      }
+    }
+  });
+
+  test('every localized page title is a non-empty string', () => {
+    const titleKeys = [
+      'aboutPageTitle',
+      'healthTitle',
+      'errorTitle',
+      'notFoundTitle',
+      'rateLimitTitle',
+      'cushionTitle',
+    ] as const;
+    for (const locale of ['ja', 'en'] as const) {
+      for (const key of titleKeys) {
+        const value: string = messages[locale][key];
+        expect(typeof value).toBe('string');
+        expect(value.trim()).not.toBe('');
+        expect(brandTitle(value)).toContain(TITLE_BRAND);
+      }
+    }
+  });
+
+  test('rendered HTML responses satisfy the title contract', async () => {
+    const { app, signToken } = await fixture();
+    const externalToken = await signToken({
+      dst: 'external',
+      url: 'https://example.org/landing',
+    });
+
+    const cases: Array<{
+      name: string;
+      response: Response;
+      ja: string;
+      en: string;
+      locale: 'ja' | 'en';
+      status: number;
+    }> = [];
+
+    const routes: Array<{ name: string; path: string; ja: string; en: string; status: number }> = [
+      { name: '/about', path: '/about', ja: 'サイトについて', en: 'About', status: 200 },
+      { name: '/health', path: '/health', ja: 'サーバー状態', en: 'Health status', status: 200 },
+      {
+        name: '/health.html',
+        path: '/health.html',
+        ja: 'サーバー状態',
+        en: 'Health status',
+        status: 200,
+      },
+      {
+        name: 'cushion',
+        path: `/?rt=${externalToken}`,
+        ja: '外部サイトへ移動',
+        en: 'Continue to external site',
+        status: 200,
+      },
+      {
+        name: 'jump error',
+        path: '/?rt=not-a-token',
+        ja: 'リクエストを処理できません',
+        en: 'Cannot process this request',
+        status: 400,
+      },
+      {
+        name: 'notFound',
+        path: '/no-such-page',
+        ja: 'ページが見つかりません',
+        en: 'Page not found',
+        status: 404,
+      },
+    ];
+
+    for (const route of routes) {
+      for (const locale of ['ja', 'en'] as const) {
+        cases.push({
+          ...route,
+          locale,
+          response: await app.request(`https://jump.example.net${route.path}`, {
+            headers: locale === 'en' ? { 'Accept-Language': 'en' } : {},
+          }),
+        });
+      }
+    }
+
+    for (const testCase of cases) {
+      const label = `${testCase.name} (${testCase.locale})`;
+      expect(testCase.response.status, label).toBe(testCase.status);
+      expect(testCase.response.headers.get('Content-Type'), label).toContain('text/html');
+      expect(testCase.response.headers.get('Content-Language'), label).toBe(testCase.locale);
+      const page = testCase.locale === 'ja' ? testCase.ja : testCase.en;
+      assertTitleContract(await testCase.response.text(), `${page} ${EM_DASH} ${TITLE_BRAND}`);
+    }
+  });
+
+  test('cloudflare rate limit response is HTML with a contract title', async () => {
+    const rateLimiter = { limit: async () => ({ success: false }) };
+    const ja = await cloudflareWorker.fetch(
+      new Request('https://jump.example.net/about'),
+      { ratelimit: rateLimiter },
+      {} as ExecutionContext,
+    );
+    const en = await cloudflareWorker.fetch(
+      new Request('https://jump.example.net/about', { headers: { 'Accept-Language': 'en-US' } }),
+      { ratelimit: rateLimiter },
+      {} as ExecutionContext,
+    );
+
+    expect(ja.status).toBe(429);
+    expect(ja.headers.get('Content-Type')).toContain('text/html');
+    assertTitleContract(await ja.text(), `アクセスが集中しています ${EM_DASH} ${TITLE_BRAND}`);
+
+    expect(en.status).toBe(429);
+    assertTitleContract(await en.text(), `Too many requests ${EM_DASH} ${TITLE_BRAND}`);
+  });
+
+  // The 429 answers before the Hono app is built, so it cannot inherit
+  // jumpSecureHeaders/responseHygiene. Assert it against the very same helper
+  // the in-app HTML routes use, so the two paths cannot drift apart.
+  test('rate limit HTML carries the same protections as in-app HTML', async () => {
+    const limited = await cloudflareWorker.fetch(
+      new Request('https://jump.example.net/about'),
+      { ratelimit: { limit: async () => ({ success: false }) } },
+      {} as ExecutionContext,
+    );
+    const inApp = await createApp().request('https://jump.example.net/about');
+
+    expect(limited.status).toBe(429);
+    expectSecurityHeaders(limited);
+
+    // Exact parity, not just "passes the helper": every protection header the
+    // in-app HTML path emits must appear on the standalone path with the same
+    // value. Request-scoped and content headers are excluded.
+    const perRequest = new Set(['x-request-id', 'content-language', 'content-type']);
+    for (const [name, value] of inApp.headers.entries()) {
+      if (perRequest.has(name)) continue;
+      expect(limited.headers.get(name), `header ${name}`).toBe(value);
+    }
+  });
+
+  // A Secrets Store binding throws when the secret is not in the store, which is
+  // the normal state under local `wrangler dev`. That rejection used to escape
+  // the fetch handler and 500 every route.
+  test('a secrets-store binding that throws does not break unrelated routes', async () => {
+    const missingSecret = {
+      get: async () => {
+        throw new Error('Secret "UMAXICA_JUMP_PRIVATE_KEY_PEM" not found');
+      },
+    };
+    const env = {
+      UMAXICA_JUMP_PRIVATE_KEY_PEM: missingSecret,
+      UMAXICA_JUMP_PRIVATE_KEY_KID: missingSecret,
+      UMAXICA_JUMP_PUBLIC_JWKS: missingSecret,
+    } as unknown as Parameters<typeof cloudflareWorker.fetch>[1];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const about = await cloudflareWorker.fetch(
+        new Request('https://jump.umaxica.net/about'),
+        env,
+        {} as ExecutionContext,
+      );
+      expect(about.status).toBe(200);
+      assertTitleContract(await about.text(), `サイトについて ${EM_DASH} ${TITLE_BRAND}`);
+
+      // Routes that never consume the keyset must not touch the binding at all,
+      // so they neither pay for the key-pair check nor log a warning.
+      expect(warn.mock.calls).toHaveLength(0);
+
+      // The keyset is genuinely unavailable, so this one degrades rather than 500s.
+      const jwks = await cloudflareWorker.fetch(
+        new Request('https://jump.umaxica.net/.well-known/jwks.json'),
+        env,
+        {} as ExecutionContext,
+      );
+      expect(jwks.status).toBe(503);
+
+      // The failure is logged, and the log carries the binding name, not a value.
+      const logged = warn.mock.calls.map((call) => String(call[0])).join('\n');
+      expect(logged).toContain('jump_secret_binding_unavailable');
+      expect(logged).toContain('private_key_pem');
+      expect(logged).not.toContain('BEGIN');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('static assets ship a _headers policy for the Worker-bypassing path', () => {
+    const headersPath = new URL('../public/_headers', import.meta.url);
+    expect(existsSync(headersPath)).toBe(true);
+    const policy = readFileSync(headersPath, 'utf8');
+    expect(policy).toContain('/*');
+    for (const header of [
+      'X-Content-Type-Options: nosniff',
+      'X-Frame-Options: DENY',
+      'Referrer-Policy: no-referrer',
+      'Strict-Transport-Security: max-age=63072000',
+    ]) {
+      expect(policy).toContain(header);
+    }
+  });
+
+  test('non-HTML responses are unchanged and carry no title field', async () => {
+    const { app } = await fixture();
+
+    const healthJsonRes = await app.request('https://jump.example.net/health.json');
+    expect(healthJsonRes.headers.get('Content-Type')).toContain('application/json');
+    const healthBody = (await healthJsonRes.json()) as Record<string, unknown>;
+    expect(Object.keys(healthBody).sort()).toEqual([
+      'edge',
+      'service',
+      'status',
+      'time',
+      'version',
+    ]);
+    expect(healthBody).not.toHaveProperty('title');
+
+    const negotiated = await app.request('https://jump.example.net/health', {
+      headers: { Accept: 'application/json' },
+    });
+    expect(negotiated.headers.get('Content-Type')).toContain('application/json');
+    expect(await negotiated.json()).not.toHaveProperty('title');
+
+    const robots = await app.request('https://jump.example.net/robots.txt');
+    expect(robots.headers.get('Content-Type')).toContain('text/plain');
+    expect(await robots.text()).not.toContain('title');
+
+    const sitemap = await app.request('https://jump.example.net/sitemap.xml');
+    expect(sitemap.headers.get('Content-Type')).toContain('application/xml');
+    expect(await sitemap.text()).not.toContain('<title>');
+
+    const favicon = await app.request('https://jump.example.net/favicon.ico');
+    expect(favicon.status).toBe(204);
+
+    const root = await app.request('https://jump.example.net/');
+    expect(root.status).toBe(302);
+    expect(root.headers.get('Location')).toBe('/about');
+
+    const jwks = await app.request('https://jump.example.net/.well-known/jwks.json');
+    expect(jwks.headers.get('Content-Type')).toContain('application/json');
+    expect(await jwks.json()).not.toHaveProperty('title');
+  });
+});

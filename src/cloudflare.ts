@@ -2,7 +2,10 @@ import { exportJWK, importJWK, importPKCS8, jwtVerify, SignJWT, type JWK } from 
 import { registry as umaxicaRegistry } from './config/registry.umaxica';
 import { fetchRegistryJwks } from './core/fetch_jwks';
 import { createApp } from './index';
+import { asLocale } from './core/i18n';
+import { renderRateLimitPage } from './core/page';
 import { NoopReplayCache } from './core/replay_cache';
+import { STANDALONE_HTML_SECURITY_HEADERS } from './core/security_headers';
 import { JoseOutboundSigner, NoopOutboundSigner, type OutboundSigner } from './core/sign_outbound';
 import { JumpError, PRODUCTION_SERVICE_ORIGIN, type OutboundJumpClaim } from './core/types';
 import { parseJumpJwks, type JumpJwks } from './core/jump_jwks';
@@ -37,7 +40,10 @@ export default {
     if (rateLimit) return rateLimit;
     const url = new URL(request.url);
     const serviceOrigin = env.UMAXICA_JUMP_ORIGIN || PRODUCTION_SERVICE_ORIGIN;
-    const jumpJwks = await readJumpJwks(env);
+    // Reading the keyset costs a full importPKCS8 + sign + verify key-pair check.
+    // Only the two routes below consume it, so every other route (/about,
+    // /health, /robots.txt, ...) skips that work entirely.
+    const jumpJwks = needsJumpJwks(url) ? await readJumpJwks(env) : undefined;
 
     const app = createApp({
       registry: umaxicaRegistry,
@@ -67,6 +73,17 @@ function shouldSignJump(url: URL) {
   return url.pathname === '/' && url.searchParams.has('rt');
 }
 
+const JWKS_PATH = '/.well-known/jwks.json';
+
+/**
+ * The keyset is consumed in exactly two places: signing an outbound redirect,
+ * and publishing the public keyset. Keep this in sync with the `signer` and
+ * `jumpJwks` options passed to createApp below.
+ */
+function needsJumpJwks(url: URL) {
+  return shouldSignJump(url) || url.pathname === JWKS_PATH;
+}
+
 async function checkRateLimit(request: Request, env: CloudflareEnv) {
   const rateLimiter = env.RATE_LIMITER || env.ratelimit;
   if (!rateLimiter) return null;
@@ -74,7 +91,20 @@ async function checkRateLimit(request: Request, env: CloudflareEnv) {
   const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
   const { success } = await rateLimiter.limit({ key: `${clientIp}|${pathname}` });
   if (success) return null;
-  return new Response(`429 Failure - rate limit exceeded for ${pathname}`, { status: 429 });
+  // Rate limiting runs before the Hono app, so languageDetector is unavailable here.
+  const locale = asLocale(
+    request.headers.get('Accept-Language')?.trim().toLowerCase().startsWith('en') ? 'en' : 'ja',
+  );
+  // This answers before the Hono app exists, so jumpSecureHeaders/responseHygiene
+  // cannot run: apply the same protections explicitly.
+  return new Response(renderRateLimitPage(locale), {
+    status: 429,
+    headers: {
+      ...STANDALONE_HTML_SECURITY_HEADERS,
+      'Content-Language': locale,
+      'Content-Type': 'text/html; charset=utf-8',
+    },
+  });
 }
 
 function createSigner(env: CloudflareEnv, jumpJwks: JumpJwks | undefined) {
@@ -145,26 +175,46 @@ async function createJoseSigner(env: CloudflareEnv, jumpJwks: JumpJwks | undefin
 }
 
 async function readPrivateKeyPem(env: CloudflareEnv) {
-  const value = await readBinding(env.UMAXICA_JUMP_PRIVATE_KEY_PEM ?? env.JUMP_PRIVATE_KEY_PEM);
+  const value = await readBinding(
+    env.UMAXICA_JUMP_PRIVATE_KEY_PEM ?? env.JUMP_PRIVATE_KEY_PEM,
+    'private_key_pem',
+  );
   return normalizePem(value);
 }
 
 async function readPrivateKeyKid(env: CloudflareEnv) {
-  const value = await readBinding(env.UMAXICA_JUMP_PRIVATE_KEY_KID ?? env.JUMP_PRIVATE_KEY_KID);
+  const value = await readBinding(
+    env.UMAXICA_JUMP_PRIVATE_KEY_KID ?? env.JUMP_PRIVATE_KEY_KID,
+    'private_key_kid',
+  );
   return value?.trim() || null;
 }
 
 async function readJumpJwks(env: CloudflareEnv) {
   const derived = await deriveJumpJwksFromPrivateKey(env);
   if (derived) return derived;
-  const value = await readBinding(env.UMAXICA_JUMP_PUBLIC_JWKS ?? env.UMAXICA_JUMP_PUBLIC_KEYSET);
+  const value = await readBinding(
+    env.UMAXICA_JUMP_PUBLIC_JWKS ?? env.UMAXICA_JUMP_PUBLIC_KEYSET,
+    'public_jwks',
+  );
   return value ? parseJumpJwks(value) : undefined;
 }
 
-async function readBinding(binding: SecretBinding | undefined) {
+async function readBinding(binding: SecretBinding | undefined, name: string) {
   if (!binding) return null;
   if (typeof binding === 'string') return binding;
-  return binding.get();
+  try {
+    return await binding.get();
+  } catch (error) {
+    // A Secrets Store binding throws when the secret is absent from the store
+    // (local `wrangler dev`, an unprovisioned store, a rotation gap). Without
+    // this catch the rejection escapes the fetch handler and every request
+    // 500s, including /about and /health, which need no key at all. Degrade to
+    // "not configured" instead: the signer then reports signer_unavailable and
+    // only the redirect path is affected.
+    logSecretUnavailable(name, error);
+    return null;
+  }
 }
 
 async function assertPrivateKeyMatchesPublicJwk(
@@ -219,6 +269,17 @@ function stripPrivateJwkFields(jwk: JWK): JWK {
     delete publicJwk[field];
   }
   return publicJwk;
+}
+
+function logSecretUnavailable(name: string, error: unknown) {
+  // eslint-disable-next-line no-console -- binding name only; never the secret value.
+  console.warn(
+    JSON.stringify({
+      event: 'jump_secret_binding_unavailable',
+      binding: name,
+      reason: error instanceof Error ? error.message : 'unknown',
+    }),
+  );
 }
 
 function logSignerConfig(entry: {

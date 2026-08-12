@@ -7,11 +7,30 @@ import type { NormalizedUrl } from './normalize_url';
 import { CUSHION_INLINE_SCRIPT } from './security_headers';
 
 type PageProps = {
-  title: string;
+  pageTitle?: string;
   locale: Locale;
   children: Child;
   now?: Date;
 };
+
+const BRAND_NAME = 'UMAXICA';
+
+/**
+ * UMAXICA title contract brand, derived from the user-facing FQDN so it cannot
+ * drift from the deployment: https://jump.umaxica.net -> "UMAXICA (NET)".
+ */
+const BRAND = `${BRAND_NAME} (${brandTld(PRODUCTION_SERVICE_ORIGIN)})`;
+
+/** Root: "UMAXICA (NET)". Page: "About — UMAXICA (NET)" (separator is EM DASH). */
+export function brandTitle(pageTitle?: string) {
+  const page = pageTitle?.trim();
+  return page ? `${page} — ${BRAND}` : BRAND;
+}
+
+function brandTld(origin: string) {
+  const labels = new URL(origin).hostname.split('.');
+  return String(labels[labels.length - 1]).toUpperCase();
+}
 
 export function renderAboutPage(
   locale: Locale = 'ja',
@@ -20,7 +39,7 @@ export function renderAboutPage(
 ) {
   const t = messages[locale];
   return renderDocument({
-    title: t.aboutPageTitle,
+    pageTitle: t.aboutPageTitle,
     locale,
     now,
     children: (
@@ -40,7 +59,7 @@ export function renderHealthPage(
 ) {
   const t = messages[locale];
   return renderDocument({
-    title: t.healthTitle,
+    pageTitle: t.healthTitle,
     locale,
     now,
     children: (
@@ -62,7 +81,7 @@ export function renderHealthPage(
 export function renderErrorPage(locale: Locale = 'ja', now = new Date()) {
   const t = messages[locale];
   return renderDocument({
-    title: t.errorTitle,
+    pageTitle: t.errorTitle,
     locale,
     now,
     children: (
@@ -74,11 +93,41 @@ export function renderErrorPage(locale: Locale = 'ja', now = new Date()) {
   });
 }
 
+export function renderNotFoundPage(locale: Locale = 'ja', now = new Date()) {
+  const t = messages[locale];
+  return renderDocument({
+    pageTitle: t.notFoundTitle,
+    locale,
+    now,
+    children: (
+      <main>
+        <h1>{t.notFoundTitle}</h1>
+        <p>{t.notFoundBody}</p>
+      </main>
+    ),
+  });
+}
+
+export function renderRateLimitPage(locale: Locale = 'ja', now = new Date()) {
+  const t = messages[locale];
+  return renderDocument({
+    pageTitle: t.rateLimitTitle,
+    locale,
+    now,
+    children: (
+      <main>
+        <h1>{t.rateLimitTitle}</h1>
+        <p>{t.rateLimitBody}</p>
+      </main>
+    ),
+  });
+}
+
 export function renderCushionPage(target: NormalizedUrl, locale: Locale = 'ja', now = new Date()) {
   const t = messages[locale];
   const displayUrl = truncate(target.href, 180);
   return renderDocument({
-    title: t.cushionTitle,
+    pageTitle: t.cushionTitle,
     locale,
     now,
     children: (
@@ -102,14 +151,14 @@ export function renderCushionPage(target: NormalizedUrl, locale: Locale = 'ja', 
   });
 }
 
-function renderDocument({ title, locale, children, now = new Date() }: PageProps) {
+function renderDocument({ pageTitle, locale, children, now = new Date() }: PageProps) {
   const document = (
     <html lang={locale}>
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width,initial-scale=1" />
         <meta name="robots" content="noindex,nofollow,noarchive" />
-        <title>{title}</title>
+        <title>{brandTitle(pageTitle)}</title>
       </head>
       <body>
         <header>

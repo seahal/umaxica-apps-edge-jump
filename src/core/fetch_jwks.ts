@@ -1,7 +1,9 @@
 import type { JWK } from 'jose';
 import type { FetchJwks } from './jwks_cache';
 
-const FETCH_TIMEOUT_MS = 2_000;
+// Keep the outbound deadline below Hono's one-second request timeout so a
+// failed issuer fetch is cancelled before the client-facing response expires.
+const FETCH_TIMEOUT_MS = 800;
 const MAX_BYTES = 64 * 1024;
 const JSON_CONTENT_TYPE = /^application\/(?:[a-z0-9.+-]+\+)?json(?:\s*;|$)/i;
 

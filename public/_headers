@@ -1,0 +1,10 @@
+# Static assets are served by Cloudflare ahead of the Worker, so the
+# jumpSecureHeaders / responseHygiene middleware in src/core/security_headers.ts
+# never runs for them. Mirror the protections that matter for a static file.
+# This file is configuration: Cloudflare consumes it and does not serve it.
+/*
+  Referrer-Policy: no-referrer
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  X-Robots-Tag: noindex, nofollow, noarchive
