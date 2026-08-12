@@ -17,6 +17,7 @@ import { asLocale, type Locale } from './core/i18n';
 import { JwksCache, type FetchJwks } from './core/jwks_cache';
 import { validateJumpJwks, type JumpJwks } from './core/jump_jwks';
 import { MemoryReplayCache } from './core/replay_cache';
+import { renderNotFoundPage } from './core/page';
 import { renderAbout } from './core/render_about';
 import { renderRobots, renderSitemap } from './core/render_discovery';
 import { jumpSecureHeaders, responseHygiene } from './core/security_headers';
@@ -85,6 +86,9 @@ export function createApp(options: AppOptions = {}) {
     const locale = requestLocale(c);
     return html(c, renderHealthHtml(runtime, locale), locale);
   });
+  // On Cloudflare this never runs: wrangler serves public/favicon.ico as a
+  // static asset ahead of the Worker. Fastly and Node have no asset layer, so
+  // this keeps them on 204 rather than falling through to the HTML 404 page.
   app.get('/favicon.ico', (c) => c.body(null, 204));
   app.get('/robots.txt', (c) => c.text(renderRobots(new URL(c.req.url).origin)));
   app.get('/sitemap.xml', (c) =>
@@ -95,6 +99,14 @@ export function createApp(options: AppOptions = {}) {
   app.get('/.well-known/jwks.json', (c) => {
     if (!jumpJwks) return c.body('jump jwks not configured', 503);
     return json(c, jumpJwks);
+  });
+
+  app.notFound((c) => {
+    const locale = requestLocale(c);
+    return c.body(renderNotFoundPage(locale), 404, {
+      'Content-Language': locale,
+      'Content-Type': 'text/html; charset=utf-8',
+    });
   });
 
   return app;
@@ -141,7 +153,19 @@ export async function fetchExampleJwks() {
 
 function redactLogLine(message: string) {
   // eslint-disable-next-line no-console -- request logging is intentional, but rt values are redacted.
-  console.log(message.replaceAll(/([?&]rt=)[^&\s]*/g, '$1[redacted]'));
+  console.log(
+    message.replace(/(\s)(\/\S*)/, (_match, whitespace: string, target: string) => {
+      try {
+        const url = new URL(target, 'https://request-log.invalid');
+        for (const name of [...url.searchParams.keys()]) {
+          if (name === 'rt') url.searchParams.set(name, '[redacted]');
+        }
+        return `${whitespace}${url.pathname}${url.search}${url.hash}`;
+      } catch {
+        return `${whitespace}[unparseable-request-target]`;
+      }
+    }),
+  );
 }
 
 function auditLog(entry: JumpAuditLogEntry) {
