@@ -147,28 +147,17 @@
   "features": {
     "ghcr.io/devcontainers/features/github-cli:1": {},
     "ghcr.io/marcosbolanos/devcontainer-features/neovim-prebuilt:1": {},
-    "ghcr.io/jsburckhardt/devcontainer-features/opencode:1": {},
     "ghcr.io/jasonthedeveloper/features/trivy:1": {},
     "ghcr.io/audacioustux/devcontainers/bun:1": {},
-    "ghcr.io/jsburckhardt/devcontainer-features/codex:1": {},
-    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {}
+    "ghcr.io/jsburckhardt/devcontainer-features/herdr:1": { "VERSION": "v0.8.0" },
+    "ghcr.io/joedmck/devcontainer-features/wrangler:1": {},
+    "ghcr.io/srzstephen/devcontainer-features/claude-code:1": {},
+    "ghcr.io/nolanjx/devcontainer-features/codex:1": {},
+    "ghcr.io/devcontainer-community/devcontainer-features/tailscale.com:1": {},
+    "ghcr.io/sliekens/devcontainer-features/grok-build:1": {}
   },
   "containerEnv": {
     "NODE_OPTIONS": "--max-old-space-size=4096"
   },
-  // Host bind mounts that hold general config are readonly so in-container
-  // feature/post-create writes cannot re-own them on the host under rootless podman.
-  // Tool auth/state directories stay writable because Claude Code and Codex
-  // rewrite their own state during normal use.
-  "mounts": [
-    "source=${localEnv:HOME}/.claude,target=/home/jump/.claude,type=bind",
-    "source=${localEnv:HOME}/.claude.json,target=/home/jump/.claude.json,type=bind",
-    "source=${localEnv:HOME}/.codex,target=/home/jump/.codex,type=bind",
-    "source=${localEnv:HOME}/.config/gh,target=/home/jump/.config/gh,type=bind,readonly",
-    "source=${localEnv:HOME}/.config/git,target=/home/jump/.config/git,type=bind,readonly",
-    "source=${localEnv:HOME}/.gitconfig,target=/home/jump/.gitconfig,type=bind,readonly",
-    "source=${localEnv:HOME}/.ssh,target=/home/jump/.ssh,type=bind,readonly",
-    "source=${localEnv:HOME}/.config/opencode,target=/home/jump/.config/opencode,type=bind,readonly"
-  ],
   "postCreateCommand": "vp install"
 }

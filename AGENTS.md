@@ -75,3 +75,7 @@ These commands map to their corresponding tools. For example, `vp dev --port 300
 - [ ] Run `vp check` and `vp test` to validate changes.
 
 <!--VITE PLUS END-->
+
+## Design Principle
+
+Never forget the spirit of YAGNI (You Aren't Gonna Need It): build only what is needed now, and avoid speculative abstractions or features for imagined future requirements.
