@@ -30,7 +30,7 @@ P-384 keys are small, fast, and map cleanly to EC JWKs with `alg: ES384`.
 
 ## Why Jump Does Not Detect Replay?
 
-Replay defense belongs at the receiving boundary, where the destination application holds the local session, context, and downstream effects needed to decide accept or reject. Jump's job ends at signature, claim, and policy validation. Holding replay state at the edge would be isolate-local, race-prone, and redundant with the receiving party's check. Jump signs `jti` into the token so the receiving party can implement single-use, N-use, or unrestricted-within-`exp` policies; Jump itself records nothing.
+Jump's schema-1 token communicates a redirect decision only and may be reused until expiry. It does not establish authentication, a session, authorization, CSRF approval, or permission for a side effect. Jump signs a `jti` that identifies each output JWT but does not copy the input `jti`, require receiver-side consumption storage, or log the identifier. A future consequential-action protocol requires a separately reviewed major schema change.
 
 ## Why No Opaque Tokens?
 

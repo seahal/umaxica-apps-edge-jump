@@ -1,9 +1,16 @@
 packages:
   - .
 
+autoInstallPeers: false
+enableGlobalVirtualStore: false
+
 catalog:
-  '@cloudflare/workers-types': 5.20260809.1
-  vite-plus: ^0.2.8
+  '@cloudflare/workers-types': 5.20260822.1
+
+overrides:
+  ajv: '>=8.18.0'
+  fast-xml-parser: 5.3.8
+  minimatch: '>=10.2.3'
 
 ignoredBuiltDependencies:
   - '@sentry/cli'
@@ -12,3 +19,9 @@ ignoredBuiltDependencies:
   - workerd
 
 minimumReleaseAge: 4320
+
+managePackageManagerVersions: false
+
+allowBuilds:
+  esbuild: false
+  workerd: false

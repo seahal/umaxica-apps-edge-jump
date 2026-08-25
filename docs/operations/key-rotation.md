@@ -38,7 +38,7 @@ If compromise is suspected:
 3. Deploy immediately.
 4. Confirm Jump rejects tokens signed with the revoked `kid`.
 5. Generate and deploy new runtime private keys.
-6. Review logs for `jti`, issuer hostname, and destination hostname patterns without logging full JWTs.
+6. Review the approved request ID, issuer, verified kid, destination origin, cache, status, and latency fields without logging JWTs, `jti`, URLs, or client identifiers.
 
 ## Key Generation Examples
 

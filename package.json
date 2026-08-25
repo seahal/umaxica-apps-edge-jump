@@ -4,52 +4,42 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "format": "vp fmt . --write",
-    "format:check": "vp fmt . --check",
-    "cloudflare:check": "vp exec wrangler deploy --dry-run --outdir dist/cloudflare",
-    "cloudflare:dev": "vp exec wrangler dev --local --ip 0.0.0.0 --port 8787",
+    "format": "oxfmt . --write",
+    "format:check": "oxfmt . --check",
+    "cloudflare:check": "wrangler deploy --dry-run --outdir dist/cloudflare",
+    "cloudflare:dev": "wrangler dev --local --ip 0.0.0.0 --port 8787",
     "fastly:build": "fastly compute build",
     "fastly:serve": "fastly compute serve --addr 0.0.0.0:7676",
     "fastly:serve:watch": "fastly compute serve --addr 0.0.0.0:7676 --watch",
-    "lint": "vp lint --type-aware --fix .",
-    "lint:check": "vp lint --type-aware .",
-    "type": "vp check --no-fmt --no-lint",
-    "typecheck": "vp run type",
-    "test": "vp test run",
-    "test:cov": "vp test run --coverage",
-    "test:e2e": "vp exec playwright test",
-    "test:all": "vp run test && vp run test:e2e",
-    "prepare": "vp config"
+    "lint": "oxlint --type-aware --fix .",
+    "lint:check": "oxlint --type-aware .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:cov": "vitest run --coverage",
+    "test:e2e": "playwright test",
+    "test:all": "pnpm run test && pnpm run test:e2e"
   },
   "dependencies": {
     "@fastly/hono-fastly-compute": "^0.3.10",
     "@fastly/js-compute": "^3.44.3",
-    "hono": "^4.13.1",
-    "jose": "^6.2.8"
+    "hono": "^4.13.3",
+    "jose": "^6.2.10"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
-    "@hono/node-server": "^2.1.0",
+    "@hono/node-server": "^2.1.1",
     "@playwright/test": "^1.62.1",
     "@types/node": "^26.2.0",
     "@vitest/coverage-v8": "4.1.10",
-    "knip": "^6.32.0",
-    "tsx": "^4.23.11",
-    "vite-plus": "catalog:",
-    "wrangler": "^4.120.0"
-  },
-  "packageManager": "pnpm@10.29.3",
-  "pnpm": {
-    "overrides": {
-      "minimatch": ">=10.2.3",
-      "fast-xml-parser": "5.3.8",
-      "ajv": ">=8.18.0"
-    },
-    "ignoredBuiltDependencies": [
-      "@sentry/cli",
-      "esbuild",
-      "sharp",
-      "workerd"
-    ]
+    "esbuild": "0.27.3",
+    "knip": "^6.32.2",
+    "oxfmt": "0.62.0",
+    "oxlint": "1.77.0",
+    "oxlint-tsgolint": "7.0.2001",
+    "tsx": "^4.23.12",
+    "typescript": "7.0.2",
+    "vite": "8.0.0-beta.16",
+    "vitest": "4.1.10",
+    "wrangler": "^4.125.0"
   }
 }

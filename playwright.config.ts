@@ -22,7 +22,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'vp exec tsx e2e/server.ts',
+    command: 'tsx e2e/server.ts',
     url: baseURL,
     reuseExistingServer: !isCI,
     timeout: 15_000,

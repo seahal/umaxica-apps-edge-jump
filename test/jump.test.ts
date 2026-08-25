@@ -10,14 +10,15 @@ import {
   SignJWT,
   type JWK,
 } from 'jose';
-import { describe, expect, test, vi } from 'vite-plus/test';
+import { describe, expect, test, vi } from 'vitest';
 import { registry as umaxicaRegistry } from '../src/config/registry.umaxica';
 import { createApp, detectRuntime, fetchExampleJwks, type AppOptions } from '../src';
 import { fetchRegistryJwks } from '../src/core/fetch_jwks';
-import cloudflareWorker from '../src/cloudflare';
+import { escapeAttribute, escapeHtml } from '../src/core/escape';
+import cloudflareWorker, { resetIsolateCachesForTest } from '../src/cloudflare';
 import { handleJump } from '../src/core/handle_jump';
 import { healthJson, renderHealthHtml, wantsJson } from '../src/core/health';
-import { JwksCache } from '../src/core/jwks_cache';
+import { JwksCache, type FetchJwks } from '../src/core/jwks_cache';
 import { messages } from '../src/core/i18n';
 import { normalizeOrigin, normalizeUrl } from '../src/core/normalize_url';
 import { brandTitle } from '../src/core/page';
@@ -30,9 +31,21 @@ import {
   type InboundJumpClaim,
   type IssuerRegistry,
 } from '../src/core/types';
-import { assertBase64Url, verifyJumpJwt } from '../src/core/verify_jwt';
+import {
+  assertBase64Url,
+  CLOCK_SKEW_SECONDS,
+  MAX_INBOUND_TTL_SECONDS,
+  verifyJumpJwt,
+} from '../src/core/verify_jwt';
 
 const NOW = 1_800_000_000;
+
+test('security constants and escaping helpers retain their public contract', () => {
+  expect(CLOCK_SKEW_SECONDS).toBe(5);
+  expect(MAX_INBOUND_TTL_SECONDS).toBe(300);
+  expect(escapeHtml('<&>')).toBe('&lt;&amp;&gt;');
+  expect(escapeAttribute('"&')).toBe('&quot;&amp;');
+});
 
 type Fixture = {
   app: ReturnType<typeof createApp>;
@@ -105,7 +118,7 @@ function baseClaim(): InboundJumpClaim {
     sub: 'jump-redirect',
     iat: NOW,
     nbf: NOW,
-    exp: NOW + 3600,
+    exp: NOW + 300,
     jti: crypto.randomUUID(),
     dst: 'internal',
     url: 'https://app.example.com/path',
@@ -146,7 +159,7 @@ async function fetchCloudflareWorker(
 async function cloudflareInternalRedirectFixture() {
   return cloudflareHandshakeFixture({
     issuerOrigin: 'https://www.umaxica.app',
-    destinationOrigin: 'https://www.umaxica.app',
+    destinationOrigin: 'https://jp.umaxica.app',
     issuerKid: 'rails-kid-1',
   });
 }
@@ -156,6 +169,10 @@ async function cloudflareHandshakeFixture(options: {
   destinationOrigin: string;
   issuerKid: string;
 }) {
+  // Each fixture mints a fresh issuer keypair under the same `iss`/`kid`, so it
+  // must start from a cold isolate: a warm one would still hold the previous
+  // fixture's verification key and reject this fixture's token.
+  resetIsolateCachesForTest();
   const previousFetch = globalThis.fetch;
   const issuerKeys = await generateKeyPair('ES384');
   const jumpKeys = await generateKeyPair('ES384', { extractable: true });
@@ -178,7 +195,7 @@ async function cloudflareHandshakeFixture(options: {
       aud: 'https://jump.umaxica.net',
       iat: now,
       nbf: now,
-      exp: now + 3600,
+      exp: now + 300,
       jti: crypto.randomUUID(),
       dst: 'internal',
       url: `${options.destinationOrigin}/`,
@@ -206,44 +223,41 @@ describe('jump gateway routes', () => {
 
   test('umaxica production registry limits issuers and internal destinations', () => {
     expect(Object.keys(umaxicaRegistry)).toEqual([
-      'https://id.umaxica.app',
-      'https://id.umaxica.com',
-      'https://id.umaxica.org',
+      'https://auth.umaxica.app',
+      'https://auth.umaxica.com',
+      'https://auth.umaxica.org',
       'https://www.umaxica.app',
       'https://www.umaxica.com',
       'https://www.umaxica.org',
-      'https://www.jp.umaxica.app',
-      'https://www.jp.umaxica.com',
-      'https://www.jp.umaxica.org',
     ]);
-    expect(umaxicaRegistry['https://id.umaxica.app']).toMatchObject({
-      jwks_uri: 'https://id.umaxica.app/.well-known/jwks.json',
-      allowed_dst_internal: ['https://id.umaxica.app', 'https://www.umaxica.app'],
+    expect(umaxicaRegistry['https://auth.umaxica.app']).toMatchObject({
+      jwks_uri: 'https://auth.umaxica.app/.well-known/jwks.json',
+      allowed_dst_internal: ['https://www.umaxica.app'],
       allowed_dst_external: false,
     });
     expect(umaxicaRegistry['https://www.umaxica.app']).toMatchObject({
       jwks_uri: 'https://www.umaxica.app/.well-known/jwks.json',
-      allowed_dst_internal: ['https://www.umaxica.app', 'https://id.umaxica.app'],
+      allowed_dst_internal: ['https://auth.umaxica.app', 'https://jp.umaxica.app'],
       allowed_dst_external: false,
     });
-    expect(umaxicaRegistry['https://id.umaxica.com']).toMatchObject({
-      jwks_uri: 'https://id.umaxica.com/.well-known/jwks.json',
-      allowed_dst_internal: ['https://id.umaxica.com', 'https://www.umaxica.com'],
+    expect(umaxicaRegistry['https://auth.umaxica.com']).toMatchObject({
+      jwks_uri: 'https://auth.umaxica.com/.well-known/jwks.json',
+      allowed_dst_internal: ['https://www.umaxica.com'],
       allowed_dst_external: false,
     });
     expect(umaxicaRegistry['https://www.umaxica.com']).toMatchObject({
       jwks_uri: 'https://www.umaxica.com/.well-known/jwks.json',
-      allowed_dst_internal: ['https://www.umaxica.com'],
+      allowed_dst_internal: ['https://auth.umaxica.com', 'https://jp.umaxica.com'],
       allowed_dst_external: false,
     });
-    expect(umaxicaRegistry['https://id.umaxica.org']).toMatchObject({
-      jwks_uri: 'https://id.umaxica.org/.well-known/jwks.json',
-      allowed_dst_internal: ['https://id.umaxica.org', 'https://www.umaxica.org'],
+    expect(umaxicaRegistry['https://auth.umaxica.org']).toMatchObject({
+      jwks_uri: 'https://auth.umaxica.org/.well-known/jwks.json',
+      allowed_dst_internal: ['https://www.umaxica.org'],
       allowed_dst_external: false,
     });
     expect(umaxicaRegistry['https://www.umaxica.org']).toMatchObject({
       jwks_uri: 'https://www.umaxica.org/.well-known/jwks.json',
-      allowed_dst_internal: ['https://www.umaxica.org'],
+      allowed_dst_internal: ['https://auth.umaxica.org', 'https://jp.umaxica.org'],
       allowed_dst_external: false,
     });
     for (const issuer of Object.values(umaxicaRegistry)) {
@@ -259,20 +273,27 @@ describe('jump gateway routes', () => {
 
   test('registry jwks fetcher uses issuer jwks uri', async () => {
     const previousFetch = globalThis.fetch;
-    const fetchMock = vi.fn(async () => Response.json({ keys: [{ kid: 'kid-1' }] }));
+    const { publicKey } = await generateKeyPair('ES384');
+    const publicJwk: JWK = {
+      ...(await exportJWK(publicKey)),
+      kid: 'kid-1',
+      alg: 'ES384',
+      use: 'sig',
+    };
+    const fetchMock = vi.fn(async () => Response.json({ keys: [publicJwk] }));
     globalThis.fetch = fetchMock as typeof fetch;
     try {
-      const issuer = umaxicaRegistry['https://id.umaxica.app'];
+      const issuer = umaxicaRegistry['https://auth.umaxica.app'];
       expect(issuer).toBeDefined();
       if (!issuer) throw new Error('missing test issuer');
       await expect(fetchRegistryJwks(issuer)).resolves.toEqual({
-        keys: [{ kid: 'kid-1' }],
+        keys: [publicJwk],
       });
       expect(fetchMock).toHaveBeenCalledWith(
-        'https://id.umaxica.app/.well-known/jwks.json',
+        'https://auth.umaxica.app/.well-known/jwks.json',
         expect.objectContaining({
           headers: { Accept: 'application/json' },
-          signal: expect.any(AbortSignal),
+          redirect: 'error',
         }),
       );
     } finally {
@@ -564,7 +585,7 @@ describe('jump gateway routes', () => {
       expect(decodeProtectedHeader(returnedRt ?? '').kid).toBe('cloudflare-active-2026-05');
       const verified = await jwtVerify(returnedRt ?? '', setup.jumpPublicKey, {
         issuer: 'https://jump.umaxica.net',
-        audience: 'https://www.umaxica.app',
+        audience: 'https://jp.umaxica.app',
         algorithms: ['ES384'],
         typ: 'JWT',
         currentDate: new Date(),
@@ -572,11 +593,11 @@ describe('jump gateway routes', () => {
       expect(verified.payload).toMatchObject({
         schema: 1,
         iss: 'https://jump.umaxica.net',
-        aud: 'https://www.umaxica.app',
+        aud: 'https://jp.umaxica.app',
         sub: 'jump-redirect',
         src: 'https://www.umaxica.app',
         dst: 'internal',
-        url: 'https://www.umaxica.app/',
+        url: 'https://jp.umaxica.app/',
       });
       const infoLines = info.mock.calls.map(([message]) => String(message)).join('\n');
       expect(infoLines).toContain('"signer_configured":true');
@@ -603,7 +624,7 @@ describe('jump gateway routes', () => {
       const location = res.headers.get('Location');
       expect(location).toBeTruthy();
       const locationUrl = new URL(location ?? '');
-      expect(locationUrl.origin).toBe('https://www.umaxica.app');
+      expect(locationUrl.origin).toBe('https://jp.umaxica.app');
       expect(locationUrl.pathname).toBe('/');
       expect(locationUrl.searchParams.getAll('rt')).toHaveLength(1);
       expect(locationUrl.searchParams.has('jump_rt')).toBe(false);
@@ -631,17 +652,17 @@ describe('jump gateway routes', () => {
 
       const verified = await jwtVerify(returnedRt, await importJWK(jwks.keys[0] ?? {}, 'ES384'), {
         issuer: 'https://jump.umaxica.net',
-        audience: 'https://www.umaxica.app',
+        audience: 'https://jp.umaxica.app',
         algorithms: ['ES384'],
         typ: 'JWT',
         currentDate: new Date(),
       });
       locationUrl.searchParams.delete('rt');
-      expect(locationUrl.href).toBe('https://www.umaxica.app/');
+      expect(locationUrl.href).toBe('https://jp.umaxica.app/');
       expect(verified.payload).toMatchObject({
         schema: 1,
         iss: 'https://jump.umaxica.net',
-        aud: 'https://www.umaxica.app',
+        aud: 'https://jp.umaxica.app',
         sub: 'jump-redirect',
         src: 'https://www.umaxica.app',
         dst: 'internal',
@@ -653,75 +674,78 @@ describe('jump gateway routes', () => {
   });
 
   test.each([
-    ['com', 'https://www.umaxica.com'],
-    ['org', 'https://www.umaxica.org'],
-  ])('cloudflare worker live rails %s handshake contract stays stable', async (family, origin) => {
-    expect(family).toMatch(/^(com|org)$/);
-    const setup = await cloudflareHandshakeFixture({
-      issuerOrigin: origin,
-      destinationOrigin: origin,
-      issuerKid: 'rails-kid-1',
-    });
-    try {
-      const env = {
-        UMAXICA_JUMP_PRIVATE_KEY_PEM: setup.jumpPrivatePem,
-        UMAXICA_JUMP_PRIVATE_KEY_KID: 'cloudflare-active-2026-05',
-      };
-      const res = await fetchCloudflareWorker(`/?rt=${setup.inboundToken}`, env);
-
-      expect(res.status).toBe(302);
-      expect(res.headers.get('X-Jump-Error')).toBeNull();
-      const location = res.headers.get('Location');
-      expect(location).toBeTruthy();
-      const locationUrl = new URL(location ?? '');
-      expect(locationUrl.origin).toBe(origin);
-      expect(locationUrl.pathname).toBe('/');
-      expect(locationUrl.searchParams.getAll('rt')).toHaveLength(1);
-      expect(locationUrl.searchParams.has('jump_rt')).toBe(false);
-      expect(locationUrl.searchParams.has('jump_probe')).toBe(false);
-
-      const returnedRt = locationUrl.searchParams.get('rt') ?? '';
-      expect(decodeProtectedHeader(returnedRt)).toEqual({
-        typ: 'JWT',
-        alg: 'ES384',
-        kid: 'cloudflare-active-2026-05',
+    ['com', 'https://www.umaxica.com', 'https://jp.umaxica.com'],
+    ['org', 'https://www.umaxica.org', 'https://jp.umaxica.org'],
+  ])(
+    'cloudflare worker live rails %s handshake contract stays stable',
+    async (family, origin, destination) => {
+      expect(family).toMatch(/^(com|org)$/);
+      const setup = await cloudflareHandshakeFixture({
+        issuerOrigin: origin,
+        destinationOrigin: destination,
+        issuerKid: 'rails-kid-1',
       });
+      try {
+        const env = {
+          UMAXICA_JUMP_PRIVATE_KEY_PEM: setup.jumpPrivatePem,
+          UMAXICA_JUMP_PRIVATE_KEY_KID: 'cloudflare-active-2026-05',
+        };
+        const res = await fetchCloudflareWorker(`/?rt=${setup.inboundToken}`, env);
 
-      const jwksRes = await fetchCloudflareWorker('/.well-known/jwks.json', env);
-      expect(jwksRes.status).toBe(200);
-      const jwks = (await jwksRes.json()) as { keys: JWK[] };
-      expect(jwks.keys).toHaveLength(1);
-      expect(jwks.keys[0]).toMatchObject({
-        kid: 'cloudflare-active-2026-05',
-        kty: 'EC',
-        crv: 'P-384',
-        alg: 'ES384',
-        use: 'sig',
-      });
-      expect(jwks.keys[0]).not.toHaveProperty('d');
+        expect(res.status).toBe(302);
+        expect(res.headers.get('X-Jump-Error')).toBeNull();
+        const location = res.headers.get('Location');
+        expect(location).toBeTruthy();
+        const locationUrl = new URL(location ?? '');
+        expect(locationUrl.origin).toBe(destination);
+        expect(locationUrl.pathname).toBe('/');
+        expect(locationUrl.searchParams.getAll('rt')).toHaveLength(1);
+        expect(locationUrl.searchParams.has('jump_rt')).toBe(false);
+        expect(locationUrl.searchParams.has('jump_probe')).toBe(false);
 
-      const verified = await jwtVerify(returnedRt, await importJWK(jwks.keys[0] ?? {}, 'ES384'), {
-        issuer: 'https://jump.umaxica.net',
-        audience: origin,
-        algorithms: ['ES384'],
-        typ: 'JWT',
-        currentDate: new Date(),
-      });
-      locationUrl.searchParams.delete('rt');
-      expect(locationUrl.href).toBe(`${origin}/`);
-      expect(verified.payload).toMatchObject({
-        schema: 1,
-        iss: 'https://jump.umaxica.net',
-        aud: origin,
-        sub: 'jump-redirect',
-        src: origin,
-        dst: 'internal',
-        url: locationUrl.href,
-      });
-    } finally {
-      setup.restore();
-    }
-  });
+        const returnedRt = locationUrl.searchParams.get('rt') ?? '';
+        expect(decodeProtectedHeader(returnedRt)).toEqual({
+          typ: 'JWT',
+          alg: 'ES384',
+          kid: 'cloudflare-active-2026-05',
+        });
+
+        const jwksRes = await fetchCloudflareWorker('/.well-known/jwks.json', env);
+        expect(jwksRes.status).toBe(200);
+        const jwks = (await jwksRes.json()) as { keys: JWK[] };
+        expect(jwks.keys).toHaveLength(1);
+        expect(jwks.keys[0]).toMatchObject({
+          kid: 'cloudflare-active-2026-05',
+          kty: 'EC',
+          crv: 'P-384',
+          alg: 'ES384',
+          use: 'sig',
+        });
+        expect(jwks.keys[0]).not.toHaveProperty('d');
+
+        const verified = await jwtVerify(returnedRt, await importJWK(jwks.keys[0] ?? {}, 'ES384'), {
+          issuer: 'https://jump.umaxica.net',
+          audience: destination,
+          algorithms: ['ES384'],
+          typ: 'JWT',
+          currentDate: new Date(),
+        });
+        locationUrl.searchParams.delete('rt');
+        expect(locationUrl.href).toBe(`${destination}/`);
+        expect(verified.payload).toMatchObject({
+          schema: 1,
+          iss: 'https://jump.umaxica.net',
+          aud: destination,
+          sub: 'jump-redirect',
+          src: origin,
+          dst: 'internal',
+          url: locationUrl.href,
+        });
+      } finally {
+        setup.restore();
+      }
+    },
+  );
 
   test('cloudflare worker rejects foreign issuers before registry lookup can succeed', async () => {
     const setup = await cloudflareHandshakeFixture({
@@ -871,7 +895,8 @@ describe('jump gateway routes', () => {
       log.mockRestore();
     }
     expect(lines.some((line) => line.includes('header.payload.signature'))).toBe(false);
-    expect(lines.filter((line) => line.includes('rt=%5Bredacted%5D'))).toHaveLength(6);
+    expect(lines.some((line) => line.includes('?'))).toBe(false);
+    expect(lines.filter((line) => line.includes('GET /'))).toHaveLength(6);
   });
 
   test('signer unavailable maps to 503 for internal redirects', async () => {
@@ -924,19 +949,17 @@ describe('jump gateway routes', () => {
     const res = await jump(app, token);
 
     expect(res.status).toBe(302);
-    expect(entries).toEqual([
-      {
-        level: 'info',
-        event: 'jump_accept',
-        result: 'accepted',
-        iss: 'https://app.example.com',
-        kid: 'kid-1',
-        jti: 'audit-jti',
-        dst: 'internal',
-        dst_origin: 'https://app.example.com',
-        dst_path: '/a/path',
-      },
-    ]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      level: 'info',
+      event: 'jump_accept',
+      result: 'accepted',
+      iss: 'https://app.example.com',
+      kid: 'kid-1',
+      dst: 'internal',
+      dst_origin: 'https://app.example.com',
+      status: 302,
+    });
     expect(JSON.stringify(entries)).not.toContain(token);
     expect(JSON.stringify(entries)).not.toContain('secret=value');
   });
@@ -949,6 +972,33 @@ describe('jump token validation', () => {
     const res = await app.request(`https://jump.example.net/?rt=${token}&rt=${token}`);
     expect(res.status).toBe(400);
     expect(res.headers.get('X-Jump-Error')).toBe('malformed');
+  });
+
+  test('jump query and method contracts reject ambiguity', async () => {
+    const { app, signToken } = await fixture();
+    const token = await signToken();
+    for (const target of [
+      `https://jump.example.net/?rt=${token}&extra=1`,
+      'https://jump.example.net/?rt=',
+    ]) {
+      expect((await app.request(target)).status).toBe(400);
+    }
+    const method = await app.request('https://jump.example.net/', { method: 'POST' });
+    expect(method.status).toBe(405);
+    expect(method.headers.get('Allow')).toBe('GET, HEAD');
+  });
+
+  test('HEAD jump matches GET status, location, and security headers without a body', async () => {
+    const { app, signToken } = await fixtureWithOptions({ randomJti: () => 'stable-output' });
+    const token = await signToken();
+    const get = await app.request(`https://jump.example.net/?rt=${token}`);
+    const head = await app.request(`https://jump.example.net/?rt=${token}`, { method: 'HEAD' });
+    expect(head.status).toBe(get.status);
+    expect(new URL(head.headers.get('Location') ?? '').origin).toBe(
+      new URL(get.headers.get('Location') ?? '').origin,
+    );
+    expectSecurityHeaders(head);
+    expect(await head.text()).toBe('');
   });
 
   test('malformed reject', async () => {
@@ -966,14 +1016,14 @@ describe('jump token validation', () => {
     const res = await jump(app, token);
 
     expect(res.headers.get('X-Jump-Error')).toBe('malformed');
-    expect(entries).toEqual([
-      {
-        level: 'warn',
-        event: 'jump_reject',
-        result: 'rejected',
-        reason: 'malformed',
-      },
-    ]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      level: 'warn',
+      event: 'jump_reject',
+      result: 'rejected',
+      reason: 'malformed',
+      status: 400,
+    });
     expect(JSON.stringify(entries)).not.toContain(token);
   });
 
@@ -1113,7 +1163,7 @@ describe('jump token validation', () => {
   test('exp reject', async () => {
     const { app, signToken } = await fixture();
     const res = await jump(app, await signToken({ exp: NOW - 61 }));
-    expect(res.status).toBe(410);
+    expect(res.status).toBe(400);
     expect(res.headers.get('X-Jump-Error')).toBe('expired');
   });
 
@@ -1159,11 +1209,19 @@ describe('jump token validation', () => {
     expect(res.headers.get('X-Jump-Error')).toBe('invalid_claim');
   });
 
-  test('ttl over max reject', async () => {
+  test('input ttl accepts 300 seconds and rejects 301 seconds', async () => {
     const { app, signToken } = await fixture();
-    const tooLong = 31 * 24 * 3600;
-    const res = await jump(app, await signToken({ exp: NOW + tooLong }));
-    expect(res.headers.get('X-Jump-Error')).toBe('invalid_claim');
+    expect((await jump(app, await signToken({ iat: NOW, nbf: NOW, exp: NOW + 300 }))).status).toBe(
+      302,
+    );
+    const rejected = await jump(app, await signToken({ iat: NOW, nbf: NOW, exp: NOW + 301 }));
+    expect(rejected.headers.get('X-Jump-Error')).toBe('invalid_claim');
+  });
+
+  test('time claim structure rejects exp at or before iat and non-numeric dates', async () => {
+    const { app, signToken, signRaw } = await fixture();
+    expect((await jump(app, await signToken({ iat: NOW, exp: NOW }))).status).toBe(400);
+    expect((await jump(app, await signRaw({ ...baseClaim(), iat: null }))).status).toBe(400);
   });
 
   test('missing required time claims reject', async () => {
@@ -1209,7 +1267,7 @@ describe('jump token validation', () => {
         new NoopReplayCache(),
         NOW,
       ),
-    ).rejects.toMatchObject({ code: 'invalid_signature' });
+    ).rejects.toMatchObject({ code: 'jwks_bad_gateway' });
   });
 
   test('signature verification retries against refreshed JWKS', async () => {
@@ -1331,8 +1389,21 @@ describe('jump token validation', () => {
 
   test('skew handling permits recently expired token', async () => {
     const { app, signToken } = await fixture();
-    const res = await jump(app, await signToken({ iat: NOW - 3600, nbf: NOW - 60, exp: NOW - 30 }));
+    const res = await jump(app, await signToken({ iat: NOW - 300, nbf: NOW - 300, exp: NOW - 4 }));
     expect(res.status).toBe(302);
+  });
+
+  test('clock skew rejects values beyond five seconds', async () => {
+    const { app, signToken } = await fixture();
+    expect(
+      (await jump(app, await signToken({ iat: NOW + 6, nbf: NOW, exp: NOW + 300 }))).status,
+    ).toBe(400);
+    expect(
+      (await jump(app, await signToken({ iat: NOW, nbf: NOW + 6, exp: NOW + 300 }))).status,
+    ).toBe(400);
+    expect(
+      (await jump(app, await signToken({ iat: NOW - 300, nbf: NOW - 300, exp: NOW - 6 }))).status,
+    ).toBe(400);
   });
 
   test('dst policy rejects unlisted internal origin', async () => {
@@ -1350,20 +1421,18 @@ describe('jump token validation', () => {
     const res = await jump(app, token);
 
     expect(res.headers.get('X-Jump-Error')).toBe('invalid_dst');
-    expect(entries).toEqual([
-      {
-        level: 'warn',
-        event: 'jump_reject',
-        result: 'rejected',
-        reason: 'invalid_dst',
-        iss: 'https://app.example.com',
-        kid: 'kid-1',
-        jti: 'reject-jti',
-        dst: 'internal',
-        dst_origin: 'https://other.example',
-        dst_path: '/path',
-      },
-    ]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      level: 'warn',
+      event: 'jump_reject',
+      result: 'rejected',
+      reason: 'invalid_dst',
+      iss: 'https://app.example.com',
+      kid: 'kid-1',
+      dst: 'internal',
+      dst_origin: 'https://other.example',
+      status: 400,
+    });
     expect(JSON.stringify(entries)).not.toContain(token);
     expect(JSON.stringify(entries)).not.toContain('q=1');
   });
@@ -1523,7 +1592,7 @@ describe('jump token validation', () => {
     }
   });
 
-  test('non-default ports reject unless explicitly allowlisted', async () => {
+  test('non-default ports reject in production registries', async () => {
     const { app, signToken } = await fixture();
     const rejected = await jump(app, await signToken({ url: 'https://app.example.com:444/path' }));
     expect(rejected.headers.get('X-Jump-Error')).toBe('invalid_dst');
@@ -1539,24 +1608,18 @@ describe('jump token validation', () => {
         allowed_dst_external: false,
       },
     };
-    const explicitApp = createApp({
-      registry,
-      jwksCache: new JwksCache(async () => ({
-        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
-      })),
-      replayCache: new NoopReplayCache(),
-      runtime: { edge: 'local', production: true },
-      signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
-      now: () => NOW,
-    });
-    const allowed = await jump(
-      explicitApp,
-      await signPayload(issuerKeys.privateKey, {
-        ...baseClaim(),
-        url: 'https://app.example.com:444/path',
+    expect(() =>
+      createApp({
+        registry,
+        jwksCache: new JwksCache(async () => ({
+          keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
+        })),
+        replayCache: new NoopReplayCache(),
+        runtime: { edge: 'local', production: true },
+        signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
+        now: () => NOW,
       }),
-    );
-    expect(allowed.status).toBe(302);
+    ).toThrow(/exact origin/i);
   });
 
   test('external cushion renders continue URL and replaceState', async () => {
@@ -1576,11 +1639,11 @@ describe('jump token validation', () => {
     const issuerKeys = await generateKeyPair('ES384');
     const jumpKeys = await generateKeyPair('ES384');
     const jwk = await exportJWK(issuerKeys.publicKey);
-    const umaxicaIssuer = umaxicaRegistry['https://id.umaxica.app'];
+    const umaxicaIssuer = umaxicaRegistry['https://auth.umaxica.app'];
     if (!umaxicaIssuer) throw new Error('missing Umaxica test issuer');
     const registry: IssuerRegistry = {
       ...umaxicaRegistry,
-      'https://id.umaxica.app': {
+      'https://auth.umaxica.app': {
         ...umaxicaIssuer,
         allowed_dst_external: ['https://example.com'],
       },
@@ -1597,7 +1660,7 @@ describe('jump token validation', () => {
     });
     const token = await signPayload(issuerKeys.privateKey, {
       ...baseClaim(),
-      iss: 'https://id.umaxica.app',
+      iss: 'https://auth.umaxica.app',
       dst: 'external',
       url: 'https://example.com/jump/end?ok=1',
     });
@@ -1617,7 +1680,7 @@ describe('jump token validation', () => {
         iss: 'https://app.example.com',
         jwks_uri: 'https://app.example.com/.well-known/jwks.json',
         allowed_dst_internal: ['https://app.example.com'],
-        allowed_dst_external: true,
+        allowed_dst_external: ['https://example.org'],
       },
     };
     const issuerKeys = await generateKeyPair('ES384');
@@ -1650,7 +1713,7 @@ describe('jump token validation', () => {
         iss: 'https://app.example.com',
         jwks_uri: 'https://app.example.com/.well-known/jwks.json',
         allowed_dst_internal: ['https://app.example.com'],
-        allowed_dst_external: true,
+        allowed_dst_external: ['https://xn--r8jz45g.example'],
       },
     };
     const issuerKeys = await generateKeyPair('ES384');
@@ -1822,7 +1885,7 @@ describe('jump token validation', () => {
       iss: 'https://app.example.com',
       jwks_uri: 'https://app.example.com/.well-known/jwks.json',
       allowed_dst_internal: ['https://app.example.com'],
-      allowed_dst_external: false,
+      allowed_dst_external: false as const,
     };
     const externalClaim: InboundJumpClaim = { ...baseClaim(), dst: 'external' };
     const unknownClaim: InboundJumpClaim = { ...baseClaim(), dst: 'other' as 'internal' };
@@ -1839,7 +1902,7 @@ describe('jump token validation', () => {
       ...baseClaim(),
       iat: now,
       nbf: now,
-      exp: now + 3600,
+      exp: now + 300,
     });
     const res = await handleJump(new Request(`https://jump.example.net/?rt=${token}`), {
       registry: {
@@ -1885,7 +1948,7 @@ describe('jump token validation', () => {
       ...baseClaim(),
       iat: now,
       nbf: now,
-      exp: now + 3600,
+      exp: now + 300,
     });
     expect((await jump(app, token)).status).toBe(302);
   });
@@ -1911,7 +1974,7 @@ describe('jump token validation', () => {
       iss: 'https://app.example.com',
       jwks_uri: 'https://app.example.com/.well-known/jwks.json',
       allowed_dst_internal: ['https://app.example.com'],
-      allowed_dst_external: false,
+      allowed_dst_external: false as const,
       revoked_kids: ['revoked'],
     };
     const cache = new JwksCache(async () => ({
@@ -2022,6 +2085,543 @@ function assertTitleContract(html: string, expected: string) {
     expect(title).not.toContain(term);
   }
 }
+
+describe('request deadline', () => {
+  /**
+   * A JWKS fetcher that never completes on its own, recording the signal it was
+   * handed. Nothing resolves until the deadline aborts it, so these tests turn
+   * on the abort firing rather than on wall-clock timing.
+   */
+  function hangingJwks() {
+    const signals: (AbortSignal | undefined)[] = [];
+    const fetchJwks: FetchJwks = (_issuer, signal) => {
+      signals.push(signal);
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener(
+          'abort',
+          () => reject(new JumpError('deadline_exceeded', 'aborted')),
+          { once: true },
+        );
+      });
+    };
+    return { signals, fetchJwks };
+  }
+
+  test('a jump that outruns the deadline answers 504 and aborts the JWKS fetch', async () => {
+    const { signals, fetchJwks } = hangingJwks();
+    const { app, signToken } = await fixtureWithOptions({
+      jwksCache: new JwksCache(fetchJwks),
+      deadlineMs: 25,
+    });
+
+    const res = await jump(app, await signToken());
+
+    expect(res.status).toBe(504);
+    expect(res.headers.get('X-Jump-Error')).toBe('deadline_exceeded');
+    // The signal must be the real one handed to the fetch layer, and it must
+    // actually have fired — not merely have been checked before the call.
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.aborted).toBe(true);
+    expectSecurityHeaders(res);
+  });
+
+  test('the deadline response still carries no-store and a request id', async () => {
+    const { fetchJwks } = hangingJwks();
+    const { app, signToken } = await fixtureWithOptions({
+      jwksCache: new JwksCache(fetchJwks),
+      deadlineMs: 25,
+    });
+
+    const res = await jump(app, await signToken());
+
+    expect(res.status).toBe(504);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect(res.headers.get('X-Request-ID')).toBeTruthy();
+    expect(res.headers.get('Set-Cookie')).toBeNull();
+  });
+
+  test('a forced refresh shares the first fetch deadline instead of restarting it', async () => {
+    // First fetch answers with a well-formed keyset for the right kid but the
+    // wrong key, so verification fails and drives a forced refresh. The refresh
+    // then hangs. If the refresh started a fresh deadline it would get a full
+    // new budget; sharing one deadline means it gets the same signal object.
+    const wrongKeys = await generateKeyPair('ES384');
+    const wrongJwk: JWK = {
+      ...(await exportJWK(wrongKeys.publicKey)),
+      kid: 'kid-1',
+      alg: 'ES384',
+      use: 'sig',
+    };
+    const signals: (AbortSignal | undefined)[] = [];
+    let call = 0;
+    const fetchJwks: FetchJwks = (_issuer, signal) => {
+      signals.push(signal);
+      call += 1;
+      if (call === 1) return Promise.resolve({ keys: [wrongJwk] });
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener(
+          'abort',
+          () => reject(new JumpError('deadline_exceeded', 'aborted')),
+          { once: true },
+        );
+      });
+    };
+
+    const { app, signToken } = await fixtureWithOptions({
+      jwksCache: new JwksCache(fetchJwks),
+      deadlineMs: 25,
+    });
+
+    const res = await jump(app, await signToken());
+
+    expect(res.status).toBe(504);
+    expect(signals).toHaveLength(2);
+    expect(signals[1]).toBe(signals[0]);
+    expect(signals[0]?.aborted).toBe(true);
+  });
+
+  test('work that finishes after the deadline cannot replace the 504', async () => {
+    let release: ((keys: { keys: JWK[] }) => void) | undefined;
+    const { publicKey } = await generateKeyPair('ES384');
+    const publicJwk: JWK = {
+      ...(await exportJWK(publicKey)),
+      kid: 'kid-1',
+      alg: 'ES384',
+      use: 'sig',
+    };
+    const fetchJwks: FetchJwks = () =>
+      new Promise<{ keys: JWK[] }>((resolve) => {
+        release = resolve;
+      });
+
+    const { app, signToken } = await fixtureWithOptions({
+      jwksCache: new JwksCache(fetchJwks),
+      deadlineMs: 25,
+    });
+
+    const res = await jump(app, await signToken());
+    expect(res.status).toBe(504);
+
+    // Let the abandoned work complete. It must settle quietly: no second
+    // response, and no unhandled rejection (vitest fails the run on one).
+    release?.({ keys: [publicJwk] });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(res.status).toBe(504);
+  });
+
+  test('a generous deadline leaves the normal redirect path untouched', async () => {
+    const { app, signToken } = await fixtureWithOptions({ deadlineMs: 1000 });
+    const res = await jump(app, await signToken({ dst: 'internal' }));
+    expect(res.status).toBe(302);
+  });
+
+  test('an aborted upstream fetch is classified as deadline, not as an upstream fault', async () => {
+    const previousFetch = globalThis.fetch;
+    const controller = new AbortController();
+    globalThis.fetch = (async () => {
+      controller.abort();
+      throw new DOMException('The operation was aborted.', 'AbortError');
+    }) as typeof fetch;
+    try {
+      const issuer = umaxicaRegistry['https://auth.umaxica.app'];
+      if (!issuer) throw new Error('missing test issuer');
+      await expect(fetchRegistryJwks(issuer, controller.signal)).rejects.toMatchObject({
+        code: 'deadline_exceeded',
+      });
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+});
+
+describe('issuer JWKS transport hardening', () => {
+  const issuer = umaxicaRegistry['https://auth.umaxica.app'];
+
+  async function withFetch(response: () => Promise<Response> | Response, run: () => Promise<void>) {
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = (async () => response()) as typeof fetch;
+    try {
+      await run();
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  }
+
+  async function validJwk(overrides: Partial<JWK> = {}): Promise<JWK> {
+    const { publicKey } = await generateKeyPair('ES384');
+    return {
+      ...(await exportJWK(publicKey)),
+      kid: 'kid-1',
+      alg: 'ES384',
+      use: 'sig',
+      ...overrides,
+    };
+  }
+
+  function expectRejection(code: string) {
+    return async () => {
+      if (!issuer) throw new Error('missing test issuer');
+      await expect(fetchRegistryJwks(issuer)).rejects.toMatchObject({ code });
+    };
+  }
+
+  test('a non-JSON content type is an upstream protocol violation', async () => {
+    await withFetch(
+      () => new Response('{"keys":[]}', { headers: { 'Content-Type': 'text/html' } }),
+      expectRejection('jwks_bad_gateway'),
+    );
+  });
+
+  test('an advertised over-size body is rejected before reading', async () => {
+    await withFetch(
+      () =>
+        new Response('{"keys":[]}', {
+          headers: { 'Content-Type': 'application/json', 'Content-Length': String(64 * 1024 + 1) },
+        }),
+      expectRejection('jwks_bad_gateway'),
+    );
+  });
+
+  test('a streamed body over the cap is rejected while reading', async () => {
+    // Deliberately a ReadableStream with no Content-Length, so this exercises
+    // the streaming cap rather than the advertised-length check above. The
+    // stream would never end on its own; the cap has to stop it.
+    let chunks = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        chunks += 1;
+        controller.enqueue(new TextEncoder().encode('a'.repeat(8 * 1024)));
+      },
+    });
+    await withFetch(
+      () => new Response(body, { headers: { 'Content-Type': 'application/json' } }),
+      expectRejection('jwks_bad_gateway'),
+    );
+    // Stopped near the 64 KiB cap rather than reading forever.
+    expect(chunks).toBeLessThan(16);
+  });
+
+  test('invalid JSON is an upstream protocol violation', async () => {
+    await withFetch(
+      () => new Response('not json', { headers: { 'Content-Type': 'application/json' } }),
+      expectRejection('jwks_bad_gateway'),
+    );
+  });
+
+  test('an upstream 5xx is temporary, a 4xx is a protocol violation', async () => {
+    await withFetch(() => new Response('', { status: 503 }), expectRejection('jwks_unavailable'));
+    await withFetch(() => new Response('', { status: 429 }), expectRejection('jwks_unavailable'));
+    await withFetch(() => new Response('', { status: 404 }), expectRejection('jwks_bad_gateway'));
+  });
+
+  test('a redirected response is refused rather than followed', async () => {
+    // `redirect: 'error'` makes the platform reject; assert the option is set
+    // and that the resulting fetch failure is reported as a transport fault.
+    const previousFetch = globalThis.fetch;
+    const seen: RequestInit[] = [];
+    globalThis.fetch = (async (_url: string, init: RequestInit) => {
+      seen.push(init);
+      throw new TypeError('unexpected redirect');
+    }) as unknown as typeof fetch;
+    try {
+      if (!issuer) throw new Error('missing test issuer');
+      await expect(fetchRegistryJwks(issuer)).rejects.toMatchObject({ code: 'jwks_unavailable' });
+      expect(seen[0]?.redirect).toBe('error');
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test('private key material anywhere in an issuer keyset rejects the whole set', async () => {
+    const { privateKey } = await generateKeyPair('ES384', { extractable: true });
+    const privateJwk = { ...(await exportJWK(privateKey)), kid: 'kid-2', alg: 'ES384', use: 'sig' };
+    expect(privateJwk.d).toBeTruthy();
+    const keys = [await validJwk(), privateJwk];
+    await withFetch(() => Response.json({ keys }), expectRejection('jwks_bad_gateway'));
+  });
+
+  test('a duplicate kid rejects the whole set rather than letting the first win', async () => {
+    const keys = [await validJwk({ kid: 'dup' }), await validJwk({ kid: 'dup' })];
+    await withFetch(() => Response.json({ keys }), expectRejection('jwks_bad_gateway'));
+  });
+
+  test('keys that cannot verify an ES384 jump token are dropped, not trusted', async () => {
+    const usable = await validJwk({ kid: 'good' });
+    const p256 = await generateKeyPair('ES256');
+    const keys = [
+      usable,
+      await validJwk({ kid: 'enc-key', use: 'enc' }),
+      { ...(await exportJWK(p256.publicKey)), kid: 'wrong-curve', alg: 'ES384', use: 'sig' },
+      { ...(await exportJWK(p256.publicKey)), kid: 'wrong-alg', alg: 'ES256', use: 'sig' },
+    ];
+    await withFetch(
+      () => Response.json({ keys }),
+      async () => {
+        if (!issuer) throw new Error('missing test issuer');
+        // An issuer publishing unrelated keys must not take its redirects down;
+        // only the usable key survives.
+        await expect(fetchRegistryJwks(issuer)).resolves.toEqual({ keys: [usable] });
+      },
+    );
+  });
+
+  test('a keyset with no usable key is an upstream protocol violation', async () => {
+    await withFetch(() => Response.json({ keys: [] }), expectRejection('jwks_bad_gateway'));
+    await withFetch(
+      () => Response.json({ keys: [{ kty: 'oct', k: 'AAAA', kid: 'x' }] }),
+      expectRejection('jwks_bad_gateway'),
+    );
+  });
+});
+
+describe('route, rate limit, and request id contracts', () => {
+  function limiter() {
+    const keys: string[] = [];
+    return {
+      keys,
+      limit: vi.fn(async ({ key }: { key: string }) => {
+        keys.push(key);
+        return { success: true };
+      }),
+    };
+  }
+
+  function limiterEnv() {
+    const jump = limiter();
+    const jwks = limiter();
+    const info = limiter();
+    return {
+      jump,
+      jwks,
+      info,
+      env: {
+        JUMP_RATE_LIMITER: jump,
+        JWKS_RATE_LIMITER: jwks,
+        INFO_RATE_LIMITER: info,
+        UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({ keys: [] }),
+      },
+    };
+  }
+
+  async function workerFetch(path: string, env: object, headers: Record<string, string> = {}) {
+    return cloudflareWorker.fetch(
+      new Request(`https://jump.example.net${path}`, { headers }),
+      env as Parameters<typeof cloudflareWorker.fetch>[1],
+      {} as ExecutionContext,
+    );
+  }
+
+  test('each route class is metered by its own rate limiter binding', async () => {
+    const { jump, jwks, info, env } = limiterEnv();
+    const ip = { 'CF-Connecting-IP': '203.0.113.9' };
+
+    await workerFetch('/?rt=abc', env, ip);
+    await workerFetch('/.well-known/jwks.json', env, ip);
+    await workerFetch('/about', env, ip);
+    await workerFetch('/health', env, ip);
+
+    expect(jump.limit).toHaveBeenCalledTimes(1);
+    expect(jwks.limit).toHaveBeenCalledTimes(1);
+    expect(info.limit).toHaveBeenCalledTimes(2);
+    // Keyed on the provider-determined client IP, never on a client-supplied header.
+    expect(jump.keys).toEqual(['203.0.113.9']);
+  });
+
+  test('a client cannot redirect its rate limit onto another address', async () => {
+    const { jump, env } = limiterEnv();
+    await workerFetch('/?rt=abc', env, {
+      'CF-Connecting-IP': '203.0.113.9',
+      'X-Forwarded-For': '198.51.100.7',
+      'X-Real-IP': '198.51.100.7',
+    });
+    expect(jump.keys).toEqual(['203.0.113.9']);
+  });
+
+  test('static assets are served without passing through a rate limiter', async () => {
+    const { jump, jwks, info, env } = limiterEnv();
+    const res = await workerFetch('/favicon.ico', env, { 'CF-Connecting-IP': '203.0.113.9' });
+    expect(res.status).toBe(204);
+    expect(jump.limit).not.toHaveBeenCalled();
+    expect(jwks.limit).not.toHaveBeenCalled();
+    expect(info.limit).not.toHaveBeenCalled();
+    expect(res.headers.get('X-Request-ID')).toBeTruthy();
+    expect(res.headers.get('X-Frame-Options')).toBe('DENY');
+  });
+
+  test('a rate limited request answers 429 with the full protection set', async () => {
+    const denied = {
+      JUMP_RATE_LIMITER: { limit: async () => ({ success: false }) },
+      UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({ keys: [] }),
+    };
+    const res = await workerFetch('/?rt=abc', denied, { 'CF-Connecting-IP': '203.0.113.9' });
+    expect(res.status).toBe(429);
+    expect(res.headers.get('X-Request-ID')).toBeTruthy();
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect(res.headers.get('Content-Security-Policy')).toBeTruthy();
+    expect(res.headers.get('Set-Cookie')).toBeNull();
+  });
+
+  test('a missing client IP fails open but says so', async () => {
+    const { jump, env } = limiterEnv();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const res = await workerFetch('/about', env);
+      expect(res.status).toBe(200);
+      expect(jump.limit).not.toHaveBeenCalled();
+      const lines = warn.mock.calls.map(([message]) => String(message)).join('\n');
+      expect(lines).toContain('jump_rate_limit_skipped');
+      expect(lines).toContain('client_ip_unavailable');
+      // The skip notice must not carry an address or the request target.
+      expect(lines).not.toContain('203.0.113');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('an inbound X-Request-ID is never reflected back', async () => {
+    const { app } = await fixture();
+    const spoofed = 'spoofed-request-id';
+    const res = await app.request('https://jump.example.net/about', {
+      headers: { 'X-Request-ID': spoofed },
+    });
+    const returned = res.headers.get('X-Request-ID');
+    expect(returned).toBeTruthy();
+    expect(returned).not.toBe(spoofed);
+    // Internally generated, so it parses as a UUID.
+    expect(returned).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  });
+
+  test('every request gets its own request id', async () => {
+    const { app } = await fixture();
+    const first = await app.request('https://jump.example.net/about');
+    const second = await app.request('https://jump.example.net/about');
+    expect(first.headers.get('X-Request-ID')).not.toBe(second.headers.get('X-Request-ID'));
+  });
+
+  test('an all-slashes jump path 404s rather than echoing the token into Location', async () => {
+    const { app, signToken } = await fixture();
+    const rt = await signToken();
+    for (const path of ['//', '///']) {
+      const res = await app.request(`https://jump.example.net${path}?rt=${rt}`);
+      expect(res.status).toBe(404);
+      expect(res.headers.get('Location')).toBeNull();
+    }
+  });
+
+  test('trailing slashes on informational routes still normalize', async () => {
+    const { app } = await fixture();
+    const res = await app.request('https://jump.example.net/about/');
+    expect(res.status).toBe(301);
+    expect(new URL(res.headers.get('Location') ?? '').pathname).toBe('/about');
+  });
+
+  test('a repeated jti is accepted, because a jump token is reusable within exp', async () => {
+    // `replayCache` is omitted outright, so this exercises createApp's default.
+    // That default must not be a replay cache: it would make the redirect
+    // decision depend on isolate-local state.
+    const issuerKeys = await generateKeyPair('ES384');
+    const jumpKeys = await generateKeyPair('ES384', { extractable: true });
+    const publicJwk: JWK = {
+      ...(await exportJWK(issuerKeys.publicKey)),
+      kid: 'kid-1',
+      alg: 'ES384',
+      use: 'sig',
+    };
+    const app = createApp({
+      registry: {
+        'https://app.example.com': {
+          iss: 'https://app.example.com',
+          jwks_uri: 'https://app.example.com/.well-known/jwks.json',
+          allowed_dst_internal: ['https://app.example.com'],
+          allowed_dst_external: false,
+        },
+      },
+      jwksCache: new JwksCache(async () => ({ keys: [publicJwk] })),
+      runtime: { edge: 'local', production: true },
+      signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
+      now: () => NOW,
+    });
+
+    const rt = await signToken(issuerKeys.privateKey, { dst: 'internal' });
+    expect((await jump(app, rt)).status).toBe(302);
+    expect((await jump(app, rt)).status).toBe(302);
+  });
+
+  test('a revoked kid is refused and recorded', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const registry: IssuerRegistry = {
+        'https://app.example.com': {
+          iss: 'https://app.example.com',
+          jwks_uri: 'https://app.example.com/.well-known/jwks.json',
+          allowed_dst_internal: ['https://app.example.com'],
+          allowed_dst_external: false,
+          revoked_kids: ['kid-1'],
+        },
+      };
+      const { app, signToken } = await fixtureWithOptions({ registry });
+      const res = await jump(app, await signToken({ dst: 'internal' }));
+      expect(res.status).toBe(400);
+      const lines = warn.mock.calls.map(([message]) => String(message)).join('\n');
+      expect(lines).toContain('jump_revoked_kid_rejected');
+      expect(lines).toContain('"kid":"kid-1"');
+      // Never the token itself.
+      expect(lines).not.toContain('eyJ');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+describe('outbound token contract', () => {
+  async function outboundClaim(overrides: AppOptions = {}) {
+    const { app, signToken, jumpPublicKey } = await fixtureWithOptions(overrides);
+    const res = await jump(app, await signToken({ dst: 'internal' }));
+    expect(res.status).toBe(302);
+    const rt = new URL(res.headers.get('Location') ?? '').searchParams.get('rt');
+    const { payload } = await jwtVerify(rt ?? '', jumpPublicKey, {
+      algorithms: ['ES384'],
+      typ: 'JWT',
+      currentDate: new Date(NOW * 1000),
+    });
+    return payload;
+  }
+
+  test('the outbound token lives exactly 30 seconds', async () => {
+    const payload = await outboundClaim();
+    expect(payload.iat).toBe(NOW);
+    expect(payload.nbf).toBe(NOW);
+    expect(payload.exp).toBe(NOW + 30);
+    expect((payload.exp ?? 0) - (payload.iat ?? 0)).toBe(30);
+  });
+
+  test('the outbound token carries no source jti and no caller identity', async () => {
+    const payload = await outboundClaim();
+    expect(payload).not.toHaveProperty('src_jti');
+    expect(payload.schema).toBe(1);
+    // `src` is the source issuer origin, not anything about the end user.
+    expect(payload.src).toBe('https://app.example.com');
+    expect(Object.keys(payload).sort()).toEqual([
+      'aud',
+      'dst',
+      'exp',
+      'iat',
+      'iss',
+      'jti',
+      'nbf',
+      'schema',
+      'src',
+      'sub',
+      'url',
+    ]);
+  });
+
+  test('each outbound token gets its own jti', async () => {
+    const first = await outboundClaim();
+    const second = await outboundClaim();
+    expect(first.jti).not.toBe(second.jti);
+  });
+});
 
 describe('UMAXICA title contract', () => {
   test('brandTitle composes root and page titles', () => {
@@ -2139,13 +2739,17 @@ describe('UMAXICA title contract', () => {
   test('cloudflare rate limit response is HTML with a contract title', async () => {
     const rateLimiter = { limit: async () => ({ success: false }) };
     const ja = await cloudflareWorker.fetch(
-      new Request('https://jump.example.net/about'),
-      { ratelimit: rateLimiter },
+      new Request('https://jump.example.net/about', {
+        headers: { 'CF-Connecting-IP': '192.0.2.1' },
+      }),
+      { INFO_RATE_LIMITER: rateLimiter },
       {} as ExecutionContext,
     );
     const en = await cloudflareWorker.fetch(
-      new Request('https://jump.example.net/about', { headers: { 'Accept-Language': 'en-US' } }),
-      { ratelimit: rateLimiter },
+      new Request('https://jump.example.net/about', {
+        headers: { 'Accept-Language': 'en-US', 'CF-Connecting-IP': '192.0.2.1' },
+      }),
+      { INFO_RATE_LIMITER: rateLimiter },
       {} as ExecutionContext,
     );
 
@@ -2162,8 +2766,10 @@ describe('UMAXICA title contract', () => {
   // the in-app HTML routes use, so the two paths cannot drift apart.
   test('rate limit HTML carries the same protections as in-app HTML', async () => {
     const limited = await cloudflareWorker.fetch(
-      new Request('https://jump.example.net/about'),
-      { ratelimit: { limit: async () => ({ success: false }) } },
+      new Request('https://jump.example.net/about', {
+        headers: { 'CF-Connecting-IP': '192.0.2.1' },
+      }),
+      { INFO_RATE_LIMITER: { limit: async () => ({ success: false }) } },
       {} as ExecutionContext,
     );
     const inApp = await createApp().request('https://jump.example.net/about');
@@ -2221,14 +2827,65 @@ describe('UMAXICA title contract', () => {
       // The failure is logged, and the log carries the binding name, not a value.
       const logged = warn.mock.calls.map((call) => String(call[0])).join('\n');
       expect(logged).toContain('jump_secret_binding_unavailable');
-      expect(logged).toContain('private_key_pem');
+      expect(logged).toContain('public_jwks');
+      expect(logged).toContain('private_key_kid');
       expect(logged).not.toContain('BEGIN');
     } finally {
       warn.mockRestore();
     }
   });
 
-  test('static assets ship a _headers policy for the Worker-bypassing path', () => {
+  test('cloudflare observability never enables invocation logs', () => {
+    // Invocation logs are emitted by the runtime and record the full request
+    // URL, so `GET /?rt=<jwt>` would persist the inbound token and the
+    // destination. redactLogLine cannot reach them; they must stay off.
+    const configPath = new URL('../wrangler.jsonc', import.meta.url);
+    const config = readFileSync(configPath, 'utf8');
+    const stripped = config.replaceAll(/^\s*\/\/.*$/gm, '');
+    const parsed = JSON.parse(stripped) as {
+      observability?: { logs?: { enabled?: boolean; invocation_logs?: boolean } };
+    };
+    expect(parsed.observability?.logs?.invocation_logs).toBe(false);
+    // The redacted structured logs stay on.
+    expect(parsed.observability?.logs?.enabled).toBe(true);
+  });
+
+  test('a warm isolate reuses the JWKS cache and the imported signer across requests', async () => {
+    const setup = await cloudflareInternalRedirectFixture();
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      const env = {
+        UMAXICA_JUMP_PRIVATE_KEY_PEM: setup.jumpPrivatePem,
+        UMAXICA_JUMP_PRIVATE_KEY_KID: 'cloudflare-active-2026-05',
+      };
+      const first = await fetchCloudflareWorker(`/?rt=${setup.inboundToken}`, env);
+      expect(first.status).toBe(302);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+
+      // Same isolate, same env: the second request must reuse the cached JWKS
+      // rather than going back to the issuer, and must not re-import the key.
+      const second = await fetchCloudflareWorker(`/?rt=${setup.inboundToken}`, env);
+      expect(second.status).toBe(302);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+
+      const signerConfigured = info.mock.calls
+        .map(([message]) => String(message))
+        .filter((line) => line.includes('"signer_configured":true'));
+      expect(signerConfigured).toHaveLength(1);
+
+      // A fresh `env` object stands in for a new isolate handing over a new
+      // reference: the app and its JWKS cache must still be reused, because
+      // they are keyed on configuration rather than on object identity.
+      const third = await fetchCloudflareWorker(`/?rt=${setup.inboundToken}`, { ...env });
+      expect(third.status).toBe(302);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    } finally {
+      setup.restore();
+      info.mockRestore();
+    }
+  });
+
+  test('static assets retain a defense-in-depth _headers policy', () => {
     const headersPath = new URL('../public/_headers', import.meta.url);
     expect(existsSync(headersPath)).toBe(true);
     const policy = readFileSync(headersPath, 'utf8');

@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "printWidth": 100,
+  "tabWidth": 2,
+  "useTabs": false,
+  "semi": true,
+  "singleQuote": true,
+  "trailingComma": "all",
+  "insertFinalNewline": true,
+  "sortPackageJson": true,
+  "overrides": [
+    {
+      "files": ["**/*.json", "**/*.jsonc"],
+      "options": { "trailingComma": "none" }
+    },
+    {
+      "files": ["**/*.yaml", "**/*.yml"],
+      "options": { "printWidth": 100 }
+    },
+    {
+      "files": ["**/*.md", "**/*.mdx"],
+      "options": { "printWidth": 80 }
+    }
+  ]
+}

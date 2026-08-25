@@ -32,8 +32,7 @@ RUN apt-get update \
     tzdata \
   && rm -rf /var/lib/apt/lists/*
 
-RUN corepack enable \
-  && corepack install --global pnpm@latest
+RUN npm install --global pnpm@10.29.3
 
 RUN set -eux; \
   base_user=node; \
@@ -108,10 +107,6 @@ WORKDIR ${HOME}/workspace
 
 RUN rm -rf "${HOME}/.cache"
 RUN rm -rf "${HOME}/.local"
-
-# Install Vite+ (unified toolchain)
-RUN curl -fsSL https://vite.plus | bash
-RUN chown -R "${DOCKER_UID}:${DOCKER_GID}" "${HOME}"
 
 USER ${DOCKER_USER}:${DOCKER_GROUP}
 

@@ -42,8 +42,8 @@ Both local servers bind to `0.0.0.0` through package scripts so they can be reac
 Fastly Compute:
 
 ```sh
-vp run fastly:build
-vp run fastly:serve
+pnpm run fastly:build
+pnpm run fastly:serve
 curl http://127.0.0.1:7676/health.json
 ```
 
@@ -61,8 +61,8 @@ Expected health response includes:
 Cloudflare Workers:
 
 ```sh
-vp run cloudflare:check
-vp run cloudflare:dev
+pnpm run cloudflare:check
+pnpm run cloudflare:dev
 curl http://127.0.0.1:8787/health.json
 ```
 
@@ -97,7 +97,7 @@ If Fastly is reachable inside the container but not from the host, confirm that 
 
 - `rt` JWTs are NOT confidential.
 - `rt` JWTs intentionally appear in URLs.
-- `jti` makes every token unique.
+- `jti` identifies each JWT; schema 1 does not treat it as a single-use credential.
 - `exp` guarantees time-based expiration.
 - Redirect decisions are verified server-side.
 - Jump acts as a trust broker between FQDN boundaries.

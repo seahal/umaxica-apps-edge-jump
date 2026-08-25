@@ -43,7 +43,7 @@ JWT compact JWS gives issuers a portable signed redirect decision. JWKS lets Jum
 
 Jump uses no cookies, DB, or sessions. The JWT contains the redirect decision, expiry, issuer, audience, `jti`, destination type, and URL. Stateless validation keeps Fastly Compute and Cloudflare Workers behavior simple and resilient.
 
-Jump does not track `jti` consumption and does not perform replay detection. Replay defense is the receiving party's responsibility; see [security: Replay Detection](security.md#replay-detection). Correctness in Jump comes from signature, claim, and policy validation.
+Jump does not track `jti` consumption and permits the same redirect decision to be reused until expiry. A Jump token is navigation data only: receivers must not use it for authentication, sessions, authorization, CSRF approval, or state changes. Correctness in Jump comes from signature, claim, and policy validation.
 
 ## Active-Active Edge
 

@@ -11,17 +11,14 @@ allowed.
 
 ## Allowed Issuers And Destinations
 
-| Issuer                       | JWKS                                               | Allowed internal destination origins | External |
-| ---------------------------- | -------------------------------------------------- | ------------------------------------ | -------- |
-| `https://id.umaxica.app`     | `https://id.umaxica.app/.well-known/jwks.json`     | `https://www.umaxica.app`            | no       |
-| `https://id.umaxica.com`     | `https://id.umaxica.com/.well-known/jwks.json`     | `https://www.umaxica.com`            | no       |
-| `https://id.umaxica.org`     | `https://id.umaxica.org/.well-known/jwks.json`     | `https://www.umaxica.org`            | no       |
-| `https://www.umaxica.app`    | `https://www.umaxica.app/.well-known/jwks.json`    | `https://www.umaxica.app`            | no       |
-| `https://www.umaxica.com`    | `https://www.umaxica.com/.well-known/jwks.json`    | `https://www.umaxica.com`            | no       |
-| `https://www.umaxica.org`    | `https://www.umaxica.org/.well-known/jwks.json`    | `https://www.umaxica.org`            | no       |
-| `https://www.jp.umaxica.app` | `https://www.jp.umaxica.app/.well-known/jwks.json` | `https://www.jp.umaxica.app`         | no       |
-| `https://www.jp.umaxica.com` | `https://www.jp.umaxica.com/.well-known/jwks.json` | `https://www.jp.umaxica.com`         | no       |
-| `https://www.jp.umaxica.org` | `https://www.jp.umaxica.org/.well-known/jwks.json` | `https://www.jp.umaxica.org`         | no       |
+| Issuer                     | JWKS                                 | Allowed internal destination origins                 | External |
+| -------------------------- | ------------------------------------ | ---------------------------------------------------- | -------- |
+| `https://auth.umaxica.app` | same origin `/.well-known/jwks.json` | `https://www.umaxica.app`                            | no       |
+| `https://auth.umaxica.com` | same origin `/.well-known/jwks.json` | `https://www.umaxica.com`                            | no       |
+| `https://auth.umaxica.org` | same origin `/.well-known/jwks.json` | `https://www.umaxica.org`                            | no       |
+| `https://www.umaxica.app`  | same origin `/.well-known/jwks.json` | `https://auth.umaxica.app`, `https://jp.umaxica.app` | no       |
+| `https://www.umaxica.com`  | same origin `/.well-known/jwks.json` | `https://auth.umaxica.com`, `https://jp.umaxica.com` | no       |
+| `https://www.umaxica.org`  | same origin `/.well-known/jwks.json` | `https://auth.umaxica.org`, `https://jp.umaxica.org` | no       |
 
 ## Final Desired Shape
 
@@ -30,15 +27,13 @@ The long-term production shape is:
 - DNS: `jump.umaxica.net` points to the selected edge runtime.
 - TLS: certificate is issued and managed by the edge provider for
   `jump.umaxica.net`.
-- Runtime: Cloudflare Workers is the current production entry point; Fastly
-  Compute remains the alternate runtime.
+- Runtime: Cloudflare Workers is the production entry point. Fastly Compute is experimental, unverified, and outside the production scope of this hardening work.
 - Private key: stored only in the provider secret backend.
 - Private key `kid`: stored in the provider secret backend or non-secret runtime
   config.
 - Issuer registry: stored in a reviewed runtime configuration source or secret
   backend if operational policy requires central runtime updates.
-- Logs: access logs redact `rt`; decision logs record only `jti`, `iss`, `kid`,
-  verification result, `dst`, normalized destination origin, and normalized path.
+- Logs: access logs omit the query entirely; audit fields follow `docs/logging.md` and are retained for 30 days.
 
 ## Cloudflare Workers
 
@@ -63,21 +58,7 @@ Before production traffic:
 
 ## Fastly Compute
 
-Fastly deployments should use a Fastly secret store for private key material.
-The production code should read the private key and `kid` from Fastly bindings
-before enabling outbound internal re-signing on Fastly.
-
-Before production traffic:
-
-1. Create or confirm the `jump.umaxica.net` service/domain in Fastly.
-2. Confirm TLS is active for `jump.umaxica.net`.
-3. Store the ES384 P-384 private key in Fastly Secret Store.
-4. Store the active signing key id with the private key metadata or a companion
-   secret.
-5. Deploy the Compute package.
-6. Verify `/health.json`.
-7. Verify valid and rejected redirect-token flows.
-8. Verify logs do not contain the full `rt` value.
+Fastly is experimental, unverified, and not a production target. Its code, configuration, dependencies, and deployment procedure are intentionally unchanged by the Cloudflare hardening work.
 
 ## Registry Rotation
 

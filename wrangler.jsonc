@@ -2,10 +2,13 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "umaxica-apps-edge-jump",
   "main": "src/cloudflare.ts",
-  // Static assets are evaluated before the Worker, so /favicon.ico is answered
-  // from public/ on Cloudflare. Assets are Cloudflare-only: the Fastly and Node
-  // entries keep answering /favicon.ico from the Hono route in src/index.ts.
-  "assets": { "directory": "./public" },
+  // Cloudflare runs the Worker first so asset responses share the security,
+  // request-ID, no-cookie, and no-store contract. Fastly remains unchanged.
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
   "compatibility_date": "2026-05-26",
   "compatibility_flags": ["nodejs_compat"],
   "version_metadata": {
@@ -13,11 +16,27 @@
   },
   "ratelimits": [
     {
-      "name": "ratelimit",
+      "name": "JUMP_RATE_LIMITER",
       "namespace_id": "999",
       "simple": {
-        "limit": 10000,
-        "period": 10
+        "limit": 120,
+        "period": 60
+      }
+    },
+    {
+      "name": "JWKS_RATE_LIMITER",
+      "namespace_id": "1000",
+      "simple": {
+        "limit": 600,
+        "period": 60
+      }
+    },
+    {
+      "name": "INFO_RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 300,
+        "period": 60
       }
     }
   ],
@@ -42,13 +61,17 @@
     }
   ],
   "observability": {
-    "enabled": false,
+    "enabled": true,
     "head_sampling_rate": 1,
     "logs": {
       "enabled": true,
       "head_sampling_rate": 1,
       "persist": true,
-      "invocation_logs": true
+      // Cloudflare's own invocation logs record the full request URL, which for
+      // `GET /?rt=<jwt>` is the inbound token and the destination. The structured
+      // application logs above are redacted (see redactLogLine in src/index.ts);
+      // invocation logs are not, so they stay off.
+      "invocation_logs": false
     },
     "traces": {
       "enabled": true,
