@@ -17,9 +17,9 @@
   "ratelimits": [
     {
       "name": "JUMP_RATE_LIMITER",
-      "namespace_id": "999",
+      "namespace_id": "1006",
       "simple": {
-        "limit": 120,
+        "limit": 600,
         "period": 60
       }
     },
