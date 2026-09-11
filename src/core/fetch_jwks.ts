@@ -14,7 +14,10 @@ export const fetchRegistryJwks: FetchJwks = async (issuer, signal) => {
     stage = 'fetch';
     const response = await fetch(issuer.jwks_uri, {
       headers: { Accept: 'application/json' },
-      redirect: 'error',
+      // Cloudflare Workers implements only `follow` and `manual`. Manual keeps
+      // registry-pinned JWKS requests from following a redirect; the non-2xx
+      // check below rejects the redirect response itself.
+      redirect: 'manual',
       ...(signal ? { signal } : {}),
     });
     upstreamStatus = response.status;

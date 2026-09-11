@@ -25,9 +25,7 @@ type VersionMetadata = {
 export type CloudflareEnv = {
   CF_VERSION_METADATA?: VersionMetadata;
   ASSETS?: AssetsFetcher;
-  INFO_RATE_LIMITER?: RateLimiter;
   JUMP_RATE_LIMITER?: RateLimiter;
-  JWKS_RATE_LIMITER?: RateLimiter;
   JUMP_PRIVATE_KEY_PEM?: SecretBinding;
   JUMP_PRIVATE_KEY_KID?: SecretBinding;
   UMAXICA_JUMP_PRIVATE_KEY_PEM?: SecretBinding;
@@ -131,8 +129,6 @@ function cloudflareRevision(env: CloudflareEnv) {
   return metadata?.id ?? metadata?.tag ?? null;
 }
 
-const JWKS_PATH = '/.well-known/jwks.json';
-
 /**
  * The keyset is consumed in exactly two places: signing an outbound redirect,
  * and publishing the public keyset. Keep this in sync with the `signer` and
@@ -140,13 +136,8 @@ const JWKS_PATH = '/.well-known/jwks.json';
  */
 async function checkRateLimit(request: Request, env: CloudflareEnv, requestId: string) {
   const { pathname } = new URL(request.url);
-  const route = rateLimitRoute(pathname);
-  const rateLimiter =
-    route === 'jump'
-      ? env.JUMP_RATE_LIMITER
-      : route === 'jwks'
-        ? env.JWKS_RATE_LIMITER
-        : env.INFO_RATE_LIMITER;
+  if (pathname !== '/') return null;
+  const rateLimiter = env.JUMP_RATE_LIMITER;
   if (!rateLimiter) return null;
   const clientIp = request.headers.get('CF-Connecting-IP');
   if (!clientIp) {
@@ -158,11 +149,26 @@ async function checkRateLimit(request: Request, env: CloudflareEnv, requestId: s
     // is an IP and is never logged.
     // eslint-disable-next-line no-console -- route class only; no IP, token, or URL.
     console.warn(
-      JSON.stringify({ event: 'jump_rate_limit_skipped', reason: 'client_ip_unavailable', route }),
+      JSON.stringify({ event: 'jump_rate_limit_skipped', reason: 'client_ip_unavailable' }),
     );
     return null;
   }
-  const { success } = await rateLimiter.limit({ key: clientIp });
+  let success: boolean;
+  try {
+    ({ success } = await rateLimiter.limit({ key: clientIp }));
+  } catch (error) {
+    // The binding is supplemental abuse control, not an authorization gate.
+    // Fail open so a provider-side limiter fault cannot take Jump offline.
+    // eslint-disable-next-line no-console -- fixed metadata only; no IP or request URL.
+    console.warn(
+      JSON.stringify({
+        event: 'jump_rate_limit_skipped',
+        reason: 'limiter_unavailable',
+        error_name: error instanceof Error ? error.name : 'unknown',
+      }),
+    );
+    return null;
+  }
   if (success) return null;
   // Rate limiting runs before the Hono app, so languageDetector is unavailable here.
   const locale = asLocale(
@@ -179,12 +185,6 @@ async function checkRateLimit(request: Request, env: CloudflareEnv, requestId: s
       'X-Request-ID': requestId,
     },
   });
-}
-
-function rateLimitRoute(pathname: string): 'jump' | 'jwks' | 'info' {
-  if (pathname === '/') return 'jump';
-  if (pathname === JWKS_PATH) return 'jwks';
-  return 'info';
 }
 
 function isStaticAsset(url: URL) {

@@ -293,7 +293,7 @@ describe('jump gateway routes', () => {
         'https://auth.umaxica.app/.well-known/jwks.json',
         expect.objectContaining({
           headers: { Accept: 'application/json' },
-          redirect: 'error',
+          redirect: 'manual',
         }),
       );
     } finally {
@@ -890,13 +890,16 @@ describe('jump gateway routes', () => {
       for (const name of ['rt', 'r%74', '%72t']) {
         await app.request(`https://jump.example.net/?${name}=header.payload.signature&x=1`);
       }
+      await app.request('https://jump.example.net/rt=header.payload.signature');
+      await app.request('https://jump.example.net/header.payload.signature');
       lines = log.mock.calls.map(([message]) => String(message));
     } finally {
       log.mockRestore();
     }
     expect(lines.some((line) => line.includes('header.payload.signature'))).toBe(false);
     expect(lines.some((line) => line.includes('?'))).toBe(false);
-    expect(lines.filter((line) => line.includes('GET /'))).toHaveLength(6);
+    expect(lines.filter((line) => line.includes('GET /'))).toHaveLength(10);
+    expect(lines.some((line) => line.includes('[redacted-jwt]'))).toBe(true);
   });
 
   test('signer unavailable maps to 503 for internal redirects', async () => {
@@ -2343,25 +2346,28 @@ describe('issuer JWKS transport hardening', () => {
   });
 
   test('a redirected response is refused rather than followed', async () => {
-    // `redirect: 'error'` makes the platform reject; assert the option is set
-    // and that the resulting fetch failure is reported as a transport fault.
+    // Workers supports `manual`, not `error`. Returning the redirect response
+    // lets the normal non-2xx validation reject it without following Location.
     const previousFetch = globalThis.fetch;
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const seen: RequestInit[] = [];
     globalThis.fetch = (async (_url: string, init: RequestInit) => {
       seen.push(init);
-      throw new TypeError('unexpected redirect');
+      return new Response(null, {
+        status: 302,
+        headers: { Location: 'https://evil.example/jwks.json' },
+      });
     }) as unknown as typeof fetch;
     try {
       if (!issuer) throw new Error('missing test issuer');
-      await expect(fetchRegistryJwks(issuer)).rejects.toMatchObject({ code: 'jwks_unavailable' });
-      expect(seen[0]?.redirect).toBe('error');
+      await expect(fetchRegistryJwks(issuer)).rejects.toMatchObject({ code: 'jwks_bad_gateway' });
+      expect(seen[0]?.redirect).toBe('manual');
       expect(JSON.parse(String(error.mock.calls[0]?.[0]))).toEqual(
         expect.objectContaining({
           event: 'jump_jwks_fetch_failed',
-          reason: 'jwks_unavailable',
-          stage: 'fetch',
-          error_name: 'TypeError',
+          reason: 'jwks_bad_gateway',
+          stage: 'http_status',
+          upstream_status: 302,
         }),
       );
     } finally {
@@ -2452,16 +2458,10 @@ describe('route, rate limit, and request id contracts', () => {
 
   function limiterEnv() {
     const jump = limiter();
-    const jwks = limiter();
-    const info = limiter();
     return {
       jump,
-      jwks,
-      info,
       env: {
         JUMP_RATE_LIMITER: jump,
-        JWKS_RATE_LIMITER: jwks,
-        INFO_RATE_LIMITER: info,
         UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({ keys: [] }),
       },
     };
@@ -2475,8 +2475,8 @@ describe('route, rate limit, and request id contracts', () => {
     );
   }
 
-  test('each route class is metered by its own rate limiter binding', async () => {
-    const { jump, jwks, info, env } = limiterEnv();
+  test('only the jump route is metered', async () => {
+    const { jump, env } = limiterEnv();
     const ip = { 'CF-Connecting-IP': '203.0.113.9' };
 
     await workerFetch('/?rt=abc', env, ip);
@@ -2485,8 +2485,6 @@ describe('route, rate limit, and request id contracts', () => {
     await workerFetch('/health', env, ip);
 
     expect(jump.limit).toHaveBeenCalledTimes(1);
-    expect(jwks.limit).toHaveBeenCalledTimes(1);
-    expect(info.limit).toHaveBeenCalledTimes(2);
     // Keyed on the provider-determined client IP, never on a client-supplied header.
     expect(jump.keys).toEqual(['203.0.113.9']);
   });
@@ -2502,12 +2500,10 @@ describe('route, rate limit, and request id contracts', () => {
   });
 
   test('static assets are served without passing through a rate limiter', async () => {
-    const { jump, jwks, info, env } = limiterEnv();
+    const { jump, env } = limiterEnv();
     const res = await workerFetch('/favicon.ico', env, { 'CF-Connecting-IP': '203.0.113.9' });
     expect(res.status).toBe(204);
     expect(jump.limit).not.toHaveBeenCalled();
-    expect(jwks.limit).not.toHaveBeenCalled();
-    expect(info.limit).not.toHaveBeenCalled();
     expect(res.headers.get('X-Request-ID')).toBeTruthy();
     expect(res.headers.get('X-Frame-Options')).toBe('DENY');
   });
@@ -2529,14 +2525,33 @@ describe('route, rate limit, and request id contracts', () => {
     const { jump, env } = limiterEnv();
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      const res = await workerFetch('/about', env);
-      expect(res.status).toBe(200);
+      const res = await workerFetch('/?rt=abc', env);
+      expect(res.status).toBe(400);
       expect(jump.limit).not.toHaveBeenCalled();
       const lines = warn.mock.calls.map(([message]) => String(message)).join('\n');
       expect(lines).toContain('jump_rate_limit_skipped');
       expect(lines).toContain('client_ip_unavailable');
       // The skip notice must not carry an address or the request target.
       expect(lines).not.toContain('203.0.113');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('a rate limiter binding failure fails open without logging request data', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const res = await workerFetch(
+        '/?rt=abc',
+        { JUMP_RATE_LIMITER: { limit: async () => Promise.reject(new TypeError('secret')) } },
+        { 'CF-Connecting-IP': '203.0.113.9' },
+      );
+      expect(res.status).toBe(400);
+      const lines = warn.mock.calls.map(([message]) => String(message)).join('\n');
+      expect(lines).toContain('limiter_unavailable');
+      expect(lines).toContain('TypeError');
+      expect(lines).not.toContain('secret');
+      expect(lines).not.toContain('203.0.113.9');
     } finally {
       warn.mockRestore();
     }
@@ -2803,17 +2818,17 @@ describe('UMAXICA title contract', () => {
   test('cloudflare rate limit response is HTML with a contract title', async () => {
     const rateLimiter = { limit: async () => ({ success: false }) };
     const ja = await cloudflareWorker.fetch(
-      new Request('https://jump.example.net/about', {
+      new Request('https://jump.example.net/?rt=abc', {
         headers: { 'CF-Connecting-IP': '192.0.2.1' },
       }),
-      { INFO_RATE_LIMITER: rateLimiter },
+      { JUMP_RATE_LIMITER: rateLimiter },
       {} as ExecutionContext,
     );
     const en = await cloudflareWorker.fetch(
-      new Request('https://jump.example.net/about', {
+      new Request('https://jump.example.net/?rt=abc', {
         headers: { 'Accept-Language': 'en-US', 'CF-Connecting-IP': '192.0.2.1' },
       }),
-      { INFO_RATE_LIMITER: rateLimiter },
+      { JUMP_RATE_LIMITER: rateLimiter },
       {} as ExecutionContext,
     );
 
@@ -2830,10 +2845,10 @@ describe('UMAXICA title contract', () => {
   // the in-app HTML routes use, so the two paths cannot drift apart.
   test('rate limit HTML carries the same protections as in-app HTML', async () => {
     const limited = await cloudflareWorker.fetch(
-      new Request('https://jump.example.net/about', {
+      new Request('https://jump.example.net/?rt=abc', {
         headers: { 'CF-Connecting-IP': '192.0.2.1' },
       }),
-      { INFO_RATE_LIMITER: { limit: async () => ({ success: false }) } },
+      { JUMP_RATE_LIMITER: { limit: async () => ({ success: false }) } },
       {} as ExecutionContext,
     );
     const inApp = await createApp().request('https://jump.example.net/about');
