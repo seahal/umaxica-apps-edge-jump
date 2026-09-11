@@ -6,14 +6,20 @@ const MAX_BYTES = 64 * 1024;
 const JSON_CONTENT_TYPE = /^application\/(?:[a-z0-9.+-]+\+)?json(?:\s*;|$)/i;
 
 export const fetchRegistryJwks: FetchJwks = async (issuer, signal) => {
-  assertJwksUrl(issuer);
+  const started = performance.now();
+  let stage = 'url_validation';
+  let upstreamStatus: number | undefined;
   try {
+    assertJwksUrl(issuer);
+    stage = 'fetch';
     const response = await fetch(issuer.jwks_uri, {
       headers: { Accept: 'application/json' },
       redirect: 'error',
       ...(signal ? { signal } : {}),
     });
+    upstreamStatus = response.status;
     if (!response.ok) {
+      stage = 'http_status';
       if (response.status >= 500 || response.status === 429) {
         throw new JumpError('jwks_unavailable', 'issuer jwks temporarily unavailable');
       }
@@ -21,6 +27,7 @@ export const fetchRegistryJwks: FetchJwks = async (issuer, signal) => {
     }
 
     const contentType = response.headers.get('content-type') ?? '';
+    stage = 'content_type';
     if (!JSON_CONTENT_TYPE.test(contentType)) {
       throw new JumpError('jwks_bad_gateway', 'issuer jwks content-type rejected');
     }
@@ -29,24 +36,53 @@ export const fetchRegistryJwks: FetchJwks = async (issuer, signal) => {
       throw new JumpError('jwks_bad_gateway', 'issuer jwks response too large');
     }
 
+    stage = 'body';
     const body = await readBodyWithCap(response, MAX_BYTES);
     let parsed: unknown;
     try {
+      stage = 'json';
       parsed = JSON.parse(body);
     } catch {
       throw new JumpError('jwks_bad_gateway', 'issuer jwks json rejected');
     }
+    stage = 'keyset';
     const jwks = parseJwks(parsed);
     if (!jwks) throw new JumpError('jwks_bad_gateway', 'issuer jwks shape rejected');
     return jwks;
   } catch (error) {
-    if (error instanceof JumpError) throw error;
+    if (error instanceof JumpError) {
+      logJwksFetchFailure(issuer.iss, error.code, stage, started, upstreamStatus);
+      throw error;
+    }
     if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) {
+      logJwksFetchFailure(issuer.iss, 'deadline_exceeded', stage, started, upstreamStatus);
       throw new JumpError('deadline_exceeded', 'request deadline exceeded');
     }
+    logJwksFetchFailure(issuer.iss, 'jwks_unavailable', stage, started, upstreamStatus);
     throw new JumpError('jwks_unavailable', 'issuer jwks fetch failed');
   }
 };
+
+function logJwksFetchFailure(
+  issuer: string,
+  reason: string,
+  stage: string,
+  started: number,
+  upstreamStatus?: number,
+) {
+  // eslint-disable-next-line no-console -- only registry issuer and coarse failure metadata.
+  console.error(
+    JSON.stringify({
+      event: 'jump_jwks_fetch_failed',
+      result: 'failed',
+      iss: issuer,
+      reason,
+      stage,
+      ...(upstreamStatus === undefined ? {} : { upstream_status: upstreamStatus }),
+      latency_ms: Math.round(performance.now() - started),
+    }),
+  );
+}
 
 function assertJwksUrl(issuer: Parameters<FetchJwks>[0]) {
   let url: URL;

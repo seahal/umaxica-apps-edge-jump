@@ -25,7 +25,13 @@ Logs should help operate Jump without storing redirect tokens or secrets.
 ```text
 level=warn event=jump_reject reason=expired request_id=... status=400
 level=info event=jump_accept iss=https://auth.example dst=internal dst_origin=https://www.example status=302
+level=error event=jump_jwks_fetch_failed iss=https://auth.example reason=deadline_exceeded stage=fetch latency_ms=1000
 ```
+
+`jump_jwks_fetch_failed` records the registry issuer, coarse failure reason,
+fetch stage, elapsed time, and the upstream HTTP status when one was received.
+It never records the JWT, `kid`, destination URL, JWKS response body, or raw
+exception message.
 
 ## Unsafe Logs
 

@@ -2217,6 +2217,7 @@ describe('request deadline', () => {
 
   test('an aborted upstream fetch is classified as deadline, not as an upstream fault', async () => {
     const previousFetch = globalThis.fetch;
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const controller = new AbortController();
     globalThis.fetch = (async () => {
       controller.abort();
@@ -2228,7 +2229,18 @@ describe('request deadline', () => {
       await expect(fetchRegistryJwks(issuer, controller.signal)).rejects.toMatchObject({
         code: 'deadline_exceeded',
       });
+      expect(error).toHaveBeenCalledOnce();
+      expect(JSON.parse(String(error.mock.calls[0]?.[0]))).toEqual(
+        expect.objectContaining({
+          event: 'jump_jwks_fetch_failed',
+          result: 'failed',
+          iss: issuer.iss,
+          reason: 'deadline_exceeded',
+          stage: 'fetch',
+        }),
+      );
     } finally {
+      error.mockRestore();
       globalThis.fetch = previousFetch;
     }
   });
@@ -2309,9 +2321,24 @@ describe('issuer JWKS transport hardening', () => {
   });
 
   test('an upstream 5xx is temporary, a 4xx is a protocol violation', async () => {
-    await withFetch(() => new Response('', { status: 503 }), expectRejection('jwks_unavailable'));
-    await withFetch(() => new Response('', { status: 429 }), expectRejection('jwks_unavailable'));
-    await withFetch(() => new Response('', { status: 404 }), expectRejection('jwks_bad_gateway'));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      await withFetch(() => new Response('', { status: 503 }), expectRejection('jwks_unavailable'));
+      await withFetch(() => new Response('', { status: 429 }), expectRejection('jwks_unavailable'));
+      await withFetch(() => new Response('', { status: 404 }), expectRejection('jwks_bad_gateway'));
+      expect(error).toHaveBeenCalledTimes(3);
+      expect(JSON.parse(String(error.mock.calls[0]?.[0]))).toEqual(
+        expect.objectContaining({
+          event: 'jump_jwks_fetch_failed',
+          iss: issuer?.iss,
+          reason: 'jwks_unavailable',
+          stage: 'http_status',
+          upstream_status: 503,
+        }),
+      );
+    } finally {
+      error.mockRestore();
+    }
   });
 
   test('a redirected response is refused rather than followed', async () => {

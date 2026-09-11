@@ -20,8 +20,6 @@ ignoredBuiltDependencies:
 
 minimumReleaseAge: 4320
 
-managePackageManagerVersions: false
-
 allowBuilds:
   esbuild: false
   workerd: false
