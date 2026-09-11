@@ -51,14 +51,14 @@ export const fetchRegistryJwks: FetchJwks = async (issuer, signal) => {
     return jwks;
   } catch (error) {
     if (error instanceof JumpError) {
-      logJwksFetchFailure(issuer.iss, error.code, stage, started, upstreamStatus);
+      logJwksFetchFailure(issuer.iss, error.code, stage, started, upstreamStatus, error);
       throw error;
     }
     if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) {
-      logJwksFetchFailure(issuer.iss, 'deadline_exceeded', stage, started, upstreamStatus);
+      logJwksFetchFailure(issuer.iss, 'deadline_exceeded', stage, started, upstreamStatus, error);
       throw new JumpError('deadline_exceeded', 'request deadline exceeded');
     }
-    logJwksFetchFailure(issuer.iss, 'jwks_unavailable', stage, started, upstreamStatus);
+    logJwksFetchFailure(issuer.iss, 'jwks_unavailable', stage, started, upstreamStatus, error);
     throw new JumpError('jwks_unavailable', 'issuer jwks fetch failed');
   }
 };
@@ -69,6 +69,7 @@ function logJwksFetchFailure(
   stage: string,
   started: number,
   upstreamStatus?: number,
+  error?: unknown,
 ) {
   // eslint-disable-next-line no-console -- only registry issuer and coarse failure metadata.
   console.error(
@@ -79,9 +80,32 @@ function logJwksFetchFailure(
       reason,
       stage,
       ...(upstreamStatus === undefined ? {} : { upstream_status: upstreamStatus }),
+      ...safeErrorMetadata(error),
       latency_ms: Math.round(performance.now() - started),
     }),
   );
+}
+
+function safeErrorMetadata(error: unknown) {
+  const errorName = safeDiagnosticValue(error instanceof Error ? error.name : undefined);
+  const cause = error instanceof Error ? error.cause : undefined;
+  const causeName = safeDiagnosticValue(cause instanceof Error ? cause.name : undefined);
+  const causeCode = safeDiagnosticValue(
+    cause && typeof cause === 'object' && 'code' in cause
+      ? (cause as { code?: unknown }).code
+      : undefined,
+  );
+  return {
+    ...(errorName === undefined ? {} : { error_name: errorName }),
+    ...(causeName === undefined ? {} : { cause_name: causeName }),
+    ...(causeCode === undefined ? {} : { cause_code: causeCode }),
+  };
+}
+
+function safeDiagnosticValue(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && /^[A-Za-z0-9_.:-]{1,64}$/.test(value)) return value;
+  return undefined;
 }
 
 function assertJwksUrl(issuer: Parameters<FetchJwks>[0]) {

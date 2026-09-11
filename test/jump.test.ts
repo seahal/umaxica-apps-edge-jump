@@ -2237,6 +2237,7 @@ describe('request deadline', () => {
           iss: issuer.iss,
           reason: 'deadline_exceeded',
           stage: 'fetch',
+          error_name: 'AbortError',
         }),
       );
     } finally {
@@ -2345,6 +2346,7 @@ describe('issuer JWKS transport hardening', () => {
     // `redirect: 'error'` makes the platform reject; assert the option is set
     // and that the resulting fetch failure is reported as a transport fault.
     const previousFetch = globalThis.fetch;
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const seen: RequestInit[] = [];
     globalThis.fetch = (async (_url: string, init: RequestInit) => {
       seen.push(init);
@@ -2354,7 +2356,42 @@ describe('issuer JWKS transport hardening', () => {
       if (!issuer) throw new Error('missing test issuer');
       await expect(fetchRegistryJwks(issuer)).rejects.toMatchObject({ code: 'jwks_unavailable' });
       expect(seen[0]?.redirect).toBe('error');
+      expect(JSON.parse(String(error.mock.calls[0]?.[0]))).toEqual(
+        expect.objectContaining({
+          event: 'jump_jwks_fetch_failed',
+          reason: 'jwks_unavailable',
+          stage: 'fetch',
+          error_name: 'TypeError',
+        }),
+      );
     } finally {
+      error.mockRestore();
+      globalThis.fetch = previousFetch;
+    }
+  });
+
+  test('JWKS failure logs only safe native cause metadata', async () => {
+    const previousFetch = globalThis.fetch;
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    globalThis.fetch = (async () => {
+      const cause = Object.assign(new Error('private upstream detail'), { code: 'EHOSTUNREACH' });
+      throw new TypeError('URL and token must not be logged', { cause });
+    }) as typeof fetch;
+    try {
+      if (!issuer) throw new Error('missing test issuer');
+      await expect(fetchRegistryJwks(issuer)).rejects.toMatchObject({ code: 'jwks_unavailable' });
+      const logged = String(error.mock.calls[0]?.[0]);
+      expect(JSON.parse(logged)).toEqual(
+        expect.objectContaining({
+          error_name: 'TypeError',
+          cause_name: 'Error',
+          cause_code: 'EHOSTUNREACH',
+        }),
+      );
+      expect(logged).not.toContain('private upstream detail');
+      expect(logged).not.toContain('URL and token');
+    } finally {
+      error.mockRestore();
       globalThis.fetch = previousFetch;
     }
   });
