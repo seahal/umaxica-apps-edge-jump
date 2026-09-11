@@ -228,11 +228,18 @@ function redactLogLine(message: string) {
     message.replace(/(\s)(\/\S*)/, (_match, whitespace: string, target: string) => {
       try {
         const url = new URL(target, 'https://request-log.invalid');
-        return `${whitespace}${url.pathname}`;
+        return `${whitespace}${redactJwtPath(url.pathname)}`;
       } catch {
         return `${whitespace}[unparseable-request-target]`;
       }
     }),
+  );
+}
+
+function redactJwtPath(pathname: string) {
+  return pathname.replace(
+    /(?:rt=)?[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,
+    '[redacted-jwt]',
   );
 }
 
