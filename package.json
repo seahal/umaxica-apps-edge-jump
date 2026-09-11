@@ -6,6 +6,7 @@
   "scripts": {
     "format": "oxfmt . --write",
     "format:check": "oxfmt . --check",
+    "keys:generate": "node scripts/generate-jump-keypair.mjs",
     "cloudflare:check": "wrangler deploy --dry-run --outdir dist/cloudflare",
     "cloudflare:dev": "wrangler dev --local --ip 0.0.0.0 --port 8787",
     "fastly:build": "fastly compute build",

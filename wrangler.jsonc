@@ -24,17 +24,10 @@
       }
     }
   ],
-  "secrets_store_secrets": [
-    {
-      "binding": "UMAXICA_JUMP_PRIVATE_KEY_PEM",
-      "store_id": "eb74dec1a757471281526676fb6e6509",
-      "secret_name": "UMAXICA_JUMP_PRIVATE_KEY_PEM"
-    }
-  ],
   "vars": {
     "UMAXICA_JUMP_ORIGIN": "https://jump.umaxica.net",
-    "UMAXICA_JUMP_PRIVATE_KEY_KID": "cloudflare-active-2026-05",
-    "UMAXICA_JUMP_PUBLIC_JWKS": "{\"keys\":[{\"kty\":\"EC\",\"x\":\"aVliHGIbfzOCH-_OHcko1TQuiVyBfpfcUdisWC_EvsEYSC3F5AVqxN-R6GgK6fnY\",\"y\":\"mGwfPjzHLy_YedTy5EvmLD5VJC4TDhBQiVwoxlwRoPVEX_i86QB3e5RdgwwRBVux\",\"crv\":\"P-384\",\"kid\":\"cloudflare-active-2026-05\",\"alg\":\"ES384\",\"use\":\"sig\"}]}"
+    "UMAXICA_JUMP_PRIVATE_KEY_KID": "cloudflare-active-2026-09-12-871e7273",
+    "UMAXICA_JUMP_PUBLIC_JWKS": "{\"keys\":[{\"kty\":\"EC\",\"x\":\"gCxcSIjgAUZeet-kGp1phZ1WbP2Y54pL-Hk5NUGvfEkIAAZhTsB4nk0qPbzBmZSg\",\"y\":\"EQDtyh4VoT-BL3p9y-xccaOj3C-oUIqN_Me33MPxAjSXYYvytDtQi7AV2vSDihup\",\"crv\":\"P-384\",\"kid\":\"cloudflare-active-2026-09-12-871e7273\",\"alg\":\"ES384\",\"use\":\"sig\"}]}"
   },
   "workers_dev": false,
   "routes": [
@@ -50,17 +43,14 @@
     "logs": {
       "enabled": true,
       "head_sampling_rate": 1,
-      "persist": true,
-      // Cloudflare's own invocation logs record the full request URL, which for
-      // `GET /?rt=<jwt>` is the inbound token and the destination. The structured
-      // application logs above are redacted (see redactLogLine in src/index.ts);
-      // invocation logs are not, so they stay off.
-      "invocation_logs": false
+      // Invocation logs expose the full rt query token; application logs are redacted.
+      "invocation_logs": false,
+      "persist": true
     },
     "traces": {
       "enabled": true,
-      "persist": true,
-      "head_sampling_rate": 1
+      "head_sampling_rate": 1,
+      "persist": true
     }
   }
 }

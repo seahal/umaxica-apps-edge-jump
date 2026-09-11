@@ -11,6 +11,7 @@ import type { ReplayCache } from './replay_cache';
 
 const ALLOWED_ALGS = new Set(['ES384']);
 const MAX_TOKEN_LENGTH = 8192;
+const MAX_KID_LENGTH = 128;
 export const CLOCK_SKEW_SECONDS = 5;
 export const MAX_INBOUND_TTL_SECONDS = 300;
 
@@ -44,7 +45,7 @@ export async function verifyJumpJwt(
   if (typeof header.alg !== 'string' || !ALLOWED_ALGS.has(header.alg)) {
     throw new JumpError('invalid_header', 'alg rejected');
   }
-  if (typeof header.kid !== 'string' || !header.kid)
+  if (typeof header.kid !== 'string' || !header.kid || header.kid.length > MAX_KID_LENGTH)
     throw new JumpError('invalid_header', 'kid required');
   if ('crit' in header || 'jku' in header || 'jwk' in header || 'x5u' in header) {
     throw new JumpError('invalid_header', 'embedded key hints rejected');

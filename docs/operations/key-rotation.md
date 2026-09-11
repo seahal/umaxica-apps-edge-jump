@@ -1,117 +1,123 @@
-# Key Rotation Procedure
+# Cloudflare Jump Signing-Key Rotation
 
-## Purpose
+## Scope
 
-This runbook rotates P-384 signing keys for Fastly and Cloudflare runtimes while keeping Jump verification available.
+This runbook rotates the outbound ES384 key used by the Cloudflare Jump Worker.
+The private key is a Cloudflare Worker secret named
+`UMAXICA_JUMP_PRIVATE_KEY_PEM`. The matching public JWKS and active `kid` are
+non-secret variables in `wrangler.jsonc`.
 
-## Key States
+An operational key is one indivisible set:
 
-- `active`: used for new signing and verification.
-- `grace`: verification only; kept so existing JWTs can expire naturally.
-- `retired`: removed from JWKS during normal operation.
-- `revoked`: immediately rejected, even if present elsewhere.
+- one PKCS#8 P-384 private key;
+- one unique `kid`;
+- one public P-384 JWK derived from that private key.
 
-## Manual Rotation Steps
+Never update only one member of this set. A matching `kid` does not prove that
+the private and public keys match.
 
-1. Generate a new Fastly P-384 key pair.
-2. Generate a new Cloudflare P-384 key pair.
-3. Derive public keys from the private keys.
-4. Convert public keys into JWK format.
-5. Add the new public JWKs into `/.well-known/jwks.json`.
-6. Keep old public JWKs during the grace period.
-7. Upload the new Fastly private key into Fastly Secret Store.
-8. Upload the new Cloudflare private key into Cloudflare Secrets.
-9. Upload the new Cloudflare `kid` into the matching secret binding.
-10. Configure issuers or runtime signing code to start signing with the new `kid`.
-11. Verify `/.well-known/jwks.json` returns active and grace public keys.
-12. Verify `/health` on Fastly and Cloudflare.
-13. Wait `max JWT TTL + leeway`.
-14. Remove old public JWKs from JWKS.
-15. Confirm old keys are no longer used for signing.
+## Generate And Verify A New Set
 
-## Compromise Procedure
-
-If compromise is suspected:
-
-1. Skip the grace period.
-2. Add the compromised `kid` into the issuer `revoked_kids` list.
-3. Deploy immediately.
-4. Confirm Jump rejects tokens signed with the revoked `kid`.
-5. Generate and deploy new runtime private keys.
-6. Review the approved request ID, issuer, verified kid, destination origin, cache, status, and latency fields without logging JWTs, `jti`, URLs, or client identifiers.
-
-## Key Generation Examples
-
-Node.js:
+Create a new private directory outside the repository. The generator refuses an
+existing directory, writes secret files with mode `0600`, and performs a
+sign/verify self-check before reporting success.
 
 ```sh
-node -e "const { generateKeyPairSync } = require('crypto'); \
-const kp = generateKeyPairSync('ec', { namedCurve: 'P-384' }); \
-console.log(kp.publicKey.export({format:'pem',type:'spki'})); \
-console.log(kp.privateKey.export({format:'pem',type:'pkcs8'}));"
+rotation_dir="$(mktemp -d)"
+rmdir "$rotation_dir"
+pnpm run keys:generate -- "$rotation_dir"
 ```
 
-OpenSSL:
+The command prints paths and the generated `kid`, but never key material. It
+creates:
+
+- `private.pem`: the PKCS#8 private key;
+- `public-jwks.json`: the public JWKS safe to review and commit;
+- `wrangler-secrets.json`: a temporary upload file containing the private key.
+
+Copy the generated `kid` to `UMAXICA_JUMP_PRIVATE_KEY_KID` and the compact
+contents of `public-jwks.json` to `UMAXICA_JUMP_PUBLIC_JWKS` in
+`wrangler.jsonc`. Do not commit either secret file.
+
+## Validate Before Upload
+
+Run all repository checks and a Worker dry run:
 
 ```sh
-openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:secp384r1 -out private.pem
-openssl pkey -in private.pem -pubout -out public.pem
+pnpm install --frozen-lockfile
+pnpm run format:check
+pnpm run lint:check
+pnpm run typecheck
+pnpm run test
+pnpm run cloudflare:check
 ```
 
-## Public Key Derivation
+Review the diff. It must contain the new public JWK and `kid`, and must not
+contain `PRIVATE KEY` or `wrangler-secrets.json`.
 
-- Public keys are derived from private keys.
-- Private keys are NOT committed into git.
-- Public JWKs ARE committed into git.
-- JWKS is generated from public keys.
-- Runtime environments only store private keys.
-- Git repository stores only public keys.
+## Atomic Upload And Deployment
 
-## Repository Policy
+Authenticate Wrangler first. Upload the code, variables, and new Worker secret
+as one version. Do not use `wrangler secret put` for this rotation: it changes
+the secret separately and can create the exact private/public mismatch this
+runbook is intended to prevent.
 
-- Public repository is allowed.
-- Public JWKs are intentionally public.
-- Private keys must never exist in git.
-- Private keys must never appear in CI logs.
-- Private keys must never appear in screenshots.
-- Private keys must never appear in example configs.
-
-## Runtime Secret Names
-
-Cloudflare Workers:
-
-- `UMAXICA_JUMP_PRIVATE_KEY_PEM`: ES384 P-384 private key in PKCS#8 PEM format.
-- `UMAXICA_JUMP_PRIVATE_KEY_KID`: active outbound signing key id.
-
-Fastly Compute:
-
-- Store the ES384 P-384 private key in Fastly Secret Store.
-- Store the active outbound signing key id as companion secret/config.
-
-Issuer registry entries are not private keys. The current production registry is
-checked in at `src/config/registry.umaxica.ts`; see
-`docs/operations/production-configuration.md`.
-
-## Verification Flow
-
-```mermaid
-flowchart LR
-  token[rt JWT] --> header[Read kid and alg]
-  header --> registry[Lookup issuer registry]
-  registry --> jwks[Fetch/cache registry JWKS]
-  jwks --> key[Select public JWK by kid]
-  key --> verify[Verify signature]
-  verify --> claims[Validate claims and policy]
+```sh
+pnpm exec wrangler whoami
+pnpm exec wrangler versions upload \
+  --strict \
+  --tag "$kid" \
+  --message "Rotate Jump signing key to $kid" \
+  --secrets-file "$rotation_dir/wrangler-secrets.json"
+pnpm exec wrangler versions deploy "<uploaded-version-id>@100%" --yes \
+  --message "Activate Jump signing key $kid"
 ```
 
-## Rotation Flow
+`versions upload --secrets-file` adds the Worker secret to the same immutable
+version as the checked-in public variables. Deploy only the version ID returned
+by that upload.
 
-```mermaid
-flowchart TB
-  gen[Generate Fastly and Cloudflare keys] --> jwk[Convert public keys to JWK]
-  jwk --> publish[Publish JWKS active + grace]
-  publish --> secrets[Upload private keys to runtimes]
-  secrets --> sign[Start signing with new kid]
-  sign --> wait[Wait max TTL + leeway]
-  wait --> retire[Remove old public JWKs]
-```
+## Production Verification
+
+After deployment:
+
+1. `/.well-known/jwks.json` contains exactly the expected active `kid` and
+   public key.
+2. `/health.json` is healthy. This alone does not exercise signing.
+3. A fresh valid inbound `rt` redirects successfully.
+4. Logs for that request contain `jump_signer_configured` with the new `kid` and
+   do not contain `jump_signer_pair_check_failed` or `signer_unavailable`.
+5. The destination verifies the newly issued Jump JWT with the published JWK.
+
+If any check fails, redeploy the previous Worker version as a unit. Do not copy
+individual old secret or variable values into the new version.
+
+After successful verification, securely delete the generated directory. This
+removes the only local copy of the private key and cannot be undone.
+
+## Incident Meaning
+
+- `jump_signer_pair_check_failed` / `JWSSignatureVerificationFailed`: the
+  configured private key and public JWK are different key pairs.
+- `kid_not_in_public_jwks`: the configured `kid` is absent from the public JWKS.
+- `pkcs8_import_failed`: the secret is missing, malformed, or not an ES384
+  PKCS#8 private key.
+- `jump_signer_configured`: import and cryptographic pair verification passed.
+
+## Issuer Keys Are Separate
+
+The keys fetched from issuer JWKS endpoints verify inbound `rt` tokens. They
+are not this Worker signing key and are not rotated by this procedure. Issuer
+rotation may retain old public keys for `maximum token TTL + leeway`; the Jump
+outbound key set above is switched atomically.
+
+Jump normally caches each issuer JWKS for 30 seconds. An unknown `kid` triggers
+one immediate refresh without waiting for that TTL; concurrent refreshes are
+coalesced, and repeated forced refreshes are rate-limited by a cooldown.
+
+## Secret-Handling Rules
+
+- Never commit, print, paste, screenshot, or attach private key material.
+- Never place the private key in `wrangler.jsonc` or a shell argument.
+- Public JWKs and `kid` values are intentionally public and may be committed.
+- Use pnpm scripts and `pnpm exec wrangler` only.

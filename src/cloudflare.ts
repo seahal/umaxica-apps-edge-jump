@@ -370,7 +370,21 @@ async function readConfiguredJumpJwks(env: CloudflareEnv, signal?: AbortSignal) 
     'public_jwks',
     signal,
   );
-  return value ? parseJumpJwks(value) : undefined;
+  if (!value) return undefined;
+  try {
+    return parseJumpJwks(value);
+  } catch (error) {
+    // A malformed runtime variable is service configuration failure, not a bad
+    // client request. Keep the public response at 503 and log only the class.
+    // eslint-disable-next-line no-console -- no JWKS body or secret material.
+    console.error(
+      JSON.stringify({
+        event: 'jump_public_jwks_invalid',
+        reason: error instanceof Error ? error.name : 'unknown',
+      }),
+    );
+    throw new JumpError('signer_unavailable', 'outbound public jwks invalid');
+  }
 }
 
 async function readJumpJwks(
@@ -378,8 +392,9 @@ async function readJumpJwks(
   cache: CloudflareKeyMaterialCache,
   signal: AbortSignal,
 ) {
-  const configured = await readConfiguredJumpJwks(env, signal);
-  if (configured) return configured;
+  // Publish only the same keyset that has passed the private/public pair check
+  // used by outbound signing. This also avoids reparsing the configured JWKS on
+  // every discovery request.
   return cache.getJwks(env, signal);
 }
 
@@ -392,6 +407,7 @@ async function readBinding(binding: SecretBinding | undefined, name: string, sig
     throwIfAborted(signal);
     return value;
   } catch (error) {
+    if (error instanceof JumpError) throw error;
     // A Secrets Store binding throws when the secret is absent from the store
     // (local `wrangler dev`, an unprovisioned store, a rotation gap). Without
     // this catch the rejection escapes the fetch handler and every request
@@ -428,12 +444,12 @@ function stripPrivateJwkFields(jwk: JWK): JWK {
 }
 
 function logSecretUnavailable(name: string, error: unknown) {
-  // eslint-disable-next-line no-console -- binding name only; never the secret value.
+  // eslint-disable-next-line no-console -- binding name and error class only; never provider messages or values.
   console.warn(
     JSON.stringify({
       event: 'jump_secret_binding_unavailable',
       binding: name,
-      reason: error instanceof Error ? error.message : 'unknown',
+      reason: error instanceof Error ? error.name : 'unknown',
     }),
   );
 }

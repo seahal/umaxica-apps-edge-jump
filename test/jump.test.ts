@@ -482,13 +482,42 @@ describe('jump gateway routes', () => {
   });
 
   test('cloudflare worker serves configured Jump public jwks binding', async () => {
-    const { jumpPublicJwk } = await fixture();
-    const res = await fetchCloudflareWorker('/.well-known/jwks.json', {
-      UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({ keys: [jumpPublicJwk] }),
-    });
+    const setup = await cloudflareInternalRedirectFixture();
+    try {
+      const res = await fetchCloudflareWorker('/.well-known/jwks.json', {
+        UMAXICA_JUMP_PRIVATE_KEY_PEM: setup.jumpPrivatePem,
+        UMAXICA_JUMP_PRIVATE_KEY_KID: 'cloudflare-active-2026-05',
+        UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({ keys: [setup.jumpPublicJwk] }),
+      });
 
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ keys: [jumpPublicJwk] });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ keys: [setup.jumpPublicJwk] });
+    } finally {
+      setup.restore();
+    }
+  });
+
+  test('cloudflare worker never publishes a public key that mismatches its signer', async () => {
+    const setup = await cloudflareInternalRedirectFixture();
+    const wrongKeys = await generateKeyPair('ES384');
+    const wrongJwk: JWK = {
+      ...(await exportJWK(wrongKeys.publicKey)),
+      kid: 'cloudflare-active-2026-05',
+      alg: 'ES384',
+      use: 'sig',
+    };
+    try {
+      const res = await fetchCloudflareWorker('/.well-known/jwks.json', {
+        UMAXICA_JUMP_PRIVATE_KEY_PEM: setup.jumpPrivatePem,
+        UMAXICA_JUMP_PRIVATE_KEY_KID: 'cloudflare-active-2026-05',
+        UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({ keys: [wrongJwk] }),
+      });
+
+      expect(res.status).toBe(503);
+      expect(res.headers.get('X-Jump-Error')).toBe('service_unavailable');
+    } finally {
+      setup.restore();
+    }
   });
 
   test('cloudflare worker derives Jump public jwks from private key secret', async () => {
@@ -1049,6 +1078,20 @@ describe('jump token validation', () => {
     expect(res.headers.get('X-Jump-Error')).toBe('invalid_header');
   });
 
+  test('oversized kid rejects before cache lookup', async () => {
+    const { app, signToken, fetchCount } = await fixture();
+    const res = await jump(app, await signToken({}, { kid: 'k'.repeat(129) }));
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_header');
+    expect(fetchCount()).toBe(0);
+  });
+
+  test('prototype property names are not accepted as issuers', async () => {
+    const { app, signToken, fetchCount } = await fixture();
+    const res = await jump(app, await signToken({ iss: '__proto__' }));
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_claim');
+    expect(fetchCount()).toBe(0);
+  });
+
   test('alg mismatch reject', async () => {
     const { app, signToken } = await fixture();
     const token = await signToken();
@@ -1310,6 +1353,41 @@ describe('jump token validation', () => {
     );
     expect(verified.claim.jti).toBe(claim.jti);
     expect(fetches).toBe(2);
+  });
+
+  test('the default issuer JWKS cache expires after 30 seconds', async () => {
+    const { publicKey } = await generateKeyPair('ES384');
+    const jwk: JWK = {
+      ...(await exportJWK(publicKey)),
+      kid: 'kid-1',
+      alg: 'ES384',
+      use: 'sig',
+    };
+    const issuer = {
+      iss: 'https://app.example.com',
+      jwks_uri: 'https://app.example.com/.well-known/jwks.json',
+      allowed_dst_internal: ['https://app.example.com'],
+      allowed_dst_external: false,
+    } satisfies IssuerRegistry[string];
+    let fetches = 0;
+    const cache = new JwksCache(async () => {
+      fetches += 1;
+      return { keys: [jwk] };
+    });
+    const now = vi.spyOn(Date, 'now');
+    try {
+      now.mockReturnValue(1_000_000);
+      await cache.getKey(issuer, 'kid-1', 'ES384');
+      now.mockReturnValue(1_029_999);
+      await cache.getKey(issuer, 'kid-1', 'ES384');
+      expect(fetches).toBe(1);
+
+      now.mockReturnValue(1_030_000);
+      await cache.getKey(issuer, 'kid-1', 'ES384');
+      expect(fetches).toBe(2);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   test('signature failures cannot force repeated JWKS refreshes during cooldown', async () => {
@@ -2906,8 +2984,8 @@ describe('UMAXICA title contract', () => {
       // The failure is logged, and the log carries the binding name, not a value.
       const logged = warn.mock.calls.map((call) => String(call[0])).join('\n');
       expect(logged).toContain('jump_secret_binding_unavailable');
-      expect(logged).toContain('public_jwks');
       expect(logged).toContain('private_key_kid');
+      expect(logged).not.toContain('Secret "UMAXICA_JUMP_PRIVATE_KEY_PEM" not found');
       expect(logged).not.toContain('BEGIN');
     } finally {
       warn.mockRestore();
@@ -2927,6 +3005,35 @@ describe('UMAXICA title contract', () => {
     expect(parsed.observability?.logs?.invocation_logs).toBe(false);
     // The redacted structured logs stay on.
     expect(parsed.observability?.logs?.enabled).toBe(true);
+  });
+
+  test('cloudflare signing config uses a Worker secret and one matching public kid', () => {
+    const configPath = new URL('../wrangler.jsonc', import.meta.url);
+    const config = readFileSync(configPath, 'utf8');
+    const stripped = config.replaceAll(/^\s*\/\/.*$/gm, '');
+    const parsed = JSON.parse(stripped) as {
+      secrets_store_secrets?: Array<{ binding?: string }>;
+      vars?: {
+        UMAXICA_JUMP_PRIVATE_KEY_KID?: string;
+        UMAXICA_JUMP_PUBLIC_JWKS?: string;
+      };
+    };
+
+    expect(parsed.secrets_store_secrets).toBeUndefined();
+    const activeKid = parsed.vars?.UMAXICA_JUMP_PRIVATE_KEY_KID;
+    const jwks = JSON.parse(parsed.vars?.UMAXICA_JUMP_PUBLIC_JWKS ?? '{}') as {
+      keys?: Array<{ alg?: string; crv?: string; kid?: string; kty?: string; use?: string }>;
+    };
+    expect(activeKid).toBeTruthy();
+    expect(jwks.keys).toEqual([
+      expect.objectContaining({
+        alg: 'ES384',
+        crv: 'P-384',
+        kid: activeKid,
+        kty: 'EC',
+        use: 'sig',
+      }),
+    ]);
   });
 
   test('a warm isolate reuses the JWKS cache and the imported signer across requests', async () => {
