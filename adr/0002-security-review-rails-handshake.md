@@ -249,7 +249,7 @@ reproduce the underlying observations with read-only commands:
 
 ```sh
 # Dependency CVE recheck
-vp run audit            # or: pnpm audit --audit-level=high
+pnpm audit --audit-level=high
 
 # Confirm no secret material is committed
 git ls-files | grep -Ei '\.(pem|key|env|secret|cert)$'
@@ -258,7 +258,7 @@ git ls-files | grep -Ei '\.(pem|key|env|secret|cert)$'
 rg -n 'ALLOWED_ALGS|forceRefresh|MemoryReplayCache|key: pathname' src/
 
 # Run the pinned Rails handshake contract test
-vp test run test/jump.test.ts -t 'rails acme app handshake'
+pnpm exec vitest run test/jump.test.ts -t 'rails acme app handshake'
 ```
 
 ## Out of Scope

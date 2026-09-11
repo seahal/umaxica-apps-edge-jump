@@ -74,16 +74,16 @@ sibling repo のパスに依存させない — このリポジトリ内で完�
 ## Verification
 
 ```
-vp test run                 # 既存 109 + 新規 1
-vp check                    # fmt / lint / typecheck
-vp run cloudflare:check     # wrangler deploy --dry-run
+pnpm run test               # 既存 109 + 新規 1
+pnpm run format:check && pnpm run lint:check && pnpm run typecheck
+pnpm run cloudflare:check   # wrangler deploy --dry-run
 ```
 
 `cloudflare:check` の出力に assets が計上され、`dist/cloudflare` に favicon が含まれることを確認する。
 `md5sum public/favicon.ico` が `cdb5f6526b9cab807d58f5cbfc4e5ab6` であること、
 `file public/favicon.ico` が `MS Windows icon resource - 2 icons, 32x32 ... 16x16` を返すことも確認する。
 
-e2e (`vp run test:e2e`) は Node サーバー上で走るため `/favicon.ico` は 204 のまま。既存 9 test が無変更で通ること。
+e2e (`pnpm run test:e2e`) は Node サーバー上で走るため `/favicon.ico` は 204 のまま。既存 9 test が無変更で通ること。
 
 ## Scope 外（今回やらない / 別途会話する）
 

@@ -30,6 +30,7 @@ export type JumpDeps = {
   now?: () => number;
   randomJti?: () => string;
   outboundTtl?: number;
+  signal?: AbortSignal;
 };
 
 const DEFAULT_OUTBOUND_TTL = 30;
@@ -43,19 +44,24 @@ export type JumpAuditLogEntry = {
   reason?: string;
   iss?: string;
   kid?: string;
-  jti?: string;
   dst?: 'internal' | 'external';
   dst_origin?: string;
-  dst_path?: string;
+  request_id?: string;
+  cf_ray?: string;
+  status?: number;
+  latency_ms?: number;
 };
 
 export async function handleJump(request: Request, deps: JumpDeps): Promise<Response> {
   let audit: Partial<JumpAuditLogEntry> = {};
   try {
     const url = new URL(request.url);
+    for (const name of url.searchParams.keys()) {
+      if (name !== 'rt') throw new JumpError('malformed', 'unknown query parameter rejected');
+    }
     const tokens = url.searchParams.getAll('rt');
     if (tokens.length !== 1) throw new JumpError('malformed', 'rt count rejected');
-    audit = readUntrustedAuditFields(String(tokens[0]));
+    if (!tokens[0]) throw new JumpError('malformed', 'empty rt rejected');
     const now = deps.now?.() ?? Math.floor(Date.now() / 1000);
     const { claim, issuer } = await verifyJumpJwt(
       String(tokens[0]),
@@ -64,17 +70,16 @@ export async function handleJump(request: Request, deps: JumpDeps): Promise<Resp
       deps.replayCache,
       now,
       serviceOrigin(deps),
+      deps.signal,
     );
     audit = {
       iss: claim.iss,
-      jti: claim.jti,
       dst: claim.dst,
     };
-    const kid = readUntrustedAuditFields(String(tokens[0])).kid;
+    const kid = readProtectedKid(String(tokens[0]));
     if (kid) audit.kid = kid;
     const target = normalizeUrl(claim.url, deps.runtime, serviceOrigin(deps));
     audit.dst_origin = target.origin;
-    audit.dst_path = new URL(target.href).pathname;
     assertDestinationPolicy(claim, issuer, target);
 
     if (claim.dst === 'external') {
@@ -92,7 +97,7 @@ export async function handleJump(request: Request, deps: JumpDeps): Promise<Resp
       headers: { Location: location },
     });
   } catch (error) {
-    const code = error instanceof JumpError ? error.code : 'malformed';
+    const code = error instanceof JumpError ? error.code : 'internal_error';
     deps.auditLog?.({
       level: 'warn',
       event: 'jump_reject',
@@ -111,8 +116,10 @@ export async function handleJump(request: Request, deps: JumpDeps): Promise<Resp
 }
 
 function errorStatus(code: string) {
-  if (code === 'expired') return 410;
-  if (code === 'signer_unavailable') return 503;
+  if (code === 'jwks_bad_gateway') return 502;
+  if (code === 'jwks_unavailable' || code === 'signer_unavailable') return 503;
+  if (code === 'deadline_exceeded') return 504;
+  if (code === 'internal_error') return 500;
   return 400;
 }
 
@@ -153,16 +160,10 @@ function serviceOrigin(deps: JumpDeps) {
   return deps.config?.serviceOrigin ?? PRODUCTION_SERVICE_ORIGIN;
 }
 
-function readUntrustedAuditFields(token: string): Partial<JumpAuditLogEntry> {
-  const [encodedHeader, encodedPayload] = token.split('.');
+function readProtectedKid(token: string) {
+  const [encodedHeader] = token.split('.');
   const header = decodeUntrustedJson<Record<string, unknown>>(encodedHeader);
-  const payload = decodeUntrustedJson<Record<string, unknown>>(encodedPayload);
-  const audit: Partial<JumpAuditLogEntry> = {};
-  if (typeof header?.kid === 'string' && header.kid) audit.kid = header.kid;
-  if (typeof payload?.iss === 'string' && payload.iss) audit.iss = payload.iss;
-  if (typeof payload?.jti === 'string' && payload.jti) audit.jti = payload.jti;
-  if (payload?.dst === 'internal' || payload?.dst === 'external') audit.dst = payload.dst;
-  return audit;
+  return typeof header?.kid === 'string' && header.kid ? header.kid : undefined;
 }
 
 function decodeUntrustedJson<T>(value: string | undefined): T | null {

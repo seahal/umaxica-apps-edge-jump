@@ -2,11 +2,12 @@ import { exportJWK, importJWK, importPKCS8, jwtVerify, SignJWT, type JWK } from 
 import { registry as umaxicaRegistry } from './config/registry.umaxica';
 import { fetchRegistryJwks } from './core/fetch_jwks';
 import { createApp } from './index';
+import { JwksCache } from './core/jwks_cache';
 import { asLocale } from './core/i18n';
 import { renderRateLimitPage } from './core/page';
 import { NoopReplayCache } from './core/replay_cache';
 import { STANDALONE_HTML_SECURITY_HEADERS } from './core/security_headers';
-import { JoseOutboundSigner, NoopOutboundSigner, type OutboundSigner } from './core/sign_outbound';
+import { JoseOutboundSigner, type OutboundSigner } from './core/sign_outbound';
 import { JumpError, PRODUCTION_SERVICE_ORIGIN, type OutboundJumpClaim } from './core/types';
 import { parseJumpJwks, type JumpJwks } from './core/jump_jwks';
 
@@ -14,6 +15,7 @@ type SecretBinding = string | { get(): Promise<string> };
 type RateLimiter = {
   limit(options: { key: string }): Promise<{ success: boolean }>;
 };
+type AssetsFetcher = { fetch(request: Request): Promise<Response> };
 type VersionMetadata = {
   id?: string;
   tag?: string;
@@ -22,55 +24,111 @@ type VersionMetadata = {
 
 export type CloudflareEnv = {
   CF_VERSION_METADATA?: VersionMetadata;
+  ASSETS?: AssetsFetcher;
+  INFO_RATE_LIMITER?: RateLimiter;
+  JUMP_RATE_LIMITER?: RateLimiter;
+  JWKS_RATE_LIMITER?: RateLimiter;
   JUMP_PRIVATE_KEY_PEM?: SecretBinding;
   JUMP_PRIVATE_KEY_KID?: SecretBinding;
-  RATE_LIMITER?: RateLimiter;
   UMAXICA_JUMP_PRIVATE_KEY_PEM?: SecretBinding;
   UMAXICA_JUMP_PRIVATE_KEY_KID?: SecretBinding;
   UMAXICA_JUMP_ORIGIN?: string;
   UMAXICA_JUMP_PUBLIC_JWKS?: SecretBinding;
   UMAXICA_JUMP_PUBLIC_KEYSET?: SecretBinding;
-  ratelimit?: RateLimiter;
   'UMAXICA-APPS-EDGE-JUMP-VERSION'?: VersionMetadata;
 };
 
+/**
+ * Module scope, so the Hono app, the JWKS cache, and the imported signing key
+ * survive across every request served by the same isolate.
+ *
+ * Deliberately NOT keyed on the `env` object: the Workers runtime makes no
+ * guarantee that successive invocations receive the same `env` reference, and
+ * keying on identity would silently rebuild the app — and drop both caches —
+ * on every request. The key is instead every part of `env` that changes how the
+ * app is built: the service origin and the deployment revision. Both are fixed
+ * for a given deployment, so in a deployed Worker this map holds exactly one
+ * entry for the isolate's lifetime.
+ */
+const apps = new Map<string, ReturnType<typeof createApp>>();
+
+/**
+ * Imported signing key material, kept separate from the app cache above.
+ *
+ * This one *is* keyed on `env`, deliberately: its entries are derived from the
+ * secret bindings that hang off `env`, and the cache keys them by `kid` alone.
+ * Sharing it across differing `env`s would hand out a signer built from one
+ * secret to a request carrying another. In production `kid` and private key are
+ * 1:1, so this only costs a re-import on isolates where `env` identity is not
+ * stable — CPU-only work, unlike the JWKS fetch the app cache now shares.
+ */
+const keyMaterialCaches = new WeakMap<object, CloudflareKeyMaterialCache>();
+
+/**
+ * Drops the module-scope caches, so a caller can start from a cold isolate.
+ * Exists for tests — each case needs its own JWKS keyset, which is exactly the
+ * state a warm isolate is supposed to keep. Production never calls this.
+ */
+export function resetIsolateCachesForTest() {
+  apps.clear();
+}
+
+function keyMaterialCacheFor(env: CloudflareEnv) {
+  const existing = keyMaterialCaches.get(env);
+  if (existing) return existing;
+  const created = new CloudflareKeyMaterialCache();
+  keyMaterialCaches.set(env, created);
+  return created;
+}
+
 export default {
   async fetch(request: Request, env: CloudflareEnv, executionContext: ExecutionContext) {
-    const rateLimit = await checkRateLimit(request, env);
-    if (rateLimit) return rateLimit;
+    const requestId = crypto.randomUUID();
     const url = new URL(request.url);
-    const serviceOrigin = env.UMAXICA_JUMP_ORIGIN || PRODUCTION_SERVICE_ORIGIN;
-    // Reading the keyset costs a full importPKCS8 + sign + verify key-pair check.
-    // Only the two routes below consume it, so every other route (/about,
-    // /health, /robots.txt, ...) skips that work entirely.
-    const jumpJwks = needsJumpJwks(url) ? await readJumpJwks(env) : undefined;
-
-    const app = createApp({
-      registry: umaxicaRegistry,
-      fetchJwks: fetchRegistryJwks,
-      config: { serviceOrigin },
-      ...(jumpJwks ? { jumpJwks } : {}),
-      runtime: {
-        edge: 'cloudflare',
-        version: cloudflareRevision(env),
-        production: true,
-      },
-      // Worker isolates do not share state; jti replay detection is delegated to the
-      // Rails issuer's database. See adr/0002-security-review-rails-handshake.md (H1).
-      replayCache: new NoopReplayCache(),
-      signer: shouldSignJump(url) ? createSigner(env, jumpJwks) : new NoopOutboundSigner(),
-    });
+    if (isStaticAsset(url)) return serveStaticAsset(request, env, requestId);
+    const rateLimit = await checkRateLimit(request, env, requestId);
+    if (rateLimit) return rateLimit;
+    const app = getApp(env);
     return app.fetch(request, env, executionContext);
   },
 };
 
+function getApp(env: CloudflareEnv) {
+  const serviceOrigin = env.UMAXICA_JUMP_ORIGIN || PRODUCTION_SERVICE_ORIGIN;
+  const revision = cloudflareRevision(env);
+  const appKey = `${serviceOrigin}\n${revision ?? ''}`;
+  const existing = apps.get(appKey);
+  if (existing) return existing;
+  const app = createApp({
+    registry: umaxicaRegistry,
+    jwksCache: new JwksCache(fetchRegistryJwks),
+    config: { serviceOrigin },
+    runtime: {
+      edge: 'cloudflare',
+      version: revision,
+      production: true,
+    },
+    replayCache: new NoopReplayCache(),
+    signerForRequest: (requestEnv, signal) =>
+      new LazyCloudflareSigner(
+        requestEnv as CloudflareEnv,
+        keyMaterialCacheFor(requestEnv as CloudflareEnv),
+        signal,
+      ),
+    jumpJwksForRequest: (requestEnv, signal) =>
+      readJumpJwks(
+        requestEnv as CloudflareEnv,
+        keyMaterialCacheFor(requestEnv as CloudflareEnv),
+        signal,
+      ),
+  });
+  apps.set(appKey, app);
+  return app;
+}
+
 function cloudflareRevision(env: CloudflareEnv) {
   const metadata = env['UMAXICA-APPS-EDGE-JUMP-VERSION'] ?? env.CF_VERSION_METADATA;
   return metadata?.id ?? metadata?.tag ?? null;
-}
-
-function shouldSignJump(url: URL) {
-  return url.pathname === '/' && url.searchParams.has('rt');
 }
 
 const JWKS_PATH = '/.well-known/jwks.json';
@@ -80,16 +138,31 @@ const JWKS_PATH = '/.well-known/jwks.json';
  * and publishing the public keyset. Keep this in sync with the `signer` and
  * `jumpJwks` options passed to createApp below.
  */
-function needsJumpJwks(url: URL) {
-  return shouldSignJump(url) || url.pathname === JWKS_PATH;
-}
-
-async function checkRateLimit(request: Request, env: CloudflareEnv) {
-  const rateLimiter = env.RATE_LIMITER || env.ratelimit;
-  if (!rateLimiter) return null;
+async function checkRateLimit(request: Request, env: CloudflareEnv, requestId: string) {
   const { pathname } = new URL(request.url);
-  const clientIp = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const { success } = await rateLimiter.limit({ key: `${clientIp}|${pathname}` });
+  const route = rateLimitRoute(pathname);
+  const rateLimiter =
+    route === 'jump'
+      ? env.JUMP_RATE_LIMITER
+      : route === 'jwks'
+        ? env.JWKS_RATE_LIMITER
+        : env.INFO_RATE_LIMITER;
+  if (!rateLimiter) return null;
+  const clientIp = request.headers.get('CF-Connecting-IP');
+  if (!clientIp) {
+    // Cloudflare sets this on all edge-routed traffic, so this should be
+    // unreachable in production. Fail open rather than closed — the binding is
+    // a coarse abuse control, not an authorization gate, and a redirect service
+    // should not go dark over a missing header — but say so, because silently
+    // unlimited traffic is exactly what nobody notices. The header value itself
+    // is an IP and is never logged.
+    // eslint-disable-next-line no-console -- route class only; no IP, token, or URL.
+    console.warn(
+      JSON.stringify({ event: 'jump_rate_limit_skipped', reason: 'client_ip_unavailable', route }),
+    );
+    return null;
+  }
+  const { success } = await rateLimiter.limit({ key: clientIp });
   if (success) return null;
   // Rate limiting runs before the Hono app, so languageDetector is unavailable here.
   const locale = asLocale(
@@ -103,64 +176,159 @@ async function checkRateLimit(request: Request, env: CloudflareEnv) {
       ...STANDALONE_HTML_SECURITY_HEADERS,
       'Content-Language': locale,
       'Content-Type': 'text/html; charset=utf-8',
+      'X-Request-ID': requestId,
     },
   });
 }
 
-function createSigner(env: CloudflareEnv, jumpJwks: JumpJwks | undefined) {
-  return new LazyCloudflareSigner(env, jumpJwks);
+function rateLimitRoute(pathname: string): 'jump' | 'jwks' | 'info' {
+  if (pathname === '/') return 'jump';
+  if (pathname === JWKS_PATH) return 'jwks';
+  return 'info';
+}
+
+function isStaticAsset(url: URL) {
+  return url.pathname === '/favicon.ico';
+}
+
+async function serveStaticAsset(request: Request, env: CloudflareEnv, requestId: string) {
+  const response = env.ASSETS
+    ? await env.ASSETS.fetch(request)
+    : new Response(null, { status: 204 });
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(STANDALONE_HTML_SECURITY_HEADERS)) {
+    headers.set(name, value);
+  }
+  headers.delete('Set-Cookie');
+  headers.set('X-Request-ID', requestId);
+  return new Response(request.method === 'HEAD' ? null : response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
 }
 
 class LazyCloudflareSigner implements OutboundSigner {
-  private loading: Promise<OutboundSigner> | null = null;
-
   constructor(
     private readonly env: CloudflareEnv,
-    private readonly jumpJwks: JumpJwks | undefined,
+    private readonly cache: CloudflareKeyMaterialCache,
+    private readonly signal: AbortSignal,
   ) {}
 
   async sign(claim: OutboundJumpClaim) {
-    return (await this.loadSigner()).sign(claim);
-  }
-
-  private loadSigner() {
-    if (!this.loading) this.loading = createJoseSigner(this.env, this.jumpJwks);
-    return this.loading;
+    throwIfAborted(this.signal);
+    const signer = await this.cache.getSigner(this.env, this.signal);
+    throwIfAborted(this.signal);
+    return raceAbort(signer.sign(claim), this.signal);
   }
 }
 
-async function createJoseSigner(env: CloudflareEnv, jumpJwks: JumpJwks | undefined) {
-  const pem = await readPrivateKeyPem(env);
-  const kid = await readPrivateKeyKid(env);
-  const context = {
-    private_key_present: Boolean(pem),
-    kid_present: Boolean(kid),
-    kid: kid || undefined,
-    jwks_present: Boolean(jumpJwks),
-  };
-  logSignerConfig(context);
-  if (!pem || !kid) {
-    logSignerUnavailable({ ...context, reason: !pem ? 'missing_private_key' : 'missing_kid' });
-    throw new JumpError('signer_unavailable', 'outbound signer not configured');
+type KeyMaterial = {
+  signer: OutboundSigner;
+  jwks: JumpJwks;
+  expiresAt: number;
+};
+
+class CloudflareKeyMaterialCache {
+  private readonly entries = new Map<string, Promise<KeyMaterial>>();
+
+  constructor(private readonly ttlMs = 300_000) {}
+
+  async getSigner(env: CloudflareEnv, signal: AbortSignal) {
+    return (await this.get(env, signal)).signer;
   }
 
-  const publicJwk = jumpJwks?.keys.find((key) => key.kid === kid);
-  if (!publicJwk) {
-    logSignerUnavailable({ ...context, reason: 'kid_not_in_public_jwks' });
-    throw new JumpError('signer_unavailable', 'outbound signer public key mismatch');
+  async getJwks(env: CloudflareEnv, signal: AbortSignal) {
+    return (await this.get(env, signal)).jwks;
+  }
+
+  private async get(env: CloudflareEnv, signal: AbortSignal) {
+    throwIfAborted(signal);
+    const kid = await readPrivateKeyKid(env, signal);
+    if (!kid) throw new JumpError('signer_unavailable', 'outbound signer kid not configured');
+    if (/\b(?:dev|development|staging|test)\b/i.test(kid)) {
+      throw new JumpError('signer_unavailable', 'non-production signer kid rejected');
+    }
+    const key = `${cloudflareRevision(env) ?? 'unversioned'}:${kid}`;
+    const current = this.entries.get(key);
+    if (current) {
+      const material = await raceAbort(current, signal);
+      if (material.expiresAt > Date.now()) return material;
+      this.entries.delete(key);
+    }
+    for (const [entryKey, entry] of this.entries) {
+      void entry.then((material) => {
+        if (material.expiresAt <= Date.now()) this.entries.delete(entryKey);
+      });
+    }
+    const loading = loadKeyMaterial(env, kid, signal, this.ttlMs);
+    this.entries.set(key, loading);
+    try {
+      return await raceAbort(loading, signal);
+    } catch (error) {
+      this.entries.delete(key);
+      throw error;
+    }
+  }
+}
+
+async function loadKeyMaterial(
+  env: CloudflareEnv,
+  kid: string,
+  signal: AbortSignal,
+  ttlMs: number,
+): Promise<KeyMaterial> {
+  const [pem, configuredJwks] = await Promise.all([
+    readPrivateKeyPem(env, signal),
+    readConfiguredJumpJwks(env, signal),
+  ]);
+  const context = {
+    private_key_present: Boolean(pem),
+    kid_present: true,
+    kid,
+    jwks_present: Boolean(configuredJwks),
+  };
+  logSignerConfig(context);
+  if (!pem) {
+    logSignerUnavailable({ ...context, reason: 'missing_private_key' });
+    throw new JumpError('signer_unavailable', 'outbound signer not configured');
   }
 
   let privateKey: Parameters<SignJWT['sign']>[0];
   try {
-    privateKey = await importPKCS8(pem, 'ES384');
+    privateKey = await raceAbort(importPKCS8(pem, 'ES384', { extractable: true }), signal);
   } catch (error) {
     logSignerImportFailed(context, error);
     logSignerUnavailable({ ...context, import_pkcs8_ok: false, reason: 'pkcs8_import_failed' });
     throw new JumpError('signer_unavailable', 'outbound signer not configured');
   }
 
+  let jwks = configuredJwks;
+  if (!jwks) {
+    try {
+      const privateJwk = await raceAbort(exportJWK(privateKey), signal);
+      const publicJwk = stripPrivateJwkFields({
+        ...privateJwk,
+        kid,
+        alg: 'ES384',
+        use: 'sig',
+      });
+      jwks = parseJumpJwks(JSON.stringify({ keys: [publicJwk] }));
+      logDerivedJwks({ kid, pair_check_ok: true });
+    } catch (error) {
+      logDerivedJwksFailed({ kid, reason: error instanceof Error ? error.name : 'unknown' });
+      throw new JumpError('signer_unavailable', 'outbound public jwks unavailable');
+    }
+  }
+
+  const publicJwk = jwks.keys.find((key) => key.kid === kid);
+  if (!publicJwk) {
+    logSignerUnavailable({ ...context, reason: 'kid_not_in_public_jwks' });
+    throw new JumpError('signer_unavailable', 'outbound signer public key mismatch');
+  }
+
   try {
-    await assertPrivateKeyMatchesPublicJwk(privateKey, publicJwk, kid);
+    await raceAbort(assertPrivateKeyMatchesPublicJwk(privateKey, publicJwk, kid), signal);
   } catch (error) {
     logSignerPairCheckFailed(context, error);
     logSignerUnavailable({ ...context, import_pkcs8_ok: true, reason: 'key_pair_mismatch' });
@@ -169,42 +337,60 @@ async function createJoseSigner(env: CloudflareEnv, jumpJwks: JumpJwks | undefin
 
   logSignerConfigured({
     kid,
-    public_jwks_kids: jumpJwks?.keys.flatMap((key) => (key.kid ? [key.kid] : [])) ?? [],
+    public_jwks_kids: jwks.keys.flatMap((key) => (key.kid ? [key.kid] : [])),
   });
-  return new JoseOutboundSigner(privateKey, kid);
+  return {
+    signer: new JoseOutboundSigner(privateKey, kid),
+    jwks,
+    expiresAt: Date.now() + ttlMs,
+  };
 }
 
-async function readPrivateKeyPem(env: CloudflareEnv) {
+async function readPrivateKeyPem(env: CloudflareEnv, signal?: AbortSignal) {
   const value = await readBinding(
     env.UMAXICA_JUMP_PRIVATE_KEY_PEM ?? env.JUMP_PRIVATE_KEY_PEM,
     'private_key_pem',
+    signal,
   );
   return normalizePem(value);
 }
 
-async function readPrivateKeyKid(env: CloudflareEnv) {
+async function readPrivateKeyKid(env: CloudflareEnv, signal?: AbortSignal) {
   const value = await readBinding(
     env.UMAXICA_JUMP_PRIVATE_KEY_KID ?? env.JUMP_PRIVATE_KEY_KID,
     'private_key_kid',
+    signal,
   );
   return value?.trim() || null;
 }
 
-async function readJumpJwks(env: CloudflareEnv) {
-  const derived = await deriveJumpJwksFromPrivateKey(env);
-  if (derived) return derived;
+async function readConfiguredJumpJwks(env: CloudflareEnv, signal?: AbortSignal) {
   const value = await readBinding(
     env.UMAXICA_JUMP_PUBLIC_JWKS ?? env.UMAXICA_JUMP_PUBLIC_KEYSET,
     'public_jwks',
+    signal,
   );
   return value ? parseJumpJwks(value) : undefined;
 }
 
-async function readBinding(binding: SecretBinding | undefined, name: string) {
+async function readJumpJwks(
+  env: CloudflareEnv,
+  cache: CloudflareKeyMaterialCache,
+  signal: AbortSignal,
+) {
+  const configured = await readConfiguredJumpJwks(env, signal);
+  if (configured) return configured;
+  return cache.getJwks(env, signal);
+}
+
+async function readBinding(binding: SecretBinding | undefined, name: string, signal?: AbortSignal) {
+  throwIfAborted(signal);
   if (!binding) return null;
   if (typeof binding === 'string') return binding;
   try {
-    return await binding.get();
+    const value = await raceAbort(binding.get(), signal);
+    throwIfAborted(signal);
+    return value;
   } catch (error) {
     // A Secrets Store binding throws when the secret is absent from the store
     // (local `wrangler dev`, an unprovisioned store, a rotation gap). Without
@@ -231,36 +417,6 @@ async function assertPrivateKeyMatchesPublicJwk(
     typ: 'JWT',
     currentDate: new Date(now * 1000),
   });
-}
-
-async function deriveJumpJwksFromPrivateKey(env: CloudflareEnv) {
-  const pem = await readPrivateKeyPem(env);
-  const kid = await readPrivateKeyKid(env);
-  if (!pem || !kid) return null;
-
-  try {
-    const privateKey = await importPKCS8(pem, 'ES384', { extractable: true });
-    const privateJwk = await exportJWK(privateKey);
-    const publicJwk = stripPrivateJwkFields({
-      ...privateJwk,
-      kid,
-      alg: 'ES384',
-      use: 'sig',
-    });
-    const jwks = parseJumpJwks(JSON.stringify({ keys: [publicJwk] }));
-    await assertPrivateKeyMatchesPublicJwk(privateKey, jwks.keys[0] as JWK, kid);
-    logDerivedJwks({
-      kid,
-      pair_check_ok: true,
-    });
-    return jwks;
-  } catch (error) {
-    logDerivedJwksFailed({
-      kid,
-      reason: error instanceof Error ? error.name : 'unknown',
-    });
-    return null;
-  }
 }
 
 function stripPrivateJwkFields(jwk: JWK): JWK {
@@ -403,4 +559,18 @@ function normalizePem(value: string | null) {
   }
 
   return normalized.replaceAll('\\r\\n', '\n').replaceAll('\\n', '\n').replaceAll('\r\n', '\n');
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw new JumpError('deadline_exceeded', 'request deadline exceeded');
+}
+
+async function raceAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  throwIfAborted(signal);
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(new JumpError('deadline_exceeded', 'request deadline exceeded'));
+    signal.addEventListener('abort', abort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+  });
 }

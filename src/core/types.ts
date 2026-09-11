@@ -21,7 +21,7 @@ export type IssuerConfig = {
   iss: string;
   jwks_uri: string;
   allowed_dst_internal: string[];
-  allowed_dst_external: boolean | string[];
+  allowed_dst_external: false | readonly string[];
   revoked_kids?: string[];
 };
 
@@ -65,7 +65,11 @@ export type JumpErrorCode =
   | 'replay'
   | 'invalid_dst'
   | 'invalid_url'
-  | 'signer_unavailable';
+  | 'signer_unavailable'
+  | 'jwks_bad_gateway'
+  | 'jwks_unavailable'
+  | 'deadline_exceeded'
+  | 'internal_error';
 
 export class JumpError extends Error {
   readonly code: JumpErrorCode;

@@ -169,3 +169,10 @@ package-lock.json
 .idea
 .claude/
 .pnpm-store/
+
+# Optional developer-local Compose override. The tracked compose file(s) are a
+# complete standard environment on their own, so this is never required and is
+# never created automatically -- a fresh clone must start without it. Ignored
+# up front so that a host-specific override can never become a committed diff.
+/compose.override.yaml
+/compose.override.yml

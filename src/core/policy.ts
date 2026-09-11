@@ -17,7 +17,6 @@ export function assertDestinationPolicy(
 
   if (claim.dst === 'external') {
     const allowed = issuer.allowed_dst_external;
-    if (allowed === true) return;
     if (Array.isArray(allowed) && originAllowed(allowed, target.origin)) return;
     throw new JumpError('invalid_dst', 'external destination rejected');
   }
@@ -25,6 +24,6 @@ export function assertDestinationPolicy(
   throw new JumpError('invalid_dst', 'unknown dst');
 }
 
-function originAllowed(allowedOrigins: string[], targetOrigin: string) {
+function originAllowed(allowedOrigins: readonly string[], targetOrigin: string) {
   return allowedOrigins.some((origin) => normalizeOrigin(origin, POLICY_RUNTIME) === targetOrigin);
 }

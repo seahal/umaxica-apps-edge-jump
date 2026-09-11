@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-ARG NODE_VERSION=24-trixie
+ARG NODE_VERSION=24.20.0-trixie
 ARG DOCKER_UID=1000
 ARG DOCKER_USER=jump
 ARG DOCKER_GID=1000
@@ -32,8 +32,13 @@ RUN apt-get update \
     tzdata \
   && rm -rf /var/lib/apt/lists/*
 
-RUN corepack enable \
-  && corepack install --global pnpm@latest
+# `pnpm --version` in the same layer is the guard, not decoration. From pnpm 12
+# the launcher ships as a native binary a preinstall script copies out of
+# `@pnpm/exe.<platform>`; when that script does not run, npm still reports
+# success and leaves a placeholder text file behind, so the image would build
+# green and every `pnpm` in it would die on a shell syntax error.
+RUN npm install --global pnpm@12.0.0 \
+  && pnpm --version
 
 RUN set -eux; \
   base_user=node; \
@@ -108,10 +113,6 @@ WORKDIR ${HOME}/workspace
 
 RUN rm -rf "${HOME}/.cache"
 RUN rm -rf "${HOME}/.local"
-
-# Install Vite+ (unified toolchain)
-RUN curl -fsSL https://vite.plus | bash
-RUN chown -R "${DOCKER_UID}:${DOCKER_GID}" "${HOME}"
 
 USER ${DOCKER_USER}:${DOCKER_GROUP}
 

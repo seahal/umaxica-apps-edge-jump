@@ -11,8 +11,8 @@ import type { ReplayCache } from './replay_cache';
 
 const ALLOWED_ALGS = new Set(['ES384']);
 const MAX_TOKEN_LENGTH = 8192;
-const SKEW = 60;
-const MAX_TTL = 30 * 24 * 3600;
+export const CLOCK_SKEW_SECONDS = 5;
+export const MAX_INBOUND_TTL_SECONDS = 300;
 
 type Header = {
   typ?: unknown;
@@ -31,7 +31,9 @@ export async function verifyJumpJwt(
   replayCache: ReplayCache,
   now = Math.floor(Date.now() / 1000),
   serviceOrigin: string = PRODUCTION_SERVICE_ORIGIN,
+  signal?: AbortSignal,
 ) {
+  throwIfAborted(signal);
   if (token.length > MAX_TOKEN_LENGTH) throw new JumpError('malformed', 'jwt too large');
   const parts = token.split('.');
   if (parts.length !== 3) throw new JumpError('malformed', 'not compact jwt');
@@ -55,26 +57,29 @@ export async function verifyJumpJwt(
 
   let payload: JWTPayload;
   try {
-    const key = await jwksCache.getKey(issuer, header.kid, header.alg);
+    const key = await jwksCache.getKey(issuer, header.kid, header.alg, false, signal);
+    throwIfAborted(signal);
     const verified = await jwtVerify(token, key, {
       issuer: issuer.iss,
       audience: serviceOrigin,
       algorithms: [header.alg],
       typ: 'JWT',
-      clockTolerance: SKEW,
+      clockTolerance: CLOCK_SKEW_SECONDS,
       currentDate: new Date(now * 1000),
     });
     payload = verified.payload;
   } catch (error) {
     if (error instanceof JumpError) throw error;
+    if (!(error instanceof errors.JWSSignatureVerificationFailed)) throw mapJoseVerifyError(error);
     try {
-      const key = await jwksCache.getKey(issuer, header.kid, header.alg, true);
+      const key = await jwksCache.getKey(issuer, header.kid, header.alg, true, signal);
+      throwIfAborted(signal);
       const verified = await jwtVerify(token, key, {
         issuer: issuer.iss,
         audience: serviceOrigin,
         algorithms: [header.alg],
         typ: 'JWT',
-        clockTolerance: SKEW,
+        clockTolerance: CLOCK_SKEW_SECONDS,
         currentDate: new Date(now * 1000),
       });
       payload = verified.payload;
@@ -86,7 +91,8 @@ export async function verifyJumpJwt(
   }
 
   const claim = validateClaim(payload, issuer.iss, now, serviceOrigin);
-  await replayCache.checkAndStore(claim.iss, claim.jti, claim.exp, now, SKEW);
+  throwIfAborted(signal);
+  await replayCache.checkAndStore(claim.iss, claim.jti, claim.exp, now, CLOCK_SKEW_SECONDS);
   return { claim, issuer };
 }
 
@@ -136,17 +142,18 @@ function validateClaim(
   /* v8 ignore next -- jose audience verification enforces this before local shape checks */
   if (payload.aud !== serviceOrigin) throw new JumpError('invalid_claim', 'aud rejected');
   if (payload.sub !== 'jump-redirect') throw new JumpError('invalid_claim', 'sub rejected');
-  if (typeof payload.exp !== 'number') throw new JumpError('invalid_claim', 'exp required');
-  if (typeof payload.nbf !== 'number') throw new JumpError('invalid_claim', 'nbf required');
-  if (typeof payload.iat !== 'number') throw new JumpError('invalid_claim', 'iat required');
+  if (!isNumericDate(payload.exp)) throw new JumpError('invalid_claim', 'exp required');
+  if (!isNumericDate(payload.nbf)) throw new JumpError('invalid_claim', 'nbf required');
+  if (!isNumericDate(payload.iat)) throw new JumpError('invalid_claim', 'iat required');
   /* v8 ignore next -- jose expiration verification enforces this before local shape checks */
-  if (payload.exp < now - SKEW) throw new JumpError('expired', 'expired');
+  if (payload.exp < now - CLOCK_SKEW_SECONDS) throw new JumpError('expired', 'expired');
   /* v8 ignore next -- jose nbf verification enforces this before local shape checks */
-  if (payload.nbf > now + SKEW) throw new JumpError('invalid_claim', 'nbf future');
-  if (payload.iat > now + SKEW) throw new JumpError('invalid_claim', 'iat future');
-  /* v8 ignore next -- jose rejects this as an invalid active window first */
+  if (payload.nbf > now + CLOCK_SKEW_SECONDS) throw new JumpError('invalid_claim', 'nbf future');
+  if (payload.iat > now + CLOCK_SKEW_SECONDS) throw new JumpError('invalid_claim', 'iat future');
+  if (payload.exp <= payload.iat) throw new JumpError('invalid_claim', 'exp must follow iat');
   if (payload.nbf > payload.exp) throw new JumpError('invalid_claim', 'nbf after exp');
-  if (payload.exp - payload.iat > MAX_TTL) throw new JumpError('invalid_claim', 'ttl exceeded');
+  if (payload.exp - payload.iat > MAX_INBOUND_TTL_SECONDS)
+    throw new JumpError('invalid_claim', 'ttl exceeded');
   if (typeof payload.jti !== 'string' || !payload.jti)
     throw new JumpError('invalid_claim', 'jti required');
   if (payload.dst !== 'internal' && payload.dst !== 'external')
@@ -154,4 +161,12 @@ function validateClaim(
   if (typeof payload.url !== 'string' || !payload.url)
     throw new JumpError('invalid_url', 'url required');
   return payload as InboundJumpClaim;
+}
+
+function isNumericDate(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw new JumpError('deadline_exceeded', 'request deadline exceeded');
 }

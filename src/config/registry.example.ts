@@ -5,7 +5,7 @@ export const registry: IssuerRegistry = {
     iss: 'https://app.example.com',
     jwks_uri: 'https://app.example.com/.well-known/jwks.json',
     allowed_dst_internal: ['https://app.example.com', 'https://docs.example.com'],
-    allowed_dst_external: true,
+    allowed_dst_external: ['https://external.example'],
     revoked_kids: [],
   },
 };
