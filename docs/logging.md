@@ -29,9 +29,10 @@ level=error event=jump_jwks_fetch_failed iss=https://auth.example reason=deadlin
 ```
 
 `jump_jwks_fetch_failed` records the registry issuer, coarse failure reason,
-fetch stage, elapsed time, and the upstream HTTP status when one was received.
-It never records the JWT, `kid`, destination URL, JWKS response body, or raw
-exception message.
+fetch stage, elapsed time, the upstream HTTP status when one was received, and
+sanitized native `error_name`, `cause_name`, and `cause_code` fields when
+available. It never records the JWT, `kid`, destination URL, JWKS response body,
+or raw exception message.
 
 ## Unsafe Logs
 
