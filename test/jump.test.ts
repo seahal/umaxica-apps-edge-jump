@@ -23,7 +23,6 @@ import { messages } from '../src/core/i18n';
 import { normalizeOrigin, normalizeUrl } from '../src/core/normalize_url';
 import { brandTitle } from '../src/core/page';
 import { assertDestinationPolicy } from '../src/core/policy';
-import { MemoryReplayCache, NoopReplayCache } from '../src/core/replay_cache';
 import { JoseOutboundSigner, NoopOutboundSigner } from '../src/core/sign_outbound';
 import {
   JumpError,
@@ -85,7 +84,6 @@ async function fixtureWithOptions(options: AppOptions = {}): Promise<Fixture> {
       fetches += 1;
       return { keys: [publicJwk] };
     }),
-    replayCache: new NoopReplayCache(),
     runtime: { edge: 'local', production: true },
     signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
     now: () => NOW,
@@ -330,7 +328,6 @@ describe('jump gateway routes', () => {
       jwksCache: new JwksCache(async () => ({
         keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
-      replayCache: new NoopReplayCache(),
       runtime: { edge: 'local', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       now: () => NOW,
@@ -348,9 +345,7 @@ describe('jump gateway routes', () => {
         }),
       );
       expect(res.status, host).not.toBe(302);
-      expect(res.headers.get('X-Jump-Error'), host).toBe(
-        Object.hasOwn(umaxicaRegistry, host) ? 'invalid_dst' : 'invalid_claim',
-      );
+      expect(res.headers.get('X-Jump-Error'), host).toBe('invalid_request');
     }
 
     // the broker is the 15th fqdn: no issuer may redirect back into Jump itself
@@ -364,7 +359,7 @@ describe('jump gateway routes', () => {
         }),
       );
       expect(res.status, iss).not.toBe(302);
-      expect(res.headers.get('X-Jump-Error'), iss).toBe('invalid_url');
+      expect(res.headers.get('X-Jump-Error'), iss).toBe('invalid_request');
     }
   });
 
@@ -392,7 +387,6 @@ describe('jump gateway routes', () => {
       jwksCache: new JwksCache(async () => ({
         keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
-      replayCache: new NoopReplayCache(),
       runtime: { edge: 'local', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       now: () => NOW,
@@ -416,8 +410,7 @@ describe('jump gateway routes', () => {
         }
         rejected.push(edge);
         // an issuer the registry does not know never reaches destination policy
-        const expectedError = Object.hasOwn(umaxicaRegistry, iss) ? 'invalid_dst' : 'invalid_claim';
-        expect(res.headers.get('X-Jump-Error'), edge).toBe(expectedError);
+        expect(res.headers.get('X-Jump-Error'), edge).toBe('invalid_request');
       }
     }
 
@@ -435,7 +428,6 @@ describe('jump gateway routes', () => {
       jwksCache: new JwksCache(async () => ({
         keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
-      replayCache: new NoopReplayCache(),
       runtime: { edge: 'local', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       now: () => NOW,
@@ -450,7 +442,7 @@ describe('jump gateway routes', () => {
         url: 'https://palm.umaxica.app/path',
       }),
     );
-    expect(fromEdit.headers.get('X-Jump-Error')).toBe('invalid_claim');
+    expect(fromEdit.headers.get('X-Jump-Error')).toBe('invalid_request');
 
     // and no issuer that does exist may hand out a destination on another tld
     for (const [iss, url] of [
@@ -463,7 +455,7 @@ describe('jump gateway routes', () => {
         app,
         await signPayload(issuerKeys.privateKey, { ...baseClaim(), iss, url }),
       );
-      expect(res.headers.get('X-Jump-Error')).toBe('invalid_dst');
+      expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
     }
   });
 
@@ -528,7 +520,7 @@ describe('jump gateway routes', () => {
     const res = await app.request('https://jump.example.net/?rt=abc.def');
 
     expect(res.status).toBe(400);
-    expect(res.headers.get('X-Jump-Error')).toBe('malformed');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('health JSON and HTML include runtime data', async () => {
@@ -588,7 +580,7 @@ describe('jump gateway routes', () => {
   test('robots.txt is restrictive', async () => {
     const { app } = await fixture();
     expect(await (await app.request('https://jump.example.net/robots.txt')).text()).toBe(
-      'User-agent: *\nDisallow: /\nAllow: /about\nSitemap: https://jump.example.net/sitemap.xml\n',
+      `User-agent: *\nDisallow: /\nAllow: /about\nSitemap: ${PRODUCTION_SERVICE_ORIGIN}/sitemap.xml\n`,
     );
   });
 
@@ -600,7 +592,7 @@ describe('jump gateway routes', () => {
     expect(await res.text()).toBe(`<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://jump.example.net/about</loc>
+    <loc>${PRODUCTION_SERVICE_ORIGIN}/about</loc>
   </url>
 </urlset>
 `);
@@ -631,7 +623,7 @@ describe('jump gateway routes', () => {
     });
     expect(res.status).toBe(200);
     expect(await res.text()).toBe(
-      'User-agent: *\nDisallow: /\nAllow: /about\nSitemap: https://jump.example.net/sitemap.xml\n',
+      `User-agent: *\nDisallow: /\nAllow: /about\nSitemap: ${PRODUCTION_SERVICE_ORIGIN}/sitemap.xml\n`,
     );
   });
 
@@ -641,7 +633,7 @@ describe('jump gateway routes', () => {
     });
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('application/xml; charset=utf-8');
-    expect(await res.text()).toContain('<loc>https://jump.example.net/about</loc>');
+    expect(await res.text()).toContain(`<loc>${PRODUCTION_SERVICE_ORIGIN}/about</loc>`);
   });
 
   test('cloudflare worker serves favicon without importing private key', async () => {
@@ -762,7 +754,7 @@ describe('jump gateway routes', () => {
       });
 
       expect(res.status).toBe(503);
-      expect(res.headers.get('X-Jump-Error')).toBe('signer_unavailable');
+      expect(res.headers.get('X-Jump-Error')).toBe('service_unavailable');
       expect(warn.mock.calls.map(([message]) => String(message)).join('\n')).toContain(
         'pkcs8_import_failed',
       );
@@ -787,7 +779,7 @@ describe('jump gateway routes', () => {
       });
 
       expect(res.status).toBe(503);
-      expect(res.headers.get('X-Jump-Error')).toBe('signer_unavailable');
+      expect(res.headers.get('X-Jump-Error')).toBe('service_unavailable');
     } finally {
       setup.restore();
     }
@@ -986,7 +978,7 @@ describe('jump gateway routes', () => {
       const res = await fetchCloudflareWorker(`/?rt=${setup.inboundToken}`, env);
 
       expect(res.status).toBe(400);
-      expect(res.headers.get('X-Jump-Error')).toBe('invalid_claim');
+      expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
     } finally {
       setup.restore();
     }
@@ -1142,7 +1134,6 @@ describe('jump gateway routes', () => {
       jwksCache: new JwksCache(async () => {
         return { keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }] };
       }),
-      replayCache: new NoopReplayCache(),
       runtime: { edge: 'local', production: true },
       now: () => NOW,
     });
@@ -1153,7 +1144,7 @@ describe('jump gateway routes', () => {
       })}`,
     );
     expect(res.status).toBe(503);
-    expect(res.headers.get('X-Jump-Error')).toBe('signer_unavailable');
+    expect(res.headers.get('X-Jump-Error')).toBe('service_unavailable');
   });
 
   test('redirect responses avoid referrer, cache, and cookies', async () => {
@@ -1199,7 +1190,7 @@ describe('jump token validation', () => {
     const token = await signToken();
     const res = await app.request(`https://jump.example.net/?rt=${token}&rt=${token}`);
     expect(res.status).toBe(400);
-    expect(res.headers.get('X-Jump-Error')).toBe('malformed');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('jump query and method contracts reject ambiguity', async () => {
@@ -1243,7 +1234,7 @@ describe('jump token validation', () => {
     const token = 'not-a-compact-jwt-with-secret-like-content';
     const res = await jump(app, token);
 
-    expect(res.headers.get('X-Jump-Error')).toBe('malformed');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({
       level: 'warn',
@@ -1259,32 +1250,32 @@ describe('jump token validation', () => {
     const { app } = await fixture();
     const res = await jump(app, `${'a'.repeat(8193)}.b.c`);
     expect(res.status).toBe(400);
-    expect(res.headers.get('X-Jump-Error')).toBe('malformed');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('invalid base64url reject', async () => {
     const { app } = await fixture();
     const res = await jump(app, 'abc=.def.ghi');
-    expect(res.headers.get('X-Jump-Error')).toBe('malformed');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('typ mismatch reject', async () => {
     const { app, signToken } = await fixture();
     const res = await jump(app, await signToken({}, { typ: 'JOSE' }));
-    expect(res.headers.get('X-Jump-Error')).toBe('invalid_header');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('oversized kid rejects before cache lookup', async () => {
     const { app, signToken, fetchCount } = await fixture();
     const res = await jump(app, await signToken({}, { kid: 'k'.repeat(129) }));
-    expect(res.headers.get('X-Jump-Error')).toBe('invalid_header');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
     expect(fetchCount()).toBe(0);
   });
 
   test('prototype property names are not accepted as issuers', async () => {
     const { app, signToken, fetchCount } = await fixture();
     const res = await jump(app, await signToken({ iss: '__proto__' }));
-    expect(res.headers.get('X-Jump-Error')).toBe('invalid_claim');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
     expect(fetchCount()).toBe(0);
   });
 
@@ -1294,7 +1285,7 @@ describe('jump token validation', () => {
     const parts = token.split('.');
     const header = b64(JSON.stringify({ typ: 'JWT', alg: 'HS256', kid: 'kid-1' }));
     const res = await jump(app, [header, parts[1], parts[2]].join('.'));
-    expect(res.headers.get('X-Jump-Error')).toBe('invalid_header');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('none algorithm token rejects', async () => {
@@ -1306,7 +1297,7 @@ describe('jump token validation', () => {
     ].join('.');
 
     const res = await jump(app, token);
-    expect(res.headers.get('X-Jump-Error')).toBe('invalid_header');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('non-ES384 signed tokens reject before key lookup', async () => {
@@ -1322,7 +1313,7 @@ describe('jump token validation', () => {
         .sign(keyPair.privateKey);
 
       const res = await jump(app, token);
-      expect(res.headers.get('X-Jump-Error')).toBe('invalid_header');
+      expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
     }
   });
 
@@ -1334,13 +1325,13 @@ describe('jump token validation', () => {
       .sign(privateKey);
 
     const res = await jump(app, token);
-    expect(res.headers.get('X-Jump-Error')).toBe('invalid_header');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('jku reject', async () => {
     const { app, signToken } = await fixture();
     const res = await jump(app, await signToken({}, { jku: 'https://evil.example/jwks.json' }));
-    expect(res.headers.get('X-Jump-Error')).toBe('invalid_header');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('crit, jwk, and x5u headers reject', async () => {
@@ -1353,12 +1344,12 @@ describe('jump token validation', () => {
           replaceHeader(token, { typ: 'JWT', alg: 'ES384', kid: 'kid-1', crit: ['exp'] }),
         )
       ).headers.get('X-Jump-Error'),
-    ).toBe('invalid_header');
+    ).toBe('invalid_request');
     expect(
       (
         await jump(app, replaceHeader(token, { typ: 'JWT', alg: 'ES384', kid: 'kid-1', jwk: {} }))
       ).headers.get('X-Jump-Error'),
-    ).toBe('invalid_header');
+    ).toBe('invalid_request');
     expect(
       (
         await jump(
@@ -1371,19 +1362,19 @@ describe('jump token validation', () => {
           }),
         )
       ).headers.get('X-Jump-Error'),
-    ).toBe('invalid_header');
+    ).toBe('invalid_request');
   });
 
   test('missing kid reject', async () => {
     const { app, signToken } = await fixture();
     const res = await jump(app, await signToken({}, { kid: '' }));
-    expect(res.headers.get('X-Jump-Error')).toBe('invalid_header');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('iss mismatch reject', async () => {
     const { app, signToken } = await fixture();
     const res = await jump(app, await signToken({ iss: 'https://evil.example' }));
-    expect(res.headers.get('X-Jump-Error')).toBe('invalid_claim');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('missing unsafe issuer rejects before JWKS fetch', async () => {
@@ -1391,7 +1382,7 @@ describe('jump token validation', () => {
     const payload = baseClaim() as Record<string, unknown>;
     delete payload.iss;
     const res = await jump(app, await signRaw(payload));
-    expect(res.headers.get('X-Jump-Error')).toBe('invalid_claim');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('invalid payload json rejects as malformed', async () => {
@@ -1399,56 +1390,56 @@ describe('jump token validation', () => {
     const token = await signToken();
     const parts = token.split('.');
     const res = await jump(app, [parts[0], b64('{'), parts[2]].join('.'));
-    expect(res.headers.get('X-Jump-Error')).toBe('malformed');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('exp reject', async () => {
     const { app, signToken } = await fixture();
     const res = await jump(app, await signToken({ exp: NOW - 61 }));
     expect(res.status).toBe(400);
-    expect(res.headers.get('X-Jump-Error')).toBe('expired');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('schema, aud, sub, and required claim validation reject invalid tokens', async () => {
     const { app, signToken } = await fixture();
     expect((await jump(app, await signToken({ schema: 2 as 1 }))).headers.get('X-Jump-Error')).toBe(
-      'invalid_claim',
+      'invalid_request',
     );
     expect(
       (await jump(app, await signToken({ aud: 'https://other.example' }))).headers.get(
         'X-Jump-Error',
       ),
-    ).toBe('invalid_claim');
+    ).toBe('invalid_request');
     expect(
       (await jump(app, await signToken({ sub: 'other' as 'jump-redirect' }))).headers.get(
         'X-Jump-Error',
       ),
-    ).toBe('invalid_claim');
+    ).toBe('invalid_request');
     expect((await jump(app, await signToken({ jti: '' }))).headers.get('X-Jump-Error')).toBe(
-      'invalid_claim',
+      'invalid_request',
     );
   });
 
   test('unknown destination claim rejects after signature verification', async () => {
     const { app, signRaw } = await fixture();
     const res = await jump(app, await signRaw({ ...baseClaim(), dst: 'other' }));
-    expect(res.headers.get('X-Jump-Error')).toBe('invalid_dst');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('nbf future and empty url reject', async () => {
     const { app, signToken } = await fixture();
     expect((await jump(app, await signToken({ nbf: NOW + 61 }))).headers.get('X-Jump-Error')).toBe(
-      'invalid_claim',
+      'invalid_request',
     );
     expect((await jump(app, await signToken({ url: '' }))).headers.get('X-Jump-Error')).toBe(
-      'invalid_url',
+      'invalid_request',
     );
   });
 
   test('iat future reject', async () => {
     const { app, signToken } = await fixture();
     const res = await jump(app, await signToken({ iat: NOW + 120, nbf: NOW, exp: NOW + 3600 }));
-    expect(res.headers.get('X-Jump-Error')).toBe('invalid_claim');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('input ttl accepts 300 seconds and rejects 301 seconds', async () => {
@@ -1457,7 +1448,7 @@ describe('jump token validation', () => {
       302,
     );
     const rejected = await jump(app, await signToken({ iat: NOW, nbf: NOW, exp: NOW + 301 }));
-    expect(rejected.headers.get('X-Jump-Error')).toBe('invalid_claim');
+    expect(rejected.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('time claim structure rejects exp at or before iat and non-numeric dates', async () => {
@@ -1472,7 +1463,7 @@ describe('jump token validation', () => {
       const payload = baseClaim() as Record<string, unknown>;
       delete payload[claimName];
       const res = await jump(app, await signRaw(payload));
-      expect(res.headers.get('X-Jump-Error')).toBe('invalid_claim');
+      expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
     }
   });
 
@@ -1482,7 +1473,7 @@ describe('jump token validation', () => {
     const parts = token.split('.');
     const payload = b64(JSON.stringify({ ...baseClaim(), jti: 'tampered' }));
     const res = await jump(app, [parts[0], payload, parts[2]].join('.'));
-    expect(res.headers.get('X-Jump-Error')).toBe('invalid_signature');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('wrong elliptic curve key rejects for ES384', async () => {
@@ -1506,7 +1497,6 @@ describe('jump token validation', () => {
         new JwksCache(async () => ({
           keys: [{ ...wrongCurveJwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
         })),
-        new NoopReplayCache(),
         NOW,
       ),
     ).rejects.toMatchObject({ code: 'jwks_bad_gateway' });
@@ -1544,7 +1534,6 @@ describe('jump token validation', () => {
           ],
         };
       }),
-      new NoopReplayCache(),
       NOW,
     );
     expect(verified.claim.jti).toBe(claim.jti);
@@ -1606,9 +1595,9 @@ describe('jump token validation', () => {
     const invalidToken = await signPayload(attackerKeys.privateKey, baseClaim());
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      await expect(
-        verifyJumpJwt(invalidToken, registry, cache, new NoopReplayCache(), NOW),
-      ).rejects.toMatchObject({ code: 'invalid_signature' });
+      await expect(verifyJumpJwt(invalidToken, registry, cache, NOW)).rejects.toMatchObject({
+        code: 'invalid_signature',
+      });
     }
 
     expect(fetches).toBe(2);
@@ -1635,9 +1624,9 @@ describe('jump token validation', () => {
     const invalidToken = await signPayload(attackerKeys.privateKey, baseClaim());
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      await expect(
-        verifyJumpJwt(invalidToken, registry, cache, new NoopReplayCache(), NOW),
-      ).rejects.toMatchObject({ code: 'invalid_signature' });
+      await expect(verifyJumpJwt(invalidToken, registry, cache, NOW)).rejects.toMatchObject({
+        code: 'invalid_signature',
+      });
     }
 
     expect(fetches).toBe(2);
@@ -1686,7 +1675,7 @@ describe('jump token validation', () => {
   test('dst policy rejects unlisted internal origin', async () => {
     const { app, signToken } = await fixture();
     const res = await jump(app, await signToken({ url: 'https://other.example/path' }));
-    expect(res.headers.get('X-Jump-Error')).toBe('invalid_dst');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('decision audit logs rejected token metadata without full jwt', async () => {
@@ -1697,7 +1686,7 @@ describe('jump token validation', () => {
     const token = await signToken({ jti: 'reject-jti', url: 'https://other.example/path?q=1' });
     const res = await jump(app, token);
 
-    expect(res.headers.get('X-Jump-Error')).toBe('invalid_dst');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({
       level: 'warn',
@@ -1717,7 +1706,7 @@ describe('jump token validation', () => {
   test('self-link reject', async () => {
     const { app, signToken } = await fixture();
     const res = await jump(app, await signToken({ url: `${PRODUCTION_SERVICE_ORIGIN}/about` }));
-    expect(res.headers.get('X-Jump-Error')).toBe('invalid_url');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('forbidden protocols reject', async () => {
@@ -1729,7 +1718,7 @@ describe('jump token validation', () => {
       'blob:https://app.example.com/abc',
     ]) {
       const res = await jump(app, await signToken({ url }));
-      expect(res.headers.get('X-Jump-Error')).toBe('invalid_url');
+      expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
     }
   });
 
@@ -1785,25 +1774,25 @@ describe('jump token validation', () => {
   test('userinfo reject', async () => {
     const { app, signToken } = await fixture();
     const res = await jump(app, await signToken({ url: 'https://user:pass@app.example.com/path' }));
-    expect(res.headers.get('X-Jump-Error')).toBe('invalid_url');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('production http reject', async () => {
     const { app, signToken } = await fixture();
     const res = await jump(app, await signToken({ url: 'http://app.example.com/path' }));
-    expect(res.headers.get('X-Jump-Error')).toBe('invalid_url');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('private IP reject', async () => {
     const { app, signToken } = await fixture();
     const res = await jump(app, await signToken({ url: 'https://192.168.0.10/path' }));
-    expect(res.headers.get('X-Jump-Error')).toBe('invalid_url');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('metadata IP reject', async () => {
     const { app, signToken } = await fixture();
     const res = await jump(app, await signToken({ url: 'https://169.254.169.254/latest' }));
-    expect(res.headers.get('X-Jump-Error')).toBe('invalid_url');
+    expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
   test('IPv6 loopback, link-local, ULA, and mapped metadata reject', async () => {
@@ -1817,7 +1806,7 @@ describe('jump token validation', () => {
       'https://[::]/path',
     ]) {
       const res = await jump(app, await signToken({ url }));
-      expect(res.headers.get('X-Jump-Error')).toBe('invalid_url');
+      expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
     }
   });
 
@@ -1838,7 +1827,7 @@ describe('jump token validation', () => {
       'https://[2002:a9fe:a9fe::]/latest',
     ]) {
       const res = await jump(app, await signToken({ url }));
-      expect(res.headers.get('X-Jump-Error')).toBe('invalid_url');
+      expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
     }
   });
 
@@ -1853,7 +1842,7 @@ describe('jump token validation', () => {
       const parsed = new URL(url);
       expect(parsed.hostname).toBe('127.0.0.1');
       const res = await jump(app, await signToken({ url }));
-      expect(res.headers.get('X-Jump-Error')).toBe('invalid_url');
+      expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
     }
   });
 
@@ -1872,7 +1861,7 @@ describe('jump token validation', () => {
   test('non-default ports reject in production registries', async () => {
     const { app, signToken } = await fixture();
     const rejected = await jump(app, await signToken({ url: 'https://app.example.com:444/path' }));
-    expect(rejected.headers.get('X-Jump-Error')).toBe('invalid_dst');
+    expect(rejected.headers.get('X-Jump-Error')).toBe('invalid_request');
 
     const issuerKeys = await generateKeyPair('ES384');
     const jumpKeys = await generateKeyPair('ES384');
@@ -1891,7 +1880,6 @@ describe('jump token validation', () => {
         jwksCache: new JwksCache(async () => ({
           keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
         })),
-        replayCache: new NoopReplayCache(),
         runtime: { edge: 'local', production: true },
         signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
         now: () => NOW,
@@ -1930,7 +1918,6 @@ describe('jump token validation', () => {
       jwksCache: new JwksCache(async () => ({
         keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
-      replayCache: new NoopReplayCache(),
       runtime: { edge: 'local', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       now: () => NOW,
@@ -1968,7 +1955,6 @@ describe('jump token validation', () => {
       jwksCache: new JwksCache(async () => ({
         keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
-      replayCache: new NoopReplayCache(),
       runtime: { edge: 'local', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       now: () => NOW,
@@ -2001,7 +1987,6 @@ describe('jump token validation', () => {
       jwksCache: new JwksCache(async () => ({
         keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
-      replayCache: new NoopReplayCache(),
       runtime: { edge: 'local', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       now: () => NOW,
@@ -2122,10 +2107,10 @@ describe('jump token validation', () => {
     expect((await jump(app, await signToken({ jti: 'b' }))).status).toBe(302);
     expect(fetchCount()).toBe(1);
     const missing = await signToken({ jti: 'c' }, { kid: 'missing' });
-    expect((await jump(app, missing)).headers.get('X-Jump-Error')).toBe('invalid_signature');
+    expect((await jump(app, missing)).headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
-  test('replay cache rejects repeated jti when enabled', async () => {
+  test('a valid token remains usable while claims remain valid', async () => {
     const issuerKeys = await generateKeyPair('ES384');
     const jumpKeys = await generateKeyPair('ES384');
     const jwk = await exportJWK(issuerKeys.publicKey);
@@ -2142,15 +2127,13 @@ describe('jump token validation', () => {
       jwksCache: new JwksCache(async () => ({
         keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
-      replayCache: new MemoryReplayCache(),
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       runtime: { edge: 'local', production: true },
       now: () => NOW,
     });
     const token = await signToken(issuerKeys.privateKey, { jti: 'same-jti' });
     expect((await jump(app, token)).status).toBe(302);
-    const replay = await jump(app, token);
-    expect(replay.headers.get('X-Jump-Error')).toBe('replay');
+    expect((await jump(app, token)).status).toBe(302);
   });
 
   test('direct policy helpers reject disabled external and unknown destinations', () => {
@@ -2193,7 +2176,6 @@ describe('jump token validation', () => {
       jwksCache: new JwksCache(async () => ({
         keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
-      replayCache: new NoopReplayCache(),
       runtime: { edge: 'local', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
     });
@@ -2217,7 +2199,6 @@ describe('jump token validation', () => {
       jwksCache: new JwksCache(async () => ({
         keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
-      replayCache: new NoopReplayCache(),
       runtime: { edge: 'local', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
     });
@@ -2235,12 +2216,6 @@ describe('jump token validation', () => {
       expect(() => assertBase64Url(value)).toThrow(JumpError);
     }
     expect(() => assertBase64Url('abc_def-123')).not.toThrow();
-  });
-
-  test('replay cache garbage collects expired entries', async () => {
-    const cache = new MemoryReplayCache();
-    await cache.checkAndStore('iss', 'jti', 10, 1, 0);
-    await cache.checkAndStore('iss', 'jti', 20, 11, 0);
   });
 
   test('jwks cache rejects revoked and negative cached kids', async () => {
@@ -2869,9 +2844,8 @@ describe('route, rate limit, and request id contracts', () => {
   });
 
   test('a repeated jti is accepted, because a jump token is reusable within exp', async () => {
-    // `replayCache` is omitted outright, so this exercises createApp's default.
-    // That default must not be a replay cache: it would make the redirect
-    // decision depend on isolate-local state.
+    // Jump does not consume jti. Repeating a valid token must not depend on
+    // isolate-local or provider storage.
     const issuerKeys = await generateKeyPair('ES384');
     const jumpKeys = await generateKeyPair('ES384', { extractable: true });
     const publicJwk: JWK = {

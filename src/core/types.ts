@@ -62,7 +62,6 @@ export type JumpErrorCode =
   | 'invalid_signature'
   | 'invalid_claim'
   | 'expired'
-  | 'replay'
   | 'invalid_dst'
   | 'invalid_url'
   | 'signer_unavailable'

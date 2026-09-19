@@ -5,7 +5,8 @@ import { createApp } from './index';
 import { JwksCache } from './core/jwks_cache';
 import { asLocale } from './core/i18n';
 import { renderRateLimitPage } from './core/page';
-import { NoopReplayCache } from './core/replay_cache';
+import { emitSecurityLog } from './core/security_log';
+import { publicErrorHeaders, publicJumpError } from './core/public_error';
 import { STANDALONE_HTML_SECURITY_HEADERS } from './core/security_headers';
 import { JoseOutboundSigner, type OutboundSigner } from './core/sign_outbound';
 import { JumpError, PRODUCTION_SERVICE_ORIGIN, type OutboundJumpClaim } from './core/types';
@@ -106,7 +107,6 @@ function getApp(env: CloudflareEnv) {
       version: revision,
       production: true,
     },
-    replayCache: new NoopReplayCache(),
     signerForRequest: (requestEnv, signal) =>
       new LazyCloudflareSigner(
         requestEnv as CloudflareEnv,
@@ -147,10 +147,13 @@ async function checkRateLimit(request: Request, env: CloudflareEnv, requestId: s
     // should not go dark over a missing header — but say so, because silently
     // unlimited traffic is exactly what nobody notices. The header value itself
     // is an IP and is never logged.
-    // eslint-disable-next-line no-console -- route class only; no IP, token, or URL.
-    console.warn(
-      JSON.stringify({ event: 'jump_rate_limit_skipped', reason: 'client_ip_unavailable' }),
-    );
+    emitSecurityLog({
+      level: 'warn',
+      event: 'jump_rate_limit_skipped',
+      reason: 'client_ip_unavailable',
+      request_id: requestId,
+      rate_limit_outcome: 'skipped',
+    });
     return null;
   }
   let success: boolean;
@@ -159,14 +162,14 @@ async function checkRateLimit(request: Request, env: CloudflareEnv, requestId: s
   } catch (error) {
     // The binding is supplemental abuse control, not an authorization gate.
     // Fail open so a provider-side limiter fault cannot take Jump offline.
-    // eslint-disable-next-line no-console -- fixed metadata only; no IP or request URL.
-    console.warn(
-      JSON.stringify({
-        event: 'jump_rate_limit_skipped',
-        reason: 'limiter_unavailable',
-        error_name: error instanceof Error ? error.name : 'unknown',
-      }),
-    );
+    emitSecurityLog({
+      level: 'warn',
+      event: 'jump_rate_limit_skipped',
+      reason: 'limiter_unavailable',
+      request_id: requestId,
+      error_name: error instanceof Error ? error.name : 'unknown',
+      rate_limit_outcome: 'skipped',
+    });
     return null;
   }
   if (success) return null;
@@ -176,12 +179,12 @@ async function checkRateLimit(request: Request, env: CloudflareEnv, requestId: s
   );
   // This answers before the Hono app exists, so jumpSecureHeaders/responseHygiene
   // cannot run: apply the same protections explicitly.
+  const pub = publicJumpError('rate_limited');
   return new Response(renderRateLimitPage(locale), {
-    status: 429,
+    status: pub.status,
     headers: {
       ...STANDALONE_HTML_SECURITY_HEADERS,
-      'Content-Language': locale,
-      'Content-Type': 'text/html; charset=utf-8',
+      ...publicErrorHeaders('rate_limited', locale),
       'X-Request-ID': requestId,
     },
   });

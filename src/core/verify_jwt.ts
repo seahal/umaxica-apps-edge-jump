@@ -7,8 +7,6 @@ import {
   type InboundJumpClaim,
   type IssuerRegistry,
 } from './types';
-import type { ReplayCache } from './replay_cache';
-
 const ALLOWED_ALGS = new Set(['ES384']);
 const MAX_TOKEN_LENGTH = 8192;
 const MAX_KID_LENGTH = 128;
@@ -29,7 +27,6 @@ export async function verifyJumpJwt(
   token: string,
   registry: IssuerRegistry,
   jwksCache: JwksCache,
-  replayCache: ReplayCache,
   now = Math.floor(Date.now() / 1000),
   serviceOrigin: string = PRODUCTION_SERVICE_ORIGIN,
   signal?: AbortSignal,
@@ -93,7 +90,6 @@ export async function verifyJumpJwt(
 
   const claim = validateClaim(payload, issuer.iss, now, serviceOrigin);
   throwIfAborted(signal);
-  await replayCache.checkAndStore(claim.iss, claim.jti, claim.exp, now, CLOCK_SKEW_SECONDS);
   return { claim, issuer };
 }
 

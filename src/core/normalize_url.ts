@@ -83,13 +83,17 @@ function parseIpv4(hostname: string) {
   return nums.every(Number.isInteger) ? (nums as [number, number, number, number]) : null;
 }
 
-function isPrivateIpv4([a, b]: [number, number, number, number]) {
+function isPrivateIpv4([a, b, c]: [number, number, number, number]) {
   if (a === 10) return true;
   if (a === 127) return true;
   if (a === 169 && b === 254) return true;
   if (a === 172 && b >= 16 && b <= 31) return true;
   if (a === 192 && b === 168) return true;
   if (a === 0) return true;
+  if (a === 100 && b >= 64 && b <= 127) return true;
+  if (a === 192 && b === 0 && c === 0) return true;
+  if (a === 198 && (b === 18 || b === 19)) return true;
+  if (a >= 224) return true;
   return false;
 }
 
@@ -114,8 +118,21 @@ function isForbiddenIpv6(address: string) {
   const first = Number(groups[0]);
   if ((first & 0xffc0) === 0xfe80) return true;
   if ((first & 0xfe00) === 0xfc00) return true;
+  if ((first & 0xff00) === 0xff00) return true;
+  if (isNat64WellKnown(groups)) return true;
 
   return false;
+}
+
+function isNat64WellKnown(groups: number[]) {
+  return (
+    groups[0] === 0x64 &&
+    groups[1] === 0xff9b &&
+    groups[2] === 0 &&
+    groups[3] === 0 &&
+    groups[4] === 0 &&
+    groups[5] === 0
+  );
 }
 
 function matchExpandedIpv4Mapped(groups: number[]): [number, number, number, number] | null {
