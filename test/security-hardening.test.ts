@@ -2,11 +2,13 @@ import { readFileSync } from 'node:fs';
 import { exportJWK, generateKeyPair } from 'jose';
 import { describe, expect, test, vi } from 'vitest';
 import { createApp } from '../src';
+import { registry as umaxicaRegistry } from '../src/config/registry.umaxica';
 import cloudflareWorker, { resetIsolateCachesForTest } from '../src/cloudflare';
 import { JwksCache } from '../src/core/jwks_cache';
 import { normalizeUrl } from '../src/core/normalize_url';
 import { publicJumpError } from '../src/core/public_error';
 import { sanitizeSecurityLog } from '../src/core/security_log';
+import { STANDALONE_HTML_SECURITY_HEADERS } from '../src/core/security_headers';
 import { JoseOutboundSigner } from '../src/core/sign_outbound';
 import {
   JumpError,
@@ -50,12 +52,18 @@ describe('public error contract', () => {
     expect(first).toEqual({ code: 'invalid_request', status: 400 });
   });
 
+  test('issuer jwks failures do not reveal that an issuer is registered', () => {
+    // Reachable only for a registered `iss`, so a distinct public class would
+    // let an anonymous caller enumerate the registry during an issuer outage.
+    const denied = { code: 'invalid_request', status: 400 };
+    expect(publicJumpError('jwks_bad_gateway')).toEqual(denied);
+    expect(publicJumpError('jwks_unavailable')).toEqual(denied);
+    expect(publicJumpError('malformed')).toEqual(denied);
+  });
+
   test('infrastructure failures stay distinct from client denials', () => {
+    // Jump's own missing configuration, independent of any inbound token.
     expect(publicJumpError('signer_unavailable')).toEqual({
-      code: 'service_unavailable',
-      status: 503,
-    });
-    expect(publicJumpError('jwks_bad_gateway')).toEqual({
       code: 'service_unavailable',
       status: 503,
     });
@@ -213,6 +221,44 @@ describe('stateless jump contract', () => {
   });
 });
 
+describe('fail-closed configuration', () => {
+  test('a production runtime refuses the example registry and keyset', () => {
+    expect(() => createApp({ runtime: { edge: 'cloudflare', production: true } })).toThrow(
+      /explicit registry/,
+    );
+    expect(() =>
+      createApp({ registry: umaxicaRegistry, runtime: { edge: 'cloudflare', production: true } }),
+    ).toThrow(/explicit registry/);
+    expect(() =>
+      createApp({
+        registry: umaxicaRegistry,
+        fetchJwks: async () => ({ keys: [] }),
+        runtime: { edge: 'cloudflare', production: true },
+      }),
+    ).not.toThrow();
+  });
+
+  test('a non-production runtime still boots from the examples', () => {
+    expect(() => createApp({ runtime: { edge: 'local', production: false } })).not.toThrow();
+  });
+});
+
+describe('static asset headers mirror the worker contract', () => {
+  test('public/_headers carries every STANDALONE_HTML_SECURITY_HEADERS entry', () => {
+    const file = readFileSync(new URL('../public/_headers', import.meta.url), 'utf8');
+    const declared = new Map(
+      file
+        .split('\n')
+        .filter((line) => /^\s{2}\S+:/.test(line))
+        .map((line) => {
+          const index = line.indexOf(':');
+          return [line.slice(0, index).trim(), line.slice(index + 1).trim()] as const;
+        }),
+    );
+    expect(Object.fromEntries(declared)).toEqual(STANDALONE_HTML_SECURITY_HEADERS);
+  });
+});
+
 describe('rate limiter remains fail-open', () => {
   test('limiter failure does not close the jump route', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -274,6 +320,8 @@ describe('special-use destinations', () => {
 describe('canonical origin is not request Host', () => {
   test('hostile Host does not change robots or sitemap', async () => {
     const app = createApp({
+      registry: umaxicaRegistry,
+      fetchJwks: async () => ({ keys: [] }),
       runtime: { edge: 'local', production: true },
       config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
     });

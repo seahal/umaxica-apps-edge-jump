@@ -75,6 +75,24 @@ External redirects require a cushion page. The page escapes the URL, displays th
 
 Responses use CSP, `nosniff`, frame denial, no-referrer, restrictive permissions policy, HSTS, no-store, and noindex headers. `Set-Cookie` is forbidden.
 
+## Public Errors
+
+Every rejection an untrusted `rt` can provoke answers with one public class,
+`invalid_request` / 400. This includes failures fetching the issuer's JWKS,
+which are reachable only for a registered `iss`: a separate class there would
+let an anonymous caller tell a registered issuer from an unregistered one
+during an issuer outage. `service_unavailable` / 503 is reserved for Jump's own
+missing signer configuration, which is independent of any inbound token. The
+precise internal reason is carried by the structured security log, never by the
+public response.
+
+## Rate Limiting
+
+On Cloudflare, the per-IP limiter meters every path the Worker serves,
+including static assets and the discovery endpoints — all of them are
+unauthenticated. It is coarse abuse control, not an authorization gate, so it
+fails open (and logs) when `CF-Connecting-IP` is absent or the binding faults.
+
 ## Attack Surface
 
 - Public `GET /?rt=<JWT>` entry point.
@@ -85,7 +103,7 @@ Responses use CSP, `nosniff`, frame denial, no-referrer, restrictive permissions
 - Edge access logs and error logs.
 - Cushion page rendering of external URLs.
 
-Each surface is designed to expose public data only, except runtime private keys. Private keys must remain in runtime secrets and must never enter git, logs, screenshots, or example configs.
+Each surface is designed to expose public data only, except runtime private keys. Private keys must remain in runtime secrets and must never enter git, logs, screenshots, or example configs. The Cloudflare signer imports its private key as a non-extractable `CryptoKey` whenever a public keyset is configured, so the deployed Worker holds no key it is able to serialize. Health endpoints publish the service version only, never the deployment revision.
 
 ## Migration Strategy
 

@@ -84,9 +84,12 @@ export default {
   async fetch(request: Request, env: CloudflareEnv, executionContext: ExecutionContext) {
     const requestId = crypto.randomUUID();
     const url = new URL(request.url);
-    if (isStaticAsset(url)) return serveStaticAsset(request, env, requestId);
+    // Ahead of the static-asset branch as well as the app: every route this
+    // Worker answers is unauthenticated, so the abuse control covers all of
+    // them rather than the redirect route alone.
     const rateLimit = await checkRateLimit(request, env, requestId);
     if (rateLimit) return rateLimit;
+    if (isStaticAsset(url)) return serveStaticAsset(request, env, requestId);
     const app = getApp(env);
     return app.fetch(request, env, executionContext);
   },
@@ -104,7 +107,6 @@ function getApp(env: CloudflareEnv) {
     config: { serviceOrigin },
     runtime: {
       edge: 'cloudflare',
-      version: revision,
       production: true,
     },
     signerForRequest: (requestEnv, signal) =>
@@ -130,23 +132,20 @@ function cloudflareRevision(env: CloudflareEnv) {
 }
 
 /**
- * The keyset is consumed in exactly two places: signing an outbound redirect,
- * and publishing the public keyset. Keep this in sync with the `signer` and
- * `jumpJwks` options passed to createApp below.
+ * Coarse per-IP abuse control for every path this Worker serves.
+ *
+ * Both failure branches below deliberately fail open: the binding is abuse
+ * control, not an authorization gate, and a redirect broker should not go dark
+ * over a missing header or a provider-side limiter fault. Both are logged,
+ * because silently unlimited traffic is what nobody notices.
  */
 async function checkRateLimit(request: Request, env: CloudflareEnv, requestId: string) {
-  const { pathname } = new URL(request.url);
-  if (pathname !== '/') return null;
   const rateLimiter = env.JUMP_RATE_LIMITER;
   if (!rateLimiter) return null;
   const clientIp = request.headers.get('CF-Connecting-IP');
   if (!clientIp) {
     // Cloudflare sets this on all edge-routed traffic, so this should be
-    // unreachable in production. Fail open rather than closed — the binding is
-    // a coarse abuse control, not an authorization gate, and a redirect service
-    // should not go dark over a missing header — but say so, because silently
-    // unlimited traffic is exactly what nobody notices. The header value itself
-    // is an IP and is never logged.
+    // unreachable in production. The header value is an IP and is never logged.
     emitSecurityLog({
       level: 'warn',
       event: 'jump_rate_limit_skipped',
@@ -160,8 +159,6 @@ async function checkRateLimit(request: Request, env: CloudflareEnv, requestId: s
   try {
     ({ success } = await rateLimiter.limit({ key: clientIp }));
   } catch (error) {
-    // The binding is supplemental abuse control, not an authorization gate.
-    // Fail open so a provider-side limiter fault cannot take Jump offline.
     emitSecurityLog({
       level: 'warn',
       event: 'jump_rate_limit_skipped',
@@ -297,17 +294,27 @@ async function loadKeyMaterial(
     throw new JumpError('signer_unavailable', 'outbound signer not configured');
   }
 
+  // Extractable only on the path that has to serialize the key: deriving the
+  // public JWKS from the private key when none is configured. Production
+  // configures UMAXICA_JUMP_PUBLIC_JWKS, so the deployed Worker holds a
+  // non-extractable CryptoKey that no later bug can export.
+  const mustDeriveJwks = configuredJwks === undefined;
   let privateKey: Parameters<SignJWT['sign']>[0];
   try {
-    privateKey = await raceAbort(importPKCS8(pem, 'ES384', { extractable: true }), signal);
+    privateKey = await raceAbort(
+      importPKCS8(pem, 'ES384', { extractable: mustDeriveJwks }),
+      signal,
+    );
   } catch (error) {
     logSignerImportFailed(context, error);
     logSignerUnavailable({ ...context, import_pkcs8_ok: false, reason: 'pkcs8_import_failed' });
     throw new JumpError('signer_unavailable', 'outbound signer not configured');
   }
 
-  let jwks = configuredJwks;
-  if (!jwks) {
+  let jwks: JumpJwks;
+  if (configuredJwks) {
+    jwks = configuredJwks;
+  } else {
     try {
       const privateJwk = await raceAbort(exportJWK(privateKey), signal);
       const publicJwk = stripPrivateJwkFields({

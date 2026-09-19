@@ -21,7 +21,7 @@ import { healthJson, renderHealthHtml, wantsJson } from '../src/core/health';
 import { JwksCache, type FetchJwks } from '../src/core/jwks_cache';
 import { messages } from '../src/core/i18n';
 import { normalizeOrigin, normalizeUrl } from '../src/core/normalize_url';
-import { brandTitle } from '../src/core/page';
+import { brandTitle, renderHealthPage } from '../src/core/page';
 import { assertDestinationPolicy } from '../src/core/policy';
 import { JoseOutboundSigner, NoopOutboundSigner } from '../src/core/sign_outbound';
 import {
@@ -649,7 +649,11 @@ describe('jump gateway routes', () => {
       UMAXICA_JUMP_PRIVATE_KEY_PEM: 'not a pkcs8 key',
     });
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ status: 'OK', edge: 'cloudflare', version: null });
+    expect(await res.json()).toMatchObject({
+      status: 'OK',
+      edge: 'cloudflare',
+      version: '0.1.0',
+    });
   });
 
   test('cloudflare worker health HTML includes cloudflare status data', async () => {
@@ -1003,7 +1007,7 @@ describe('jump gateway routes', () => {
     }
   });
 
-  test('cloudflare worker reports version metadata id as health version', async () => {
+  test('cloudflare worker never publishes the deployment revision on health', async () => {
     const res = await fetchCloudflareWorker('/health.json', {
       'UMAXICA-APPS-EDGE-JUMP-VERSION': {
         id: 'cloudflare-revision-123',
@@ -1012,26 +1016,27 @@ describe('jump gateway routes', () => {
       },
     });
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({
+    const body = await res.text();
+    expect(JSON.parse(body)).toMatchObject({
       status: 'OK',
       edge: 'cloudflare',
-      version: 'cloudflare-revision-123',
+      version: '0.1.0',
     });
+    expect(body).not.toContain('cloudflare-revision-123');
+    expect(body).not.toContain('deploy-tag');
   });
 
   test('renderHealthHtml escapes html metacharacters in runtime fields', () => {
     const html = renderHealthHtml({
-      edge: '<edge>' as 'local',
+      edge: `"><script>alert(1)</script>` as 'local',
       production: true,
-      version: `"><script>alert(1)</script>`,
     });
-    expect(html).toContain('<dd>&lt;edge&gt;</dd>');
     expect(html).toContain('<dd>&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;</dd>');
     expect(html).not.toContain('<script>alert(1)</script>');
   });
 
-  test('renderHealthHtml renders null version as empty string', () => {
-    const html = renderHealthHtml({ edge: 'cloudflare', production: true, version: null });
+  test('renderHealthPage renders a null value as an empty string', () => {
+    const html = renderHealthPage([['version', null]]);
     expect(html).toContain('<dt>version</dt><dd></dd>');
   });
 
@@ -1064,6 +1069,8 @@ describe('jump gateway routes', () => {
 
   test('production app refuses to publish example jwks without configured Jump public keyset', async () => {
     const app = createApp({
+      registry: umaxicaRegistry,
+      jwksCache: new JwksCache(fetchRegistryJwks),
       runtime: { edge: 'cloudflare', production: true },
     });
     const res = await app.request('https://jump.umaxica.net/.well-known/jwks.json');
@@ -1076,6 +1083,8 @@ describe('jump gateway routes', () => {
 
     expect(() =>
       createApp({
+        registry: umaxicaRegistry,
+        jwksCache: new JwksCache(fetchRegistryJwks),
         runtime: { edge: 'cloudflare', production: true },
         jumpJwks: { keys: [{ ...jumpPublicJwk, d: 'private' }] },
       }),
@@ -2724,7 +2733,7 @@ describe('route, rate limit, and request id contracts', () => {
     );
   }
 
-  test('only the jump route is metered', async () => {
+  test('every unauthenticated route is metered, not just the jump route', async () => {
     const { jump, env } = limiterEnv();
     const ip = { 'CF-Connecting-IP': '203.0.113.9' };
 
@@ -2733,9 +2742,9 @@ describe('route, rate limit, and request id contracts', () => {
     await workerFetch('/about', env, ip);
     await workerFetch('/health', env, ip);
 
-    expect(jump.limit).toHaveBeenCalledTimes(1);
+    expect(jump.limit).toHaveBeenCalledTimes(4);
     // Keyed on the provider-determined client IP, never on a client-supplied header.
-    expect(jump.keys).toEqual(['203.0.113.9']);
+    expect(jump.keys).toEqual(Array(4).fill('203.0.113.9'));
   });
 
   test('a client cannot redirect its rate limit onto another address', async () => {
@@ -2748,11 +2757,11 @@ describe('route, rate limit, and request id contracts', () => {
     expect(jump.keys).toEqual(['203.0.113.9']);
   });
 
-  test('static assets are served without passing through a rate limiter', async () => {
+  test('static assets are metered and still carry the security headers', async () => {
     const { jump, env } = limiterEnv();
     const res = await workerFetch('/favicon.ico', env, { 'CF-Connecting-IP': '203.0.113.9' });
     expect(res.status).toBe(204);
-    expect(jump.limit).not.toHaveBeenCalled();
+    expect(jump.limit).toHaveBeenCalledTimes(1);
     expect(res.headers.get('X-Request-ID')).toBeTruthy();
     expect(res.headers.get('X-Frame-Options')).toBe('DENY');
   });

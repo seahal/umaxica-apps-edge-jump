@@ -47,6 +47,13 @@ export type AppOptions = Omit<Partial<JumpDeps>, 'config'> & {
 
 export function createApp(options: AppOptions = {}) {
   const runtime = options.runtime ?? detectRuntime();
+  // The example registry and example keyset exist for local runs and tests.
+  // A production runtime that reached them would broker redirects for
+  // `app.example.com` — including its `allowed_dst_external` entry — so refuse
+  // to build the app at all rather than serve a placeholder trust anchor.
+  if (runtime.production && (!options.registry || (!options.jwksCache && !options.fetchJwks))) {
+    throw new Error('production runtime requires an explicit registry and jwks source');
+  }
   const registry = options.registry ?? exampleRegistry;
   const jwksCache = options.jwksCache ?? new JwksCache(options.fetchJwks ?? fetchExampleJwks);
   const signer = options.signer ?? new NoopOutboundSigner();
