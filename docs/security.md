@@ -15,6 +15,24 @@ Jump reduces redirect risk by verifying signed redirect requests at a dedicated 
 - This project does NOT replace OAuth/OIDC.
 - This project is ONLY a redirect trust broker across FQDN boundaries.
 
+## Self-Referential Redirects
+
+A Jump destination must never equal its source, and must never be Jump itself. A
+same-origin hop achieves nothing a local navigation could not, and it is the
+primitive a redirect loop is built from: an application that mints a new token
+on arriving at itself will do so on every iteration, producing a chain of fully
+valid, correctly signed requests that the verification path cannot distinguish
+from legitimate traffic and that ends in a browser redirect limit rather than a
+service alarm.
+
+No issuer lists its own origin as an allowed destination, so the route does not
+exist to be taken. Independently, a destination equal to the service origin is
+rejected as `invalid_url` during URL normalization, which also prevents a Jump
+request from being nested inside another. Jump is stateless and sees one hop at
+a time, so it cannot detect a longer cycle such as `base -> core -> base`;
+avoiding those remains the responsibility of the applications that mint tokens.
+See [ADR 0003](../adr/0003-no-self-referential-redirects.md).
+
 ## OpenRedirect Risk
 
 OpenRedirect bugs let attackers create trusted-looking links that send users to attacker-controlled destinations. Jump mitigates this by requiring a valid issuer signature, fixed audience, claim validation, URL normalization, and issuer-scoped allowlists.

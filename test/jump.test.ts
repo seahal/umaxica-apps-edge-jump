@@ -237,7 +237,12 @@ describe('jump gateway routes', () => {
     });
     expect(umaxicaRegistry['https://www.umaxica.app']).toMatchObject({
       jwks_uri: 'https://www.umaxica.app/.well-known/jwks.json',
-      allowed_dst_internal: ['https://auth.umaxica.app', 'https://jp.umaxica.app'],
+      allowed_dst_internal: [
+        'https://auth.umaxica.app',
+        'https://www-jp.umaxica.app',
+        'https://jp.umaxica.app',
+        'https://palm.umaxica.app',
+      ],
       allowed_dst_external: false,
     });
     expect(umaxicaRegistry['https://auth.umaxica.com']).toMatchObject({
@@ -247,7 +252,11 @@ describe('jump gateway routes', () => {
     });
     expect(umaxicaRegistry['https://www.umaxica.com']).toMatchObject({
       jwks_uri: 'https://www.umaxica.com/.well-known/jwks.json',
-      allowed_dst_internal: ['https://auth.umaxica.com', 'https://jp.umaxica.com'],
+      allowed_dst_internal: [
+        'https://auth.umaxica.com',
+        'https://www-jp.umaxica.com',
+        'https://jp.umaxica.com',
+      ],
       allowed_dst_external: false,
     });
     expect(umaxicaRegistry['https://auth.umaxica.org']).toMatchObject({
@@ -257,7 +266,12 @@ describe('jump gateway routes', () => {
     });
     expect(umaxicaRegistry['https://www.umaxica.org']).toMatchObject({
       jwks_uri: 'https://www.umaxica.org/.well-known/jwks.json',
-      allowed_dst_internal: ['https://auth.umaxica.org', 'https://jp.umaxica.org'],
+      allowed_dst_internal: [
+        'https://auth.umaxica.org',
+        'https://www-jp.umaxica.org',
+        'https://jp.umaxica.org',
+        'https://edit.umaxica.org',
+      ],
       allowed_dst_external: false,
     });
     for (const issuer of Object.values(umaxicaRegistry)) {
@@ -268,6 +282,188 @@ describe('jump gateway routes', () => {
       for (const origin of issuer.allowed_dst_internal) {
         expect(new URL(origin).origin).toBe(origin);
       }
+    }
+  });
+
+  test('umaxica registry forbids auth <-> non-base routing on every tld', () => {
+    for (const tld of ['app', 'com', 'org']) {
+      expect(umaxicaRegistry[`https://auth.umaxica.${tld}`]?.allowed_dst_internal).toEqual([
+        `https://www.umaxica.${tld}`,
+      ]);
+    }
+    const issuers = Object.keys(umaxicaRegistry);
+    for (const host of ['www-jp', 'jp', 'edit', 'palm']) {
+      for (const tld of ['app', 'com', 'org']) {
+        expect(issuers).not.toContain(`https://${host}.umaxica.${tld}`);
+      }
+    }
+    for (const issuer of Object.values(umaxicaRegistry)) {
+      const issuerHost = new URL(issuer.iss).hostname;
+      for (const origin of issuer.allowed_dst_internal) {
+        const dstHost = new URL(origin).hostname;
+        // auth only ever reaches base; every other role is reachable from base alone
+        if (issuerHost.startsWith('auth.')) expect(dstHost.startsWith('www.')).toBe(true);
+        // never across tlds
+        expect(dstHost.split('.').at(-1)).toBe(issuerHost.split('.').at(-1));
+      }
+    }
+  });
+
+  test('umaxica registry never allows a self loop', async () => {
+    const fqdns = [
+      ...new Set([
+        ...Object.keys(umaxicaRegistry),
+        ...Object.values(umaxicaRegistry).flatMap((issuer) => issuer.allowed_dst_internal),
+      ]),
+    ].sort();
+
+    // structural: no issuer lists its own origin as a destination
+    for (const issuer of Object.values(umaxicaRegistry)) {
+      expect(issuer.allowed_dst_internal, issuer.iss).not.toContain(issuer.iss);
+    }
+
+    const issuerKeys = await generateKeyPair('ES384');
+    const jumpKeys = await generateKeyPair('ES384');
+    const jwk = await exportJWK(issuerKeys.publicKey);
+    const app = createApp({
+      registry: umaxicaRegistry,
+      jwksCache: new JwksCache(async () => ({
+        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
+      })),
+      replayCache: new NoopReplayCache(),
+      runtime: { edge: 'local', production: true },
+      signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
+      now: () => NOW,
+    });
+
+    // behavioural: every one of the 14 hosts is refused a jump back to itself
+    expect(fqdns).toHaveLength(14);
+    for (const host of fqdns) {
+      const res = await jump(
+        app,
+        await signPayload(issuerKeys.privateKey, {
+          ...baseClaim(),
+          iss: host,
+          url: `${host}/path`,
+        }),
+      );
+      expect(res.status, host).not.toBe(302);
+      expect(res.headers.get('X-Jump-Error'), host).toBe(
+        Object.hasOwn(umaxicaRegistry, host) ? 'invalid_dst' : 'invalid_claim',
+      );
+    }
+
+    // the broker is the 15th fqdn: no issuer may redirect back into Jump itself
+    for (const iss of Object.keys(umaxicaRegistry)) {
+      const res = await jump(
+        app,
+        await signPayload(issuerKeys.privateKey, {
+          ...baseClaim(),
+          iss,
+          url: `${PRODUCTION_SERVICE_ORIGIN}/?rt=nested`,
+        }),
+      );
+      expect(res.status, iss).not.toBe(302);
+      expect(res.headers.get('X-Jump-Error'), iss).toBe('invalid_url');
+    }
+  });
+
+  test('umaxica registry accepts exactly the 14 allowed edges of the 196 ordered pairs', async () => {
+    const fqdns = [
+      ...new Set([
+        ...Object.keys(umaxicaRegistry),
+        ...Object.values(umaxicaRegistry).flatMap((issuer) => issuer.allowed_dst_internal),
+      ]),
+    ].sort();
+    expect(fqdns).toHaveLength(14);
+
+    const allowed = new Set(
+      Object.values(umaxicaRegistry).flatMap((issuer) =>
+        issuer.allowed_dst_internal.map((dst) => `${issuer.iss} ${dst}`),
+      ),
+    );
+    expect(allowed.size).toBe(14);
+
+    const issuerKeys = await generateKeyPair('ES384');
+    const jumpKeys = await generateKeyPair('ES384');
+    const jwk = await exportJWK(issuerKeys.publicKey);
+    const app = createApp({
+      registry: umaxicaRegistry,
+      jwksCache: new JwksCache(async () => ({
+        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
+      })),
+      replayCache: new NoopReplayCache(),
+      runtime: { edge: 'local', production: true },
+      signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
+      now: () => NOW,
+    });
+
+    const accepted: string[] = [];
+    const rejected: string[] = [];
+    for (const iss of fqdns) {
+      for (const dst of fqdns) {
+        const token = await signPayload(issuerKeys.privateKey, {
+          ...baseClaim(),
+          iss,
+          url: `${dst}/path`,
+        });
+        const res = await jump(app, token);
+        const edge = `${iss} ${dst}`;
+        if (res.status === 302) {
+          accepted.push(edge);
+          expect(new URL(String(res.headers.get('Location'))).origin).toBe(dst);
+          continue;
+        }
+        rejected.push(edge);
+        // an issuer the registry does not know never reaches destination policy
+        const expectedError = Object.hasOwn(umaxicaRegistry, iss) ? 'invalid_dst' : 'invalid_claim';
+        expect(res.headers.get('X-Jump-Error'), edge).toBe(expectedError);
+      }
+    }
+
+    expect(accepted.sort()).toEqual([...allowed].sort());
+    expect(accepted).toHaveLength(14);
+    expect(rejected).toHaveLength(196 - 14);
+  });
+
+  test('umaxica registry rejects cross-tld hops at runtime', async () => {
+    const issuerKeys = await generateKeyPair('ES384');
+    const jumpKeys = await generateKeyPair('ES384');
+    const jwk = await exportJWK(issuerKeys.publicKey);
+    const app = createApp({
+      registry: umaxicaRegistry,
+      jwksCache: new JwksCache(async () => ({
+        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
+      })),
+      replayCache: new NoopReplayCache(),
+      runtime: { edge: 'local', production: true },
+      signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
+      now: () => NOW,
+    });
+
+    // edit.umaxica.org -> palm.umaxica.app: edit is not an issuer at all
+    const fromEdit = await jump(
+      app,
+      await signPayload(issuerKeys.privateKey, {
+        ...baseClaim(),
+        iss: 'https://edit.umaxica.org',
+        url: 'https://palm.umaxica.app/path',
+      }),
+    );
+    expect(fromEdit.headers.get('X-Jump-Error')).toBe('invalid_claim');
+
+    // and no issuer that does exist may hand out a destination on another tld
+    for (const [iss, url] of [
+      ['https://www.umaxica.org', 'https://palm.umaxica.app/path'],
+      ['https://www.umaxica.app', 'https://edit.umaxica.org/path'],
+      ['https://www.umaxica.org', 'https://www-jp.umaxica.com/path'],
+      ['https://auth.umaxica.app', 'https://www.umaxica.org/path'],
+    ]) {
+      const res = await jump(
+        app,
+        await signPayload(issuerKeys.privateKey, { ...baseClaim(), iss, url }),
+      );
+      expect(res.headers.get('X-Jump-Error')).toBe('invalid_dst');
     }
   });
 

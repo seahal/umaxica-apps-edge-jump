@@ -47,3 +47,11 @@ External direct redirects make phishing and OpenRedirect failures harder to see.
 ## Why Jump Acts As A Trust Broker?
 
 Jump centralizes redirect policy at an FQDN boundary so each issuer does not reimplement URL validation and external redirect behavior differently.
+
+## Why Forbid A Redirect To The Same Origin?
+
+A destination equal to its source spends a signature verification and a round
+trip to leave the user where they already were, and it is the one-hop form of a
+redirect loop. Jump refuses it structurally — no issuer lists its own origin,
+and the service origin itself is rejected during URL normalization. See
+[ADR 0003](../adr/0003-no-self-referential-redirects.md).

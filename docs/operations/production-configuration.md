@@ -11,14 +11,22 @@ allowed.
 
 ## Allowed Issuers And Destinations
 
-| Issuer                     | JWKS                                 | Allowed internal destination origins                 | External |
-| -------------------------- | ------------------------------------ | ---------------------------------------------------- | -------- |
-| `https://auth.umaxica.app` | same origin `/.well-known/jwks.json` | `https://www.umaxica.app`                            | no       |
-| `https://auth.umaxica.com` | same origin `/.well-known/jwks.json` | `https://www.umaxica.com`                            | no       |
-| `https://auth.umaxica.org` | same origin `/.well-known/jwks.json` | `https://www.umaxica.org`                            | no       |
-| `https://www.umaxica.app`  | same origin `/.well-known/jwks.json` | `https://auth.umaxica.app`, `https://jp.umaxica.app` | no       |
-| `https://www.umaxica.com`  | same origin `/.well-known/jwks.json` | `https://auth.umaxica.com`, `https://jp.umaxica.com` | no       |
-| `https://www.umaxica.org`  | same origin `/.well-known/jwks.json` | `https://auth.umaxica.org`, `https://jp.umaxica.org` | no       |
+| Issuer                     | JWKS                                 | Allowed internal destination origins                                                                           | External |
+| -------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------- | -------- |
+| `https://auth.umaxica.app` | same origin `/.well-known/jwks.json` | `https://www.umaxica.app`                                                                                      | no       |
+| `https://auth.umaxica.com` | same origin `/.well-known/jwks.json` | `https://www.umaxica.com`                                                                                      | no       |
+| `https://auth.umaxica.org` | same origin `/.well-known/jwks.json` | `https://www.umaxica.org`                                                                                      | no       |
+| `https://www.umaxica.app`  | same origin `/.well-known/jwks.json` | `https://auth.umaxica.app`, `https://www-jp.umaxica.app`, `https://jp.umaxica.app`, `https://palm.umaxica.app` | no       |
+| `https://www.umaxica.com`  | same origin `/.well-known/jwks.json` | `https://auth.umaxica.com`, `https://www-jp.umaxica.com`, `https://jp.umaxica.com`                             | no       |
+| `https://www.umaxica.org`  | same origin `/.well-known/jwks.json` | `https://auth.umaxica.org`, `https://www-jp.umaxica.org`, `https://jp.umaxica.org`, `https://edit.umaxica.org` | no       |
+
+Roles are defined once in `src/config/registry.umaxica.ts` and expanded over
+`app` / `com` / `org`, so the three TLDs cannot drift apart: `auth` = `auth.*`,
+`base` = `www.*`, `side` = `www-jp.*`, `core` = `jp.*`, plus `edit.umaxica.org`
+and `palm.umaxica.app`. Only `auth` and `base` are issuers, and `auth` may only
+travel to and from `base` — `auth` <-> any other role is prohibited in both
+directions, because a round trip from auth through anything but base widens the
+redirect surface and makes post-incident reconstruction unreliable.
 
 ## Final Desired Shape
 
