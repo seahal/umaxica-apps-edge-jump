@@ -37,7 +37,7 @@ flowchart LR
 
 Use these commands when you want to run the same Hono app through the target edge runtimes locally.
 
-Both local servers bind to `0.0.0.0` through package scripts so they can be reached from outside a devcontainer when the port is forwarded. From inside the container, use `127.0.0.1`. From the host, use the URL shown by your editor or devcontainer port-forwarding UI.
+Both local servers bind to `0.0.0.0` through package scripts. Use `127.0.0.1` on the same machine.
 
 Fastly Compute:
 
@@ -90,8 +90,6 @@ Default ports:
 
 - Fastly Compute: `7676`
 - Cloudflare Workers: `8787`
-
-If Fastly is reachable inside the container but not from the host, confirm that port `7676` is forwarded by the devcontainer or editor. If Cloudflare is reachable inside the container but not from the host, confirm that port `8787` is forwarded.
 
 ## Security Notes
 

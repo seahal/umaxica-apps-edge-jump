@@ -7,6 +7,27 @@ reframed (see below) and the related Cache API discussion was withdrawn: Jump
 does not perform replay detection by design; that responsibility belongs to
 the receiving party. Documentation under `docs/` was updated accordingly.
 
+**Later tree note (2026-09-19):** a Durable Object `jti` consume path was
+added and then removed. The original H1 decision stands: Jump is stateless
+and does not perform replay detection. Cloudflare and Fastly share that
+contract. Do not treat the withdrawn consume path as current behavior.
+
+**Accepted risk — reuse within TTL:** the same schema-1 token may be
+evaluated more than once until `exp`. Jump treats this as an accepted
+residual risk, not a defect to close in the gateway. Reasons:
+
+- Multi-tenant / multi-edge operation. Jump must present the same contract
+  on Cloudflare and Fastly without a shared replay store. Per-provider
+  single-use state would split security semantics and block treating Jump
+  as one tenant-agnostic gateway.
+- Performance. Atomic consume (Durable Objects, KV, or any cross-edge
+  store) adds latency, failure modes, and cost on every redirect. Preview,
+  crawlers, and transient errors would also burn a token before the user
+  completes navigation.
+
+Receivers that need one-time or idempotent side effects still own that
+policy. Jump tokens must not be the sole authorization for those effects.
+
 ## Context
 
 Commits `6b5b47c`, `315abd3`, and `e653bc7` ("modified with rails check") added
@@ -191,6 +212,10 @@ Recommended remediation (optional): defer audit field population until after
 true`. Both are scoped to the development image and are not produced from the
 Worker bundle, but a CI check that asserts these flags do not leak into the
 deployed artifact would harden the supply chain.
+
+The in-repo Dev Container, `Dockerfile`, and Compose files were later removed.
+Local development is host-native `pnpm`; this finding no longer applies to the
+tree.
 
 #### L3. Findings rejected during review
 

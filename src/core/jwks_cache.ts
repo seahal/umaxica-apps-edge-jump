@@ -13,6 +13,8 @@ export type JwksCacheEvent = {
   result: 'hit' | 'miss' | 'negative_hit' | 'refresh' | 'in_flight';
 };
 
+const MAX_NEGATIVE_ENTRIES = 1024;
+
 export class JwksCache {
   private readonly cache = new Map<string, CachedSet>();
   private readonly negative = new Map<string, number>();
@@ -21,7 +23,7 @@ export class JwksCache {
 
   constructor(
     private readonly fetchJwks: FetchJwks,
-    private readonly ttlMs = 300_000,
+    private readonly ttlMs = 30_000,
     private readonly negativeTtlMs = 30_000,
     private readonly forcedRefreshCooldownMs = 10_000,
     private readonly observe?: (event: JwksCacheEvent) => void,
@@ -46,16 +48,20 @@ export class JwksCache {
     }
     const negKey = `${issuer.iss}:${kid}`;
     const now = Date.now();
-    if (!forceRefresh && (this.negative.get(negKey) ?? 0) > now) {
-      this.observe?.({ issuer: issuer.iss, result: 'negative_hit' });
-      throw new JumpError('invalid_signature', 'kid negative cached');
+    if (!forceRefresh) {
+      const negativeExpiry = this.negative.get(negKey);
+      if (negativeExpiry && negativeExpiry > now) {
+        this.observe?.({ issuer: issuer.iss, result: 'negative_hit' });
+        throw new JumpError('invalid_signature', 'kid negative cached');
+      }
+      if (negativeExpiry) this.negative.delete(negKey);
     }
 
     const jwks = await this.getJwks(issuer, forceRefresh, signal);
     const jwk = jwks.keys.find((key) => key.kid === kid && key.alg === alg);
     if (!jwk) {
       if (!forceRefresh) return this.getKey(issuer, kid, alg, true, signal);
-      this.negative.set(negKey, now + this.negativeTtlMs);
+      this.rememberNegative(negKey, now);
       throw new JumpError('invalid_signature', 'kid not found');
     }
     throwIfAborted(signal);
@@ -65,6 +71,20 @@ export class JwksCache {
       if (error instanceof JumpError) throw error;
       throw new JumpError('jwks_bad_gateway', 'issuer jwk rejected');
     }
+  }
+
+  private rememberNegative(key: string, now: number) {
+    if (this.negative.size >= MAX_NEGATIVE_ENTRIES) {
+      for (const [cachedKey, expiry] of this.negative) {
+        if (expiry <= now) this.negative.delete(cachedKey);
+      }
+    }
+    while (this.negative.size >= MAX_NEGATIVE_ENTRIES) {
+      const oldest = this.negative.keys().next().value;
+      if (oldest === undefined) break;
+      this.negative.delete(oldest);
+    }
+    this.negative.set(key, now + this.negativeTtlMs);
   }
 
   private async getJwks(issuer: IssuerConfig, forceRefresh: boolean, signal?: AbortSignal) {

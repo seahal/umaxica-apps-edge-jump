@@ -29,9 +29,9 @@ Limitations: Users can still choose to continue.
 
 Impact: A copied `rt` may be reused until expiry.
 
-Mitigation: `exp` bounds the usable window. The signed `jti` identifies that JWT, but schema 1 does not require consumption tracking and does not carry the input `jti` into the output token.
+Mitigation: `exp` bounds the usable window. Schema 1 does not copy the input `jti` into the output token. Jump does not consume `jti` and does not provide global replay prevention. Receivers must independently authenticate, authorize, enforce CSRF controls, and avoid side effects merely from receiving a Jump token.
 
-Limitations: Jump intentionally permits reuse until `exp`. Receivers must independently authenticate, authorize, enforce CSRF controls, and avoid side effects merely from receiving a Jump token. See [security: Replay Detection](security.md#replay-detection).
+Limitations: A copied `rt` remains usable until expiry on every edge. Provider-specific storage is not part of Jump security semantics. See [security: Replay Detection](security.md#replay-detection).
 
 ### Referer Leakage
 

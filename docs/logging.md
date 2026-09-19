@@ -19,6 +19,9 @@ Logs should help operate Jump without storing redirect tokens or secrets.
 - Runtime/service version, route class, method, status, internal result code, and latency.
 - After successful signature verification: issuer, verified kid, destination class, and allowlisted destination origin.
 - JWKS cache outcome and coarse upstream-failure category.
+- Rate-limit operational outcomes (`client_ip_unavailable`, `limiter_unavailable`) without IP addresses or tokens.
+
+Public HTTP responses expose only coarse `X-Jump-Error` classes. Internal reason codes stay in structured security logs.
 
 ## Safe Logs
 

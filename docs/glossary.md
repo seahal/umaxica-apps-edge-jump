@@ -12,3 +12,5 @@
 - `active key`: Key used for signing and verification.
 - `grace key`: Old key kept for verification only.
 - `revoked key`: Key identifier that is immediately rejected.
+- `self-referential redirect`: A redirect whose destination origin equals its
+  source, or whose destination is Jump itself. Always prohibited.

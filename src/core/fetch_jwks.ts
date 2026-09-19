@@ -197,8 +197,14 @@ async function readBodyWithCap(response: Response, maxBytes: number): Promise<st
       const { value, done } = await reader.read();
       if (done) break;
       total += value.byteLength;
-      if (total > maxBytes)
+      if (total > maxBytes) {
+        try {
+          await reader.cancel('JWKS response exceeded size limit');
+        } catch {
+          // Preserve the stable validation error if upstream cancellation fails.
+        }
         throw new JumpError('jwks_bad_gateway', 'issuer jwks response too large');
+      }
       chunks.push(value);
     }
   } finally {

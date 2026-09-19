@@ -5,7 +5,8 @@ import { createApp } from './index';
 import { JwksCache } from './core/jwks_cache';
 import { asLocale } from './core/i18n';
 import { renderRateLimitPage } from './core/page';
-import { NoopReplayCache } from './core/replay_cache';
+import { emitSecurityLog } from './core/security_log';
+import { publicErrorHeaders, publicJumpError } from './core/public_error';
 import { STANDALONE_HTML_SECURITY_HEADERS } from './core/security_headers';
 import { JoseOutboundSigner, type OutboundSigner } from './core/sign_outbound';
 import { JumpError, PRODUCTION_SERVICE_ORIGIN, type OutboundJumpClaim } from './core/types';
@@ -83,9 +84,12 @@ export default {
   async fetch(request: Request, env: CloudflareEnv, executionContext: ExecutionContext) {
     const requestId = crypto.randomUUID();
     const url = new URL(request.url);
-    if (isStaticAsset(url)) return serveStaticAsset(request, env, requestId);
+    // Ahead of the static-asset branch as well as the app: every route this
+    // Worker answers is unauthenticated, so the abuse control covers all of
+    // them rather than the redirect route alone.
     const rateLimit = await checkRateLimit(request, env, requestId);
     if (rateLimit) return rateLimit;
+    if (isStaticAsset(url)) return serveStaticAsset(request, env, requestId);
     const app = getApp(env);
     return app.fetch(request, env, executionContext);
   },
@@ -103,10 +107,8 @@ function getApp(env: CloudflareEnv) {
     config: { serviceOrigin },
     runtime: {
       edge: 'cloudflare',
-      version: revision,
       production: true,
     },
-    replayCache: new NoopReplayCache(),
     signerForRequest: (requestEnv, signal) =>
       new LazyCloudflareSigner(
         requestEnv as CloudflareEnv,
@@ -130,43 +132,41 @@ function cloudflareRevision(env: CloudflareEnv) {
 }
 
 /**
- * The keyset is consumed in exactly two places: signing an outbound redirect,
- * and publishing the public keyset. Keep this in sync with the `signer` and
- * `jumpJwks` options passed to createApp below.
+ * Coarse per-IP abuse control for every path this Worker serves.
+ *
+ * Both failure branches below deliberately fail open: the binding is abuse
+ * control, not an authorization gate, and a redirect broker should not go dark
+ * over a missing header or a provider-side limiter fault. Both are logged,
+ * because silently unlimited traffic is what nobody notices.
  */
 async function checkRateLimit(request: Request, env: CloudflareEnv, requestId: string) {
-  const { pathname } = new URL(request.url);
-  if (pathname !== '/') return null;
   const rateLimiter = env.JUMP_RATE_LIMITER;
   if (!rateLimiter) return null;
   const clientIp = request.headers.get('CF-Connecting-IP');
   if (!clientIp) {
     // Cloudflare sets this on all edge-routed traffic, so this should be
-    // unreachable in production. Fail open rather than closed — the binding is
-    // a coarse abuse control, not an authorization gate, and a redirect service
-    // should not go dark over a missing header — but say so, because silently
-    // unlimited traffic is exactly what nobody notices. The header value itself
-    // is an IP and is never logged.
-    // eslint-disable-next-line no-console -- route class only; no IP, token, or URL.
-    console.warn(
-      JSON.stringify({ event: 'jump_rate_limit_skipped', reason: 'client_ip_unavailable' }),
-    );
+    // unreachable in production. The header value is an IP and is never logged.
+    emitSecurityLog({
+      level: 'warn',
+      event: 'jump_rate_limit_skipped',
+      reason: 'client_ip_unavailable',
+      request_id: requestId,
+      rate_limit_outcome: 'skipped',
+    });
     return null;
   }
   let success: boolean;
   try {
     ({ success } = await rateLimiter.limit({ key: clientIp }));
   } catch (error) {
-    // The binding is supplemental abuse control, not an authorization gate.
-    // Fail open so a provider-side limiter fault cannot take Jump offline.
-    // eslint-disable-next-line no-console -- fixed metadata only; no IP or request URL.
-    console.warn(
-      JSON.stringify({
-        event: 'jump_rate_limit_skipped',
-        reason: 'limiter_unavailable',
-        error_name: error instanceof Error ? error.name : 'unknown',
-      }),
-    );
+    emitSecurityLog({
+      level: 'warn',
+      event: 'jump_rate_limit_skipped',
+      reason: 'limiter_unavailable',
+      request_id: requestId,
+      error_name: error instanceof Error ? error.name : 'unknown',
+      rate_limit_outcome: 'skipped',
+    });
     return null;
   }
   if (success) return null;
@@ -176,12 +176,12 @@ async function checkRateLimit(request: Request, env: CloudflareEnv, requestId: s
   );
   // This answers before the Hono app exists, so jumpSecureHeaders/responseHygiene
   // cannot run: apply the same protections explicitly.
+  const pub = publicJumpError('rate_limited');
   return new Response(renderRateLimitPage(locale), {
-    status: 429,
+    status: pub.status,
     headers: {
       ...STANDALONE_HTML_SECURITY_HEADERS,
-      'Content-Language': locale,
-      'Content-Type': 'text/html; charset=utf-8',
+      ...publicErrorHeaders('rate_limited', locale),
       'X-Request-ID': requestId,
     },
   });
@@ -294,17 +294,27 @@ async function loadKeyMaterial(
     throw new JumpError('signer_unavailable', 'outbound signer not configured');
   }
 
+  // Extractable only on the path that has to serialize the key: deriving the
+  // public JWKS from the private key when none is configured. Production
+  // configures UMAXICA_JUMP_PUBLIC_JWKS, so the deployed Worker holds a
+  // non-extractable CryptoKey that no later bug can export.
+  const mustDeriveJwks = configuredJwks === undefined;
   let privateKey: Parameters<SignJWT['sign']>[0];
   try {
-    privateKey = await raceAbort(importPKCS8(pem, 'ES384', { extractable: true }), signal);
+    privateKey = await raceAbort(
+      importPKCS8(pem, 'ES384', { extractable: mustDeriveJwks }),
+      signal,
+    );
   } catch (error) {
     logSignerImportFailed(context, error);
     logSignerUnavailable({ ...context, import_pkcs8_ok: false, reason: 'pkcs8_import_failed' });
     throw new JumpError('signer_unavailable', 'outbound signer not configured');
   }
 
-  let jwks = configuredJwks;
-  if (!jwks) {
+  let jwks: JumpJwks;
+  if (configuredJwks) {
+    jwks = configuredJwks;
+  } else {
     try {
       const privateJwk = await raceAbort(exportJWK(privateKey), signal);
       const publicJwk = stripPrivateJwkFields({
@@ -370,7 +380,21 @@ async function readConfiguredJumpJwks(env: CloudflareEnv, signal?: AbortSignal) 
     'public_jwks',
     signal,
   );
-  return value ? parseJumpJwks(value) : undefined;
+  if (!value) return undefined;
+  try {
+    return parseJumpJwks(value);
+  } catch (error) {
+    // A malformed runtime variable is service configuration failure, not a bad
+    // client request. Keep the public response at 503 and log only the class.
+    // eslint-disable-next-line no-console -- no JWKS body or secret material.
+    console.error(
+      JSON.stringify({
+        event: 'jump_public_jwks_invalid',
+        reason: error instanceof Error ? error.name : 'unknown',
+      }),
+    );
+    throw new JumpError('signer_unavailable', 'outbound public jwks invalid');
+  }
 }
 
 async function readJumpJwks(
@@ -378,8 +402,9 @@ async function readJumpJwks(
   cache: CloudflareKeyMaterialCache,
   signal: AbortSignal,
 ) {
-  const configured = await readConfiguredJumpJwks(env, signal);
-  if (configured) return configured;
+  // Publish only the same keyset that has passed the private/public pair check
+  // used by outbound signing. This also avoids reparsing the configured JWKS on
+  // every discovery request.
   return cache.getJwks(env, signal);
 }
 
@@ -392,6 +417,7 @@ async function readBinding(binding: SecretBinding | undefined, name: string, sig
     throwIfAborted(signal);
     return value;
   } catch (error) {
+    if (error instanceof JumpError) throw error;
     // A Secrets Store binding throws when the secret is absent from the store
     // (local `wrangler dev`, an unprovisioned store, a rotation gap). Without
     // this catch the rejection escapes the fetch handler and every request
@@ -428,12 +454,12 @@ function stripPrivateJwkFields(jwk: JWK): JWK {
 }
 
 function logSecretUnavailable(name: string, error: unknown) {
-  // eslint-disable-next-line no-console -- binding name only; never the secret value.
+  // eslint-disable-next-line no-console -- binding name and error class only; never provider messages or values.
   console.warn(
     JSON.stringify({
       event: 'jump_secret_binding_unavailable',
       binding: name,
-      reason: error instanceof Error ? error.message : 'unknown',
+      reason: error instanceof Error ? error.name : 'unknown',
     }),
   );
 }

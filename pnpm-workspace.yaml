@@ -5,12 +5,16 @@ autoInstallPeers: false
 enableGlobalVirtualStore: false
 
 catalog:
-  '@cloudflare/workers-types': 5.20260822.1
+  '@cloudflare/workers-types': 5.20260916.1
 
 overrides:
   ajv: '>=8.18.0'
   fast-xml-parser: 5.3.8
   minimatch: '>=10.2.3'
+  '@bytecodealliance/weval': 0.5.0
+
+minimumReleaseAgeExclude:
+  - '@bytecodealliance/weval'
 
 ignoredBuiltDependencies:
   - '@sentry/cli'

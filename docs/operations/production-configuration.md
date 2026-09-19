@@ -11,14 +11,22 @@ allowed.
 
 ## Allowed Issuers And Destinations
 
-| Issuer                     | JWKS                                 | Allowed internal destination origins                 | External |
-| -------------------------- | ------------------------------------ | ---------------------------------------------------- | -------- |
-| `https://auth.umaxica.app` | same origin `/.well-known/jwks.json` | `https://www.umaxica.app`                            | no       |
-| `https://auth.umaxica.com` | same origin `/.well-known/jwks.json` | `https://www.umaxica.com`                            | no       |
-| `https://auth.umaxica.org` | same origin `/.well-known/jwks.json` | `https://www.umaxica.org`                            | no       |
-| `https://www.umaxica.app`  | same origin `/.well-known/jwks.json` | `https://auth.umaxica.app`, `https://jp.umaxica.app` | no       |
-| `https://www.umaxica.com`  | same origin `/.well-known/jwks.json` | `https://auth.umaxica.com`, `https://jp.umaxica.com` | no       |
-| `https://www.umaxica.org`  | same origin `/.well-known/jwks.json` | `https://auth.umaxica.org`, `https://jp.umaxica.org` | no       |
+| Issuer                     | JWKS                                 | Allowed internal destination origins                                                                           | External |
+| -------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------- | -------- |
+| `https://auth.umaxica.app` | same origin `/.well-known/jwks.json` | `https://www.umaxica.app`                                                                                      | no       |
+| `https://auth.umaxica.com` | same origin `/.well-known/jwks.json` | `https://www.umaxica.com`                                                                                      | no       |
+| `https://auth.umaxica.org` | same origin `/.well-known/jwks.json` | `https://www.umaxica.org`                                                                                      | no       |
+| `https://www.umaxica.app`  | same origin `/.well-known/jwks.json` | `https://auth.umaxica.app`, `https://www-jp.umaxica.app`, `https://jp.umaxica.app`, `https://palm.umaxica.app` | no       |
+| `https://www.umaxica.com`  | same origin `/.well-known/jwks.json` | `https://auth.umaxica.com`, `https://www-jp.umaxica.com`, `https://jp.umaxica.com`                             | no       |
+| `https://www.umaxica.org`  | same origin `/.well-known/jwks.json` | `https://auth.umaxica.org`, `https://www-jp.umaxica.org`, `https://jp.umaxica.org`, `https://edit.umaxica.org` | no       |
+
+Roles are defined once in `src/config/registry.umaxica.ts` and expanded over
+`app` / `com` / `org`, so the three TLDs cannot drift apart: `auth` = `auth.*`,
+`base` = `www.*`, `side` = `www-jp.*`, `core` = `jp.*`, plus `edit.umaxica.org`
+and `palm.umaxica.app`. Only `auth` and `base` are issuers, and `auth` may only
+travel to and from `base` — `auth` <-> any other role is prohibited in both
+directions, because a round trip from auth through anything but base widens the
+redirect surface and makes post-incident reconstruction unreliable.
 
 ## Final Desired Shape
 
@@ -28,7 +36,8 @@ The long-term production shape is:
 - TLS: certificate is issued and managed by the edge provider for
   `jump.umaxica.net`.
 - Runtime: Cloudflare Workers is the production entry point. Fastly Compute is experimental, unverified, and outside the production scope of this hardening work.
-- Private key: stored only in the provider secret backend.
+- Private key: stored only as the Cloudflare Worker secret
+  `UMAXICA_JUMP_PRIVATE_KEY_PEM`.
 - Private key `kid`: stored in the provider secret backend or non-secret runtime
   config.
 - Issuer registry: stored in a reviewed runtime configuration source or secret
@@ -41,20 +50,27 @@ Cloudflare Workers is the first production target in this repository. Keep the
 `jump.umaxica.net` contract aligned here before mirroring any runtime-specific
 changes elsewhere.
 
-`wrangler.jsonc` already binds `jump.umaxica.net` as a custom domain and binds
-`UMAXICA_JUMP_PRIVATE_KEY_PEM` from Secrets Store.
+`wrangler.jsonc` binds `jump.umaxica.net` as a custom domain. The private key is
+not declared in that file: it is uploaded as the Worker secret
+`UMAXICA_JUMP_PRIVATE_KEY_PEM`. The matching `kid` and public JWKS are ordinary
+variables because they are not confidential.
 
 Before production traffic:
 
 1. Confirm the `jump.umaxica.net` DNS record is proxied by Cloudflare.
 2. Confirm Cloudflare has issued an active certificate for `jump.umaxica.net`.
 3. Store the ES384 P-384 private key as `UMAXICA_JUMP_PRIVATE_KEY_PEM`.
-4. Store the active signing key id as `UMAXICA_JUMP_PRIVATE_KEY_KID`.
-5. Deploy the Worker.
-6. Verify `/health.json`.
-7. Verify a valid issuer token redirects only to the configured internal origin.
-8. Verify a token targeting an unlisted origin is rejected with `invalid_dst`.
-9. Verify logs do not contain the full `rt` value.
+4. Put the matching active signing key id in
+   `UMAXICA_JUMP_PRIVATE_KEY_KID`.
+5. Put the public JWK derived from that private key in
+   `UMAXICA_JUMP_PUBLIC_JWKS`.
+6. Use the atomic version-upload procedure in `key-rotation.md`; do not update
+   the three values independently.
+7. Verify `/health.json`.
+8. Verify a valid issuer token redirects only to the configured internal origin
+   and emits `jump_signer_configured` for the expected `kid`.
+9. Verify a token targeting an unlisted origin is rejected with `invalid_dst`.
+10. Verify logs do not contain the full `rt` value.
 
 ## Fastly Compute
 

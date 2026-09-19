@@ -9,7 +9,6 @@ type EdgeName = 'fastly' | 'cloudflare' | 'local' | 'unknown';
 
 export type RuntimeInfo = {
   edge: EdgeName;
-  version?: string | null;
   production: boolean;
 };
 
@@ -62,7 +61,6 @@ export type JumpErrorCode =
   | 'invalid_signature'
   | 'invalid_claim'
   | 'expired'
-  | 'replay'
   | 'invalid_dst'
   | 'invalid_url'
   | 'signer_unavailable'

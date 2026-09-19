@@ -1,10 +1,23 @@
-# Static assets are served by Cloudflare ahead of the Worker, so the
-# jumpSecureHeaders / responseHygiene middleware in src/core/security_headers.ts
-# never runs for them. Mirror the protections that matter for a static file.
+# Fallback only. `run_worker_first` in wrangler.jsonc sends asset requests
+# through the Worker, which applies STANDALONE_HTML_SECURITY_HEADERS in
+# src/core/security_headers.ts. This file mirrors that same set so an asset
+# served without the Worker is not protected more weakly than one served
+# through it. Keep the two in sync; test/jump.test.ts asserts they match.
 # This file is configuration: Cloudflare consumes it and does not serve it.
 /*
+  Content-Security-Policy: default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; img-src 'self'; script-src 'sha256-8A+3er73YJf04rRHGhbZwZQACPiiipi9EPduIeAAIDk='; style-src 'none'
+  Cross-Origin-Embedder-Policy: require-corp
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Resource-Policy: same-origin
+  Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), microphone=(), payment=(), usb=()
+  Origin-Agent-Cluster: ?1
   Referrer-Policy: no-referrer
   Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
   X-Content-Type-Options: nosniff
+  X-DNS-Prefetch-Control: off
+  X-Download-Options: noopen
   X-Frame-Options: DENY
+  X-Permitted-Cross-Domain-Policies: none
+  X-XSS-Protection: 0
+  Cache-Control: no-store
   X-Robots-Tag: noindex, nofollow, noarchive

@@ -1,7 +1,7 @@
 import { normalizeUrl } from './normalize_url';
 import { assertDestinationPolicy } from './policy';
+import { publicErrorResponse } from './public_error';
 import { renderCushion } from './render_cushion';
-import { renderError } from './render_error';
 import { verifyJumpJwt } from './verify_jwt';
 import {
   JumpError,
@@ -14,14 +14,12 @@ import {
 } from './types';
 import type { JwksCache } from './jwks_cache';
 import type { Locale } from './i18n';
-import type { ReplayCache } from './replay_cache';
 import type { OutboundSigner } from './sign_outbound';
 import type { NormalizedUrl } from './normalize_url';
 
 export type JumpDeps = {
   registry: IssuerRegistry;
   jwksCache: JwksCache;
-  replayCache: ReplayCache;
   runtime: RuntimeInfo;
   signer: OutboundSigner;
   config?: JumpConfig;
@@ -67,7 +65,6 @@ export async function handleJump(request: Request, deps: JumpDeps): Promise<Resp
       String(tokens[0]),
       deps.registry,
       deps.jwksCache,
-      deps.replayCache,
       now,
       serviceOrigin(deps),
       deps.signal,
@@ -105,22 +102,8 @@ export async function handleJump(request: Request, deps: JumpDeps): Promise<Resp
       reason: code,
       ...audit,
     });
-    return new Response(renderError(deps.locale), {
-      status: errorStatus(code),
-      headers: {
-        ...htmlHeaders(deps.locale),
-        'X-Jump-Error': code,
-      },
-    });
+    return publicErrorResponse(code, deps.locale);
   }
-}
-
-function errorStatus(code: string) {
-  if (code === 'jwks_bad_gateway') return 502;
-  if (code === 'jwks_unavailable' || code === 'signer_unavailable') return 503;
-  if (code === 'deadline_exceeded') return 504;
-  if (code === 'internal_error') return 500;
-  return 400;
 }
 
 function htmlHeaders(locale: Locale = 'ja') {

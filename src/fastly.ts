@@ -12,6 +12,8 @@ const app = createApp({
     edge: 'fastly',
     production: true,
   },
+  // Fastly production still has no verified signer/JWKS bindings.
+  // Shared public-error and URL contracts apply; wiring remains UNVERIFIED.
 });
 
 fire(app);

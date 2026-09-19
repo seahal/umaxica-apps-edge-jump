@@ -14,7 +14,8 @@ import { healthJson, renderHealthHtml, wantsJson } from './core/health';
 import { asLocale, type Locale } from './core/i18n';
 import { JwksCache, type FetchJwks } from './core/jwks_cache';
 import { validateJumpJwks, type JumpJwks } from './core/jump_jwks';
-import { NoopReplayCache } from './core/replay_cache';
+import { publicErrorHeaders, publicErrorResponse, publicJumpError } from './core/public_error';
+import { emitSecurityLog } from './core/security_log';
 import { renderErrorPage, renderNotFoundPage } from './core/page';
 import { renderAbout } from './core/render_about';
 import { renderRobots, renderSitemap } from './core/render_discovery';
@@ -46,13 +47,15 @@ export type AppOptions = Omit<Partial<JumpDeps>, 'config'> & {
 
 export function createApp(options: AppOptions = {}) {
   const runtime = options.runtime ?? detectRuntime();
+  // The example registry and example keyset exist for local runs and tests.
+  // A production runtime that reached them would broker redirects for
+  // `app.example.com` — including its `allowed_dst_external` entry — so refuse
+  // to build the app at all rather than serve a placeholder trust anchor.
+  if (runtime.production && (!options.registry || (!options.jwksCache && !options.fetchJwks))) {
+    throw new Error('production runtime requires an explicit registry and jwks source');
+  }
   const registry = options.registry ?? exampleRegistry;
   const jwksCache = options.jwksCache ?? new JwksCache(options.fetchJwks ?? fetchExampleJwks);
-  // A jump token is reusable within its `exp` by design, and the redirect
-  // decision must not depend on isolate-local state: a replay cache would make
-  // the same token redirect on a cold isolate and fail on a warm one. Callers
-  // that genuinely want single-use semantics pass MemoryReplayCache in.
-  const replayCache = options.replayCache ?? new NoopReplayCache();
   const signer = options.signer ?? new NoopOutboundSigner();
   const config = resolveJumpConfig(runtime, options.config);
   const jumpJwks = options.jumpJwks
@@ -87,7 +90,6 @@ export function createApp(options: AppOptions = {}) {
     const deps: JumpDeps = {
       registry,
       jwksCache,
-      replayCache,
       runtime,
       signer: requestSigner,
       config,
@@ -139,9 +141,9 @@ export function createApp(options: AppOptions = {}) {
   // Cloudflare dispatches this path through the Worker first; cloudflare.ts
   // delegates to the ASSETS binding. Fastly and Node use this fallback route.
   app.get('/favicon.ico', (c) => c.body(null, 204));
-  app.get('/robots.txt', (c) => c.text(renderRobots(new URL(c.req.url).origin)));
+  app.get('/robots.txt', (c) => c.text(renderRobots(config.serviceOrigin)));
   app.get('/sitemap.xml', (c) =>
-    c.body(renderSitemap(new URL(c.req.url).origin), 200, {
+    c.body(renderSitemap(config.serviceOrigin), 200, {
       'Content-Type': 'application/xml; charset=utf-8',
     }),
   );
@@ -163,7 +165,7 @@ export function createApp(options: AppOptions = {}) {
 
   app.onError((error, c) => {
     const jumpError = error instanceof JumpError ? error : new JumpError('internal_error');
-    const status = errorStatus(jumpError.code);
+    const pub = publicJumpError(jumpError.code);
     auditLog({
       level: 'warn',
       event: 'jump_reject',
@@ -171,13 +173,13 @@ export function createApp(options: AppOptions = {}) {
       reason: jumpError.code,
       request_id: c.get('requestId'),
       ...cfRayFields(c.req.header('CF-Ray')),
-      status,
+      status: pub.status,
     });
-    return c.body(renderErrorPage(requestLocale(c)), status, {
-      'Content-Language': requestLocale(c),
-      'Content-Type': 'text/html; charset=utf-8',
-      'X-Jump-Error': publicErrorCode(jumpError.code),
-    });
+    return c.body(
+      renderErrorPage(requestLocale(c)),
+      pub.status,
+      publicErrorHeaders(jumpError.code, requestLocale(c)),
+    );
   });
 
   return app;
@@ -244,8 +246,11 @@ function redactJwtPath(pathname: string) {
 }
 
 function auditLog(entry: JumpAuditLogEntry) {
-  // eslint-disable-next-line no-console -- structured redirect decision logging is intentional.
-  console.log(JSON.stringify(entry));
+  emitSecurityLog({ ...entry, runtime: runtimeEdgeHint() });
+}
+
+function runtimeEdgeHint() {
+  return detectRuntime().edge;
 }
 
 function internalRequestId() {
@@ -303,25 +308,11 @@ async function raceWithDeadline(
 }
 
 function deadlineResponse(locale: Locale) {
-  return new Response(renderErrorPage(locale), {
-    status: 504,
-    headers: {
-      'Content-Language': locale,
-      'Content-Type': 'text/html; charset=utf-8',
-      'X-Jump-Error': 'deadline_exceeded',
-    },
-  });
+  return publicErrorResponse('deadline_exceeded', locale);
 }
 
 function internalErrorResponse(locale: Locale) {
-  return new Response(renderErrorPage(locale), {
-    status: 500,
-    headers: {
-      'Content-Language': locale,
-      'Content-Type': 'text/html; charset=utf-8',
-      'X-Jump-Error': 'internal_error',
-    },
-  });
+  return publicErrorResponse('internal_error', locale);
 }
 
 function withoutBody(response: Response) {
@@ -340,22 +331,6 @@ function auditEntryForResponse(response: Response): JumpAuditLogEntry {
     result: accepted ? 'accepted' : 'rejected',
     ...(accepted ? {} : { reason: response.headers.get('X-Jump-Error') ?? 'internal_error' }),
   };
-}
-
-function errorStatus(code: string): 400 | 500 | 502 | 503 | 504 {
-  if (code === 'jwks_bad_gateway') return 502;
-  if (code === 'jwks_unavailable' || code === 'signer_unavailable') return 503;
-  if (code === 'deadline_exceeded') return 504;
-  if (code === 'internal_error') return 500;
-  return 400;
-}
-
-function publicErrorCode(code: string) {
-  if (code === 'jwks_bad_gateway') return 'upstream_response_invalid';
-  if (code === 'jwks_unavailable' || code === 'signer_unavailable') return 'service_unavailable';
-  if (code === 'deadline_exceeded') return 'deadline_exceeded';
-  if (code === 'internal_error') return 'internal_error';
-  return 'invalid_request';
 }
 
 function validateRegistry(registry: IssuerRegistry, runtime: RuntimeInfo) {
