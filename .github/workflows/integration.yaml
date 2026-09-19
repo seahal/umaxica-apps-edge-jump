@@ -27,7 +27,13 @@ jobs:
       - run: pnpm run format:check
       - run: pnpm run lint:check
       - run: pnpm run typecheck
+      # oxc-parser's raw transfer reserves a ~6 GiB ArrayBuffer per parse
+      # buffer, which the runner cannot allocate ("RangeError: Array buffer
+      # allocation failed"). knip's own escape hatch falls back to the normal
+      # parser; the run still finishes in under a second.
       - run: pnpm exec knip --include unlisted,unresolved,binaries
+        env:
+          KNIP_DISABLE_RAW_TRANSFER: '1'
 
   unit:
     runs-on: ubuntu-slim

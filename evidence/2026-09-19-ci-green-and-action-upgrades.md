@@ -112,3 +112,35 @@ composite action's resolution can only be confirmed by a real CI run.
 The runner-side behaviour of `pnpm/action-setup` v6.1.0 combined with
 `actions/setup-node` v7 and `cache: pnpm` is NOT verified here; it can
 only be confirmed by a real CI run.
+
+## First real CI run after the refactor
+
+Run 35439950224 (push of "[UPDATE] refacoted.", branch `develop`): six
+jobs, five green — `cloudflare-dry-run`, `unit`, `e2e` (9 passed),
+`secret-scan`, `dependencies`. The composite action, pnpm 12 from
+`packageManager`, and Node resolved from `engines.node` all worked on
+the runner, which is what could not be verified locally.
+
+`quality` failed at its last step only:
+
+```
+RangeError: Array buffer allocation failed
+    at createBuffer (oxc-parser/src-js/raw-transfer/common.js:294:23)
+    at parseFile (knip/dist/typescript/ast-nodes.js:13:12)
+```
+
+Cause: `oxc-parser` 0.148.0 (via knip 6.35.1) reserves
+`BLOCK_SIZE + BLOCK_ALIGN` = 2147483632 + 4294967296 bytes — about
+6 GiB — for each raw-transfer parse buffer
+(`src-js/generated/constants.js`). The `ubuntu-slim` runner cannot
+allocate it; this machine, with 125 GiB of RAM, can, which is why it
+never failed locally. CI had been red at `pnpm/action-setup` for at
+least seven days (run 34648035511, 2026-09-12), so this step had never
+actually executed on a runner before.
+
+Fix: knip ships its own escape hatch — `defaultParseOptions` sets
+`experimentalRawTransfer: process.env.KNIP_DISABLE_RAW_TRANSFER !== '1'
+&& rawTransferSupported()`. The knip step now sets
+`KNIP_DISABLE_RAW_TRANSFER: '1'`, which falls back to the ordinary
+parser. Verified locally: same command, same exit 0, 0.7 s wall clock.
+No dependency change and no runner change.
