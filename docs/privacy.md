@@ -13,6 +13,10 @@ Redirect URLs may appear in:
 - chat tools
 - edge infrastructure logs
 
+Jump's own persisted Workers Logs must not store the `rt` query or User-Agent.
+Query strings are redacted in `wrangler.jsonc`; invocation logs and persisted
+traces stay off. See [logging](logging.md).
+
 ## Forbidden Data
 
 Do not put these values inside JWT claims or redirect URLs:

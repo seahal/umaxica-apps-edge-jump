@@ -73,18 +73,29 @@ External redirects require a cushion page. The page escapes the URL, displays th
 
 ## Security Headers
 
-Responses use CSP, `nosniff`, frame denial, no-referrer, restrictive permissions policy, HSTS, no-store, and noindex headers. `Set-Cookie` is forbidden.
+Responses use CSP, `nosniff`, frame denial (`X-Frame-Options: DENY` and
+`frame-ancestors 'none'`), `Referrer-Policy: no-referrer`, `X-XSS-Protection: 0`,
+restrictive permissions policy, HSTS
+(`max-age=31536000; includeSubDomains; preload`, 12 months), no-store, and
+noindex headers. `Set-Cookie` is forbidden. The 12-month HSTS max-age is the
+production contract; `63072000` was a stale Worker/test value and is not the
+policy. Hostname-specific Cloudflare Response Header Transforms must not replace
+`no-referrer` / `DENY` / `0` on `jump.umaxica.net`.
 
 ## Public Errors
 
-Every rejection an untrusted `rt` can provoke answers with one public class,
-`invalid_request` / 400. This includes failures fetching the issuer's JWKS,
-which are reachable only for a registered `iss`: a separate class there would
-let an anonymous caller tell a registered issuer from an unregistered one
-during an issuer outage. `service_unavailable` / 503 is reserved for Jump's own
-missing signer configuration, which is independent of any inbound token. The
-precise internal reason is carried by the structured security log, never by the
-public response.
+Invalid tokens, unusable JWKS documents (`jwks_bad_gateway`), and destination
+or policy rejections answer `invalid_request` / 400.
+
+When a registered issuer's JWKS cannot be fetched — timeout, network failure,
+or upstream 5xx/429 (`jwks_unavailable`) — Jump answers
+`temporarily_unavailable` / 503 so clients can retry. The public body and
+`X-Jump-Error` header omit the issuer, the JWKS URL, and the internal reason.
+During an issuer outage this class is distinguishable from `invalid_request`;
+that retry signal is intentional. Structured logs keep the internal code.
+
+`service_unavailable` / 503 remains Jump's own missing signer configuration,
+independent of any inbound token.
 
 ## Rate Limiting
 

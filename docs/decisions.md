@@ -48,6 +48,25 @@ External direct redirects make phishing and OpenRedirect failures harder to see.
 
 Jump centralizes redirect policy at an FQDN boundary so each issuer does not reimplement URL validation and external redirect behavior differently.
 
+## Why Is JWKS Outage 503?
+
+A token that is malformed, unsigned, expired, or aimed at a disallowed
+destination is the client's problem: `invalid_request` / 400. A registered
+issuer whose JWKS endpoint times out, fails to connect, or returns 5xx/429 is
+Jump's dependency: `temporarily_unavailable` / 503. Callers can retry the
+latter without being told which issuer, which URL, or which exception. An
+unusable JWKS document (`jwks_bad_gateway`) stays 400 because retry will not
+help. Distinguishing the two public classes during an issuer outage is an
+accepted trade-off against a registration oracle.
+
+## Why Is HSTS 12 Months?
+
+Production `jump.umaxica.net` serves
+`Strict-Transport-Security: max-age=31536000; includeSubDomains; preload`.
+That 12-month max-age is the intended policy. Worker source and tests that
+required `63072000` were a stale contract and follow production, not the
+other way around. `includeSubDomains` and `preload` are unchanged.
+
 ## Why Forbid A Redirect To The Same Origin?
 
 A destination equal to its source spends a signature verification and a round

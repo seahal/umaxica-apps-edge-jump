@@ -90,6 +90,7 @@ function expectSecurityHeaders(response: APIResponse) {
   expect(headers['content-security-policy']).toContain("default-src 'none'");
   expect(headers['x-content-type-options']).toBe('nosniff');
   expect(headers['x-frame-options']).toBe('DENY');
+  expect(headers['x-xss-protection']).toBe('0');
   expect(headers['cross-origin-embedder-policy']).toBe('require-corp');
   expect(headers['cross-origin-opener-policy']).toBe('same-origin');
   expect(headers['cross-origin-resource-policy']).toBe('same-origin');
@@ -97,6 +98,6 @@ function expectSecurityHeaders(response: APIResponse) {
   expect(headers['permissions-policy']).toBeTruthy();
   expect(headers['cache-control']).toBe('no-store');
   expect(headers['x-robots-tag']).toBe('noindex, nofollow, noarchive');
-  expect(headers['strict-transport-security']).toContain('max-age=63072000');
+  expect(headers['strict-transport-security']).toBe('max-age=31536000; includeSubDomains; preload');
   expect(headers['set-cookie']).toBeUndefined();
 }

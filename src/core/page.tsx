@@ -123,6 +123,21 @@ export function renderRateLimitPage(locale: Locale = 'ja', now = new Date()) {
   });
 }
 
+export function renderUnavailablePage(locale: Locale = 'ja', now = new Date()) {
+  const t = messages[locale];
+  return renderDocument({
+    pageTitle: t.unavailableTitle,
+    locale,
+    now,
+    children: (
+      <main>
+        <h1>{t.unavailableHeading}</h1>
+        <p>{t.unavailableBody}</p>
+      </main>
+    ),
+  });
+}
+
 export function renderCushionPage(target: NormalizedUrl, locale: Locale = 'ja', now = new Date()) {
   const t = messages[locale];
   const displayUrl = truncate(target.href, 180);

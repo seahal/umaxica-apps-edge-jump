@@ -52,13 +52,21 @@ describe('public error contract', () => {
     expect(first).toEqual({ code: 'invalid_request', status: 400 });
   });
 
-  test('issuer jwks failures do not reveal that an issuer is registered', () => {
-    // Reachable only for a registered `iss`, so a distinct public class would
-    // let an anonymous caller enumerate the registry during an issuer outage.
+  test('an unusable issuer JWKS document stays a client denial', () => {
+    // Present but unusable (wrong type, private material, empty usable set):
+    // the token cannot be verified, and the failure is not a retry signal.
     const denied = { code: 'invalid_request', status: 400 };
     expect(publicJumpError('jwks_bad_gateway')).toEqual(denied);
-    expect(publicJumpError('jwks_unavailable')).toEqual(denied);
     expect(publicJumpError('malformed')).toEqual(denied);
+  });
+
+  test('a registered-issuer JWKS outage is retryable and not invalid_request', () => {
+    expect(publicJumpError('jwks_unavailable')).toEqual({
+      code: 'temporarily_unavailable',
+      status: 503,
+    });
+    expect(publicJumpError('jwks_unavailable')).not.toEqual(publicJumpError('malformed'));
+    expect(publicJumpError('jwks_unavailable')).not.toEqual(publicJumpError('signer_unavailable'));
   });
 
   test('infrastructure failures stay distinct from client denials', () => {
@@ -111,6 +119,42 @@ describe('public error contract', () => {
     expect(a.headers.get('Location')).toBeNull();
     expect(b.headers.get('Location')).toBeNull();
     expect(await a.text()).toBe(await b.text());
+  });
+
+  test('JWKS outage and an invalid JWT differ in status and public class', async () => {
+    const issuerKeys = await generateKeyPair('ES384');
+    const jumpKeys = await generateKeyPair('ES384');
+    const registry: IssuerRegistry = {
+      'https://app.example.com': {
+        iss: 'https://app.example.com',
+        jwks_uri: 'https://app.example.com/.well-known/jwks.json',
+        allowed_dst_internal: ['https://app.example.com'],
+        allowed_dst_external: false,
+      },
+    };
+    const app = createApp({
+      registry,
+      jwksCache: new JwksCache(async () => {
+        throw new JumpError('jwks_unavailable', 'issuer jwks temporarily unavailable');
+      }),
+      runtime: { edge: 'local', production: true },
+      signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
+      now: () => NOW,
+    });
+    const registered = await sign(issuerKeys.privateKey, baseClaim());
+    const outage = await app.request(`https://jump.example.net/?rt=${registered}`);
+    const invalid = await app.request('https://jump.example.net/?rt=not-a-jwt');
+    expect(invalid.status).toBe(400);
+    expect(invalid.headers.get('X-Jump-Error')).toBe('invalid_request');
+    expect(outage.status).toBe(503);
+    expect(outage.headers.get('X-Jump-Error')).toBe('temporarily_unavailable');
+    const body = await outage.text();
+    expect(body).not.toContain('jwks');
+    expect(body).not.toContain('app.example.com');
+    expect(body).not.toContain('temporarily unavailable');
+    expect(body).not.toContain('jwks_unavailable');
+    expect(body).not.toContain(registered);
+    expect(outage.headers.get('Location')).toBeNull();
   });
 });
 

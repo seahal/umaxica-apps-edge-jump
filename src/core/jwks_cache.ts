@@ -90,6 +90,12 @@ export class JwksCache {
   private async getJwks(issuer: IssuerConfig, forceRefresh: boolean, signal?: AbortSignal) {
     throwIfAborted(signal);
     const now = Date.now();
+    const fetchNegative = this.negative.get(issuer.iss);
+    if (fetchNegative && fetchNegative > now) {
+      this.observe?.({ issuer: issuer.iss, result: 'negative_hit' });
+      throw new JumpError('jwks_unavailable', 'issuer jwks negative cached');
+    }
+    if (fetchNegative) this.negative.delete(issuer.iss);
     const cached = this.cache.get(issuer.iss);
     if (!forceRefresh && cached && cached.expiresAt > now) {
       this.observe?.({ issuer: issuer.iss, result: 'hit' });
@@ -124,11 +130,19 @@ export class JwksCache {
   }
 
   private async fetchAndCache(issuer: IssuerConfig, now: number, signal?: AbortSignal) {
-    const next = await this.fetchJwks(issuer, signal);
-    throwIfAborted(signal);
-    const cachedSet = { keys: next.keys, expiresAt: now + this.ttlMs };
-    this.cache.set(issuer.iss, cachedSet);
-    return cachedSet;
+    try {
+      const next = await this.fetchJwks(issuer, signal);
+      throwIfAborted(signal);
+      this.negative.delete(issuer.iss);
+      const cachedSet = { keys: next.keys, expiresAt: now + this.ttlMs };
+      this.cache.set(issuer.iss, cachedSet);
+      return cachedSet;
+    } catch (error) {
+      if (error instanceof JumpError && error.code === 'jwks_unavailable') {
+        this.rememberNegative(issuer.iss, now);
+      }
+      throw error;
+    }
   }
 }
 

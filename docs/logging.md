@@ -59,9 +59,21 @@ record the full request URL, so for `GET /?rt=<jwt>` they would persist the inbo
 destination verbatim — the exact fields this document forbids. `redactLogLine` in `src/index.ts`
 only covers the application's own request log and cannot reach them. `wrangler.jsonc` therefore sets
 `observability.logs.invocation_logs: false` while leaving `observability.logs.enabled: true`, so the
-redacted structured logs are kept. The test
-`cloudflare observability never enables invocation logs` guards the config value; it cannot guard an
-override applied in the Cloudflare dashboard.
+redacted structured logs are kept.
+
+**Query strings must be redacted at the platform.** `observability.redact_query_string: true`
+removes request query strings (including `rt`) from Workers Logs and traces. Lowering
+`head_sampling_rate` is not a substitute: a sampled leak is still a contract break.
+
+**Persisted traces must stay off.** Automatic Fetch-handler traces include `url.full` and
+`user_agent.original`. Wrangler can redact query strings but cannot drop User-Agent from traces,
+so `observability.traces.enabled` and `observability.traces.persist` are both `false`, and no
+trace destinations are configured. Do not re-enable persisted traces, and do not add an OTLP
+destination, unless User-Agent can be excluded from the exported attributes.
+
+The test `cloudflare observability never persists rt query strings or traces` guards these
+config values; it cannot guard an override applied in the Cloudflare dashboard. Dashboard
+trace contents were not inspected from this repository.
 
 **The 30-day retention above is an account-level setting.** Workers Logs retention is configured per
 account, not in `wrangler.jsonc`, so the repository cannot assert it. Confirm the account is set to

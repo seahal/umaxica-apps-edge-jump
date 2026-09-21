@@ -14,7 +14,7 @@ import { healthJson, renderHealthHtml, wantsJson } from './core/health';
 import { asLocale, type Locale } from './core/i18n';
 import { JwksCache, type FetchJwks } from './core/jwks_cache';
 import { validateJumpJwks, type JumpJwks } from './core/jump_jwks';
-import { publicErrorHeaders, publicErrorResponse, publicJumpError } from './core/public_error';
+import { publicErrorResponse, publicJumpError } from './core/public_error';
 import { emitSecurityLog } from './core/security_log';
 import { renderErrorPage, renderNotFoundPage } from './core/page';
 import { renderAbout } from './core/render_about';
@@ -175,11 +175,7 @@ export function createApp(options: AppOptions = {}) {
       ...cfRayFields(c.req.header('CF-Ray')),
       status: pub.status,
     });
-    return c.body(
-      renderErrorPage(requestLocale(c)),
-      pub.status,
-      publicErrorHeaders(jumpError.code, requestLocale(c)),
-    );
+    return publicErrorResponse(jumpError.code, requestLocale(c));
   });
 
   return app;

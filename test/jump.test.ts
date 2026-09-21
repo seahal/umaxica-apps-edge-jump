@@ -2119,6 +2119,45 @@ describe('jump token validation', () => {
     expect((await jump(app, missing)).headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
+  test('JWKS fetch outages are negatively cached at the existing negative TTL', async () => {
+    const issuerKeys = await generateKeyPair('ES384');
+    const jumpKeys = await generateKeyPair('ES384');
+    const token = await signToken(issuerKeys.privateKey, { jti: 'outage' });
+    vi.useFakeTimers({ now: NOW * 1000 });
+    try {
+      let fetches = 0;
+      const app = createApp({
+        registry: {
+          'https://app.example.com': {
+            iss: 'https://app.example.com',
+            jwks_uri: 'https://app.example.com/.well-known/jwks.json',
+            allowed_dst_internal: ['https://app.example.com'],
+            allowed_dst_external: false,
+          },
+        },
+        jwksCache: new JwksCache(async () => {
+          fetches += 1;
+          throw new JumpError('jwks_unavailable', 'issuer jwks temporarily unavailable');
+        }),
+        runtime: { edge: 'local', production: true },
+        signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
+        now: () => Math.floor(Date.now() / 1000),
+      });
+      const first = await jump(app, token);
+      const second = await jump(app, token);
+      expect(first.status).toBe(503);
+      expect(second.status).toBe(503);
+      expect(first.headers.get('X-Jump-Error')).toBe('temporarily_unavailable');
+      expect(fetches).toBe(1);
+      await vi.advanceTimersByTimeAsync(30_000);
+      const third = await jump(app, token);
+      expect(third.status).toBe(503);
+      expect(fetches).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test('a valid token remains usable while claims remain valid', async () => {
     const issuerKeys = await generateKeyPair('ES384');
     const jumpKeys = await generateKeyPair('ES384');
@@ -2295,6 +2334,7 @@ function expectSecurityHeaders(res: Response) {
   expect(res.headers.get('Content-Security-Policy')).not.toContain("'unsafe-inline'");
   expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
   expect(res.headers.get('X-Frame-Options')).toBe('DENY');
+  expect(res.headers.get('X-XSS-Protection')).toBe('0');
   expect(res.headers.get('Cross-Origin-Embedder-Policy')).toBe('require-corp');
   expect(res.headers.get('Cross-Origin-Opener-Policy')).toBe('same-origin');
   expect(res.headers.get('Cross-Origin-Resource-Policy')).toBe('same-origin');
@@ -2302,7 +2342,9 @@ function expectSecurityHeaders(res: Response) {
   expect(res.headers.get('Permissions-Policy')).toBeTruthy();
   expect(res.headers.get('Cache-Control')).toBe('no-store');
   expect(res.headers.get('X-Robots-Tag')).toBe('noindex, nofollow, noarchive');
-  expect(res.headers.get('Strict-Transport-Security')).toContain('max-age=63072000');
+  expect(res.headers.get('Strict-Transport-Security')).toBe(
+    'max-age=31536000; includeSubDomains; preload',
+  );
   expect(res.headers.get('Set-Cookie')).toBeNull();
 }
 
@@ -2989,6 +3031,7 @@ describe('UMAXICA title contract', () => {
       'errorTitle',
       'notFoundTitle',
       'rateLimitTitle',
+      'unavailableTitle',
       'cushionTitle',
     ] as const;
     for (const locale of ['ja', 'en'] as const) {
@@ -3171,19 +3214,33 @@ describe('UMAXICA title contract', () => {
     }
   });
 
-  test('cloudflare observability never enables invocation logs', () => {
-    // Invocation logs are emitted by the runtime and record the full request
-    // URL, so `GET /?rt=<jwt>` would persist the inbound token and the
-    // destination. redactLogLine cannot reach them; they must stay off.
+  test('cloudflare observability never persists rt query strings or traces', () => {
+    // Invocation logs record the full request URL. Automatic traces persist
+    // `url.full` and `user_agent.original`. Wrangler can redact query strings
+    // but cannot strip User-Agent from traces, so traces must not persist.
     const configPath = new URL('../wrangler.jsonc', import.meta.url);
     const config = readFileSync(configPath, 'utf8');
     const stripped = config.replaceAll(/^\s*\/\/.*$/gm, '');
     const parsed = JSON.parse(stripped) as {
-      observability?: { logs?: { enabled?: boolean; invocation_logs?: boolean } };
+      observability?: {
+        redact_query_string?: boolean;
+        logs?: {
+          enabled?: boolean;
+          invocation_logs?: boolean;
+          persist?: boolean;
+          destinations?: string[];
+        };
+        traces?: { enabled?: boolean; persist?: boolean; destinations?: string[] };
+      };
     };
+    expect(parsed.observability?.redact_query_string).toBe(true);
     expect(parsed.observability?.logs?.invocation_logs).toBe(false);
-    // The redacted structured logs stay on.
     expect(parsed.observability?.logs?.enabled).toBe(true);
+    expect(parsed.observability?.logs?.destinations ?? []).toEqual([]);
+    expect(parsed.observability?.traces?.enabled).toBe(false);
+    expect(parsed.observability?.traces?.persist).toBe(false);
+    expect(parsed.observability?.traces?.destinations ?? []).toEqual([]);
+    expect(config).not.toMatch(/head_sampling_rate["']?\s*:\s*0(\.0+)?\b/);
   });
 
   test('cloudflare signing config uses a Worker secret and one matching public kid', () => {
@@ -3258,8 +3315,9 @@ describe('UMAXICA title contract', () => {
     for (const header of [
       'X-Content-Type-Options: nosniff',
       'X-Frame-Options: DENY',
+      'X-XSS-Protection: 0',
       'Referrer-Policy: no-referrer',
-      'Strict-Transport-Security: max-age=63072000',
+      'Strict-Transport-Security: max-age=31536000; includeSubDomains; preload',
     ]) {
       expect(policy).toContain(header);
     }

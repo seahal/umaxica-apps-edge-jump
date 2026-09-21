@@ -71,6 +71,69 @@ Before production traffic:
    and emits `jump_signer_configured` for the expected `kid`.
 9. Verify a token targeting an unlisted origin is rejected with `invalid_dst`.
 10. Verify logs do not contain the full `rt` value.
+11. Confirm `wrangler.jsonc` observability: `redact_query_string: true`,
+    `logs.invocation_logs: false`, `traces.enabled: false`,
+    `traces.persist: false`, and no log/trace destinations.
+
+## Cloudflare zone rules for `jump.umaxica.net`
+
+These settings live on the `umaxica.net` zone, not in `wrangler.jsonc`. This
+repository can read the zone id but cannot list or write Transform Rules,
+Managed Transforms, or Configuration Rules with the current Wrangler OAuth
+scopes (`zone` read only; rulesets return 403). Apply them in the dashboard
+or with a token that can write zone rulesets. Do **not** turn off zone-wide
+security-header transforms for other hostnames.
+
+### Response Header Transform (narrowest overlay)
+
+Create a Response Header Transform Rule whose expression is:
+
+```txt
+http.host eq "jump.umaxica.net"
+```
+
+Set (do not add duplicates if a later rule already sets them):
+
+| Header           | Value         |
+| ---------------- | ------------- |
+| Referrer-Policy  | `no-referrer` |
+| X-Frame-Options  | `DENY`        |
+| X-XSS-Protection | `0`           |
+
+Do **not** change `Strict-Transport-Security`. Production HSTS is
+`max-age=31536000; includeSubDomains; preload` (12 months) and is the
+intended contract.
+
+Place this rule so it wins over zone-wide Managed Transforms / “Add security
+headers” for this hostname only.
+
+### Configuration Rule (skip HTML rewriting)
+
+Create a Configuration Rule with the same hostname expression. For matching
+requests:
+
+- Email Obfuscation: off
+- Rocket Loader: off
+- Cloudflare Web Analytics / RUM: off
+- Response Body Buffering: None
+
+Jump is a redirect gateway, not an interactive site. Challenge-platform
+script/iframe injection on HTML 400 pages is unnecessary here and conflicts
+with `default-src 'none'`. This rule must not disable WAF or rate limiting,
+and must not apply to other hostnames.
+
+JavaScript Detections cannot always be turned off for Bot Fight Mode
+accounts; Response Body Buffering `None` is the documented way to skip HTML
+inspection on a narrow match. After deploy, `GET /?rt=not-a-jwt` must not
+contain `/cdn-cgi/challenge-platform/`.
+
+### `/cdn-cgi/trace`
+
+Cloudflare documents `/cdn-cgi/` as a platform endpoint that cannot be
+modified or customized. WAF attempts to block it have been reported as
+unreliable and can interfere with challenge-platform paths. Leave it as
+low-impact metadata exposure unless a later, proven hostname-specific block
+is available. Not a release blocker.
 
 ## Fastly Compute
 
