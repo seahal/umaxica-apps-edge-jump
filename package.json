@@ -29,7 +29,7 @@
     "@cloudflare/workers-types": "catalog:",
     "@hono/node-server": "^2.1.1",
     "@playwright/test": "^1.63.0",
-    "@types/node": "^26.6.1",
+    "@types/node": "^26.6.2",
     "@vitest/coverage-v8": "5.0.1",
     "esbuild": "0.28.2",
     "knip": "^6.35.1",
