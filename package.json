@@ -33,7 +33,7 @@
     "@vitest/coverage-v8": "5.0.1",
     "esbuild": "0.28.2",
     "knip": "^6.35.1",
-    "oxfmt": "0.68.0",
+    "oxfmt": "0.70.0",
     "oxlint": "1.83.0",
     "oxlint-tsgolint": "7.0.2001",
     "tsx": "^4.23.13",
