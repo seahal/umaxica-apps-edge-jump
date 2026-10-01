@@ -16,9 +16,13 @@ Stateless validation works well across active-active edge runtimes and avoids da
 
 Two edge providers reduce dependence on one runtime and allow traffic steering during incidents.
 
-## Why Hono Only?
+## Why Is Production Hono Only?
 
-Hono provides small Web Standard routing primitives without requiring a frontend or build framework.
+Hono provides small Web Standard routing primitives without requiring a frontend or build framework. The Hono implementation in this repository is the reference implementation, and it is the only one allowed in production.
+
+## Why A Non-Production Rails Implementation?
+
+Local Rails development needs a reachable Jump that trusts development issuers, which production must never do. A Rails-embedded implementation serves `development` and `test` only, at `leap.umaxica.net` through a Cloudflare Tunnel because `jump.umaxica.net` is the production hostname. It follows Hono; Hono does not follow it. See [ADR 0004](../adr/0004-multiple-jump-implementations.md).
 
 ## Why No Vite?
 

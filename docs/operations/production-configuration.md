@@ -50,8 +50,10 @@ Cloudflare Workers is the first production target in this repository. Keep the
 `jump.umaxica.net` contract aligned here before mirroring any runtime-specific
 changes elsewhere.
 
-`wrangler.jsonc` binds `jump.umaxica.net` as a custom domain. The private key is
-not declared in that file: it is uploaded as the Worker secret
+`wrangler.jsonc` binds `jump.umaxica.net` as a custom domain. `JUMP_RATE_LIMITER`
+is namespace `520900` (net/jump, Global), 600 requests per 60 seconds. Local
+`pnpm run cloudflare:dev` listens on port `5209`. The private key is not
+declared in that file: it is uploaded as the Worker secret
 `UMAXICA_JUMP_PRIVATE_KEY_PEM`. The matching `kid` and public JWKS are ordinary
 variables because they are not confidential.
 
@@ -74,6 +76,10 @@ Before production traffic:
 11. Confirm `wrangler.jsonc` observability: `redact_query_string: true`,
     `logs.invocation_logs: false`, `traces.enabled: false`,
     `traces.persist: false`, and no log/trace destinations.
+12. Confirm every production issuer and receiver uses
+    `https://jump.umaxica.net` as its Jump base URL and that no production
+    configuration refers to `leap.umaxica.net` or its JWKS
+    ([ADR 0004](../../adr/0004-multiple-jump-implementations.md)).
 
 ## Cloudflare zone rules for `jump.umaxica.net`
 

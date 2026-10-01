@@ -1,9 +1,11 @@
+import { unicodeHostname } from './idna';
 import { JumpError, PRODUCTION_SERVICE_ORIGIN, type RuntimeInfo } from './types';
 
 export type NormalizedUrl = {
   href: string;
   origin: string;
   hostname: string;
+  unicodeHostname: string;
   hasNonAsciiHostname: boolean;
 };
 
@@ -41,11 +43,13 @@ export function normalizeUrl(
     throw new JumpError('invalid_url', 'self link rejected');
   if (isForbiddenHost(hostname)) throw new JumpError('invalid_url', 'forbidden host');
 
+  const hasNonAsciiHostname = hostname.split('.').some((label) => label.startsWith('xn--'));
   return {
     href: parsed.href,
     origin: parsed.origin,
     hostname,
-    hasNonAsciiHostname: hostname.split('.').some((label) => label.startsWith('xn--')),
+    unicodeHostname: hasNonAsciiHostname ? unicodeHostname(hostname) : hostname,
+    hasNonAsciiHostname,
   };
 }
 

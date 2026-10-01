@@ -5,7 +5,7 @@ autoInstallPeers: false
 enableGlobalVirtualStore: false
 
 catalog:
-  '@cloudflare/workers-types': 5.20260916.1
+  '@cloudflare/workers-types': 5.20260928.1
 
 overrides:
   ajv: '>=8.18.0'

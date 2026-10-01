@@ -39,6 +39,14 @@ Internal redirects are allowed only when the issuer registry explicitly allows t
 
 JWT compact JWS gives issuers a portable signed redirect decision. JWKS lets Jump verify issuer keys without sharing private keys with Jump. Token-provided key URLs are forbidden; Jump only uses registry-configured JWKS.
 
+### Compact JWT JSON Root Contract
+
+The decoded JOSE header and JWT payload MUST each have a JSON object as their top-level JSON value. `null`, arrays, strings, numbers, and booleans MUST be rejected as invalid client input before header field or claim validation. An empty object `{}` satisfies the root shape requirement but MUST still pass the existing required header field and claim validation.
+
+An invalid header root uses the same internal classification as header JSON decode failure (`invalid_header`); an invalid payload root uses the same classification as payload JSON decode failure (`malformed`). Both MUST produce HTTP `400`, `X-Jump-Error: invalid_request`, no `Location` header, and `Cache-Control: no-store`. They MUST NOT produce `500 internal_error`.
+
+Hono is the reference implementation for this contract; the Rails implementation MUST reproduce it. Candidate malformed-token vectors shared across languages are the JSON texts `null`, `[]`, `"string"`, `0`, `1`, `true`, and `false`, independently substituted into the header and payload segments. Encode each text as UTF-8 Base64URL without padding, keep the other segment a valid object (header: `{"typ":"JWT","alg":"ES384","kid":"kid-1"}`), and use `dummy-signature` as the signature segment. These cases MUST be rejected before any JWKS lookup or signature verification. Include `{}` and malformed JSON `{` as companion vectors to distinguish root shape validation from required field validation and JSON decode failure.
+
 ## Stateless Edge Design
 
 Jump uses no cookies, DB, or sessions. The JWT contains the redirect decision, expiry, issuer, audience, `jti`, destination type, and URL. Stateless validation keeps Fastly Compute and Cloudflare Workers behavior simple and resilient.
@@ -59,6 +67,10 @@ flowchart TB
 ```
 
 Fastly and Cloudflare can both serve traffic. Runtime-specific code belongs in adapters; core logic uses Web Standard APIs where possible. Isolate-local JWKS caches are acceptable because cross-edge consistency is not a correctness requirement; replay state is not held in Jump at all.
+
+## Implementations
+
+The Hono code in this repository is the reference implementation and the only production path. A Rails-embedded implementation at `leap.umaxica.net` serves Rails development and test environments only. Applications select the Jump base URL by environment. See [Implementations](implementations.md).
 
 ## Why No Cookies
 

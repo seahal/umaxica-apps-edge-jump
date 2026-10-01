@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import {
   decodeProtectedHeader,
@@ -23,6 +24,13 @@ import { messages } from '../src/core/i18n';
 import { normalizeOrigin, normalizeUrl } from '../src/core/normalize_url';
 import { brandTitle, renderHealthPage } from '../src/core/page';
 import { assertDestinationPolicy } from '../src/core/policy';
+import {
+  CUSHION_INLINE_SCRIPT,
+  PRODUCT_PAGE_CSS,
+  PRODUCT_PAGE_CSS_SHA256,
+  SPLASH_PAGE_CSS,
+  SPLASH_PAGE_CSS_SHA256,
+} from '../src/core/security_headers';
 import { JoseOutboundSigner, NoopOutboundSigner } from '../src/core/sign_outbound';
 import {
   JumpError,
@@ -1040,6 +1048,62 @@ describe('jump gateway routes', () => {
     expect(html).toContain('<dt>version</dt><dd></dd>');
   });
 
+  test('about and cushion carry product styles; health does not; errors splash', async () => {
+    const { app, signToken } = await fixture();
+    const about = await (await app.request('https://jump.example.net/about')).text();
+    const health = await (await app.request('https://jump.example.net/health')).text();
+    const error = await (await app.request('https://jump.example.net/?rt=not-a-jwt')).text();
+    const cushion = await (
+      await jump(app, await signToken({ dst: 'external', url: 'https://example.org/a' }))
+    ).text();
+
+    expect(about).toContain('<body class="product">');
+    expect(about).toContain(`<style>${PRODUCT_PAGE_CSS}</style>`);
+    expect(about).toContain('class="origin"');
+    expect(cushion).toContain('<body class="product">');
+    expect(cushion).toContain(`<style>${PRODUCT_PAGE_CSS}</style>`);
+    expect(cushion).toContain('class="continue"');
+    expect(cushion).toContain('class="host"');
+    expect(health).not.toContain('class="product"');
+    expect(health).not.toContain('class="splash"');
+    expect(health).not.toContain('<style>');
+    expect(health).toContain('<body>');
+    expect(error).toContain('<body class="splash">');
+    expect(error).toContain(`<style>${SPLASH_PAGE_CSS}</style>`);
+    expect(error).toContain('href="/about"');
+    expect(error).toContain('reload');
+    expect(error).toContain('再読み込みでは直りません');
+    expect(error).not.toContain('class="product"');
+    expect(error).not.toContain('<header>');
+  });
+
+  test('unknown GET paths redirect to about; JSON and POST stay 404', async () => {
+    const { app } = await fixture();
+    const html = await app.request('https://jump.example.net/no-such-page');
+    expect(html.status).toBe(302);
+    expect(html.headers.get('Location')).toBe('/about');
+    const json = await app.request('https://jump.example.net/no-such-page', {
+      headers: { Accept: 'application/json' },
+    });
+    expect(json.status).toBe(404);
+    expect(json.headers.get('Location')).toBeNull();
+    const posted = await app.request('https://jump.example.net/no-such-page', { method: 'POST' });
+    expect(posted.status).toBe(404);
+    expect(posted.headers.get('Location')).toBeNull();
+  });
+
+  test('product and splash CSS hashes are pinned in CSP', () => {
+    expect(createHash('sha256').update(PRODUCT_PAGE_CSS).digest('base64')).toBe(
+      PRODUCT_PAGE_CSS_SHA256,
+    );
+    expect(createHash('sha256').update(SPLASH_PAGE_CSS).digest('base64')).toBe(
+      SPLASH_PAGE_CSS_SHA256,
+    );
+    expect(createHash('sha256').update(CUSHION_INLINE_SCRIPT).digest('base64')).toBe(
+      '8A+3er73YJf04rRHGhbZwZQACPiiipi9EPduIeAAIDk=',
+    );
+  });
+
   test('security headers are applied to static and well-known responses', async () => {
     const { app } = await fixture();
     for (const path of [
@@ -1096,8 +1160,10 @@ describe('jump gateway routes', () => {
     const invalid = await jump(app, 'abc.def');
     expectSecurityHeaders(invalid);
     const invalidHtml = await invalid.text();
-    expect(invalidHtml).toContain('<header><a href="/">UMAXICA</a></header>');
-    expect(invalidHtml).toContain('<footer>© 2026 UMAXICA</footer>');
+    expect(invalidHtml).toContain('<body class="splash">');
+    expect(invalidHtml).toContain('href="/about"');
+    expect(invalidHtml).toContain('secondary reload');
+    expect(invalidHtml).not.toContain('<header>');
     const cushion = await jump(
       app,
       await signToken({ dst: 'external', url: 'https://example.org/a?b=1' }),
@@ -1108,7 +1174,7 @@ describe('jump gateway routes', () => {
     expect(cushionHtml).toContain('<footer>© 2026 UMAXICA</footer>');
   });
 
-  test('request logs redact rt tokens', async () => {
+  test('request logs expose only allowlisted paths', async () => {
     const { app } = await fixture();
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     let lines: string[] = [];
@@ -1118,14 +1184,22 @@ describe('jump gateway routes', () => {
       }
       await app.request('https://jump.example.net/rt=header.payload.signature');
       await app.request('https://jump.example.net/header.payload.signature');
+      await app.request('https://jump.example.net/header%2Epayload%2Esignature');
+      await app.request('https://jump.example.net/header%252Epayload%252Esignature');
+      await app.request('https://jump.example.net/private-customer-path');
+      await app.request('https://jump.example.net/health');
       lines = log.mock.calls.map(([message]) => String(message));
     } finally {
       log.mockRestore();
     }
     expect(lines.some((line) => line.includes('header.payload.signature'))).toBe(false);
+    expect(lines.some((line) => line.includes('header%2Epayload%2Esignature'))).toBe(false);
+    expect(lines.some((line) => line.includes('header%252Epayload%252Esignature'))).toBe(false);
+    expect(lines.some((line) => line.includes('private-customer-path'))).toBe(false);
     expect(lines.some((line) => line.includes('?'))).toBe(false);
-    expect(lines.filter((line) => line.includes('GET /'))).toHaveLength(10);
-    expect(lines.some((line) => line.includes('[redacted-jwt]'))).toBe(true);
+    expect(lines.filter((line) => line.includes('GET /'))).toHaveLength(8);
+    expect(lines.filter((line) => line.includes('[redacted-path]'))).toHaveLength(10);
+    expect(lines.filter((line) => line.includes('GET /health'))).toHaveLength(2);
   });
 
   test('signer unavailable maps to 503 for internal redirects', async () => {
@@ -1266,6 +1340,39 @@ describe('jump token validation', () => {
     const { app } = await fixture();
     const res = await jump(app, 'abc=.def.ghi');
     expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
+  });
+
+  describe.each(['header', 'payload'] as const)('JWT %s JSON root boundary', (part) => {
+    test.each(['null', '[]', '"string"', '0', '1', 'true', 'false', '{}', '{'])(
+      'rejects %s as client input, never 500 internal_error',
+      async (json) => {
+        const entries: unknown[] = [];
+        const { app, fetchCount } = await fixtureWithOptions({
+          auditLog: (entry) => entries.push(entry),
+        });
+        const header =
+          part === 'header' ? json : JSON.stringify({ typ: 'JWT', alg: 'ES384', kid: 'kid-1' });
+        const payload = part === 'payload' ? json : JSON.stringify(baseClaim());
+        const token = [b64(header), b64(payload), 'dummy-signature'].join('.');
+
+        const res = await jump(app, token);
+
+        expect(res.status).not.toBe(500);
+        expect(res.headers.get('X-Jump-Error')).not.toBe('internal_error');
+        expect(res.status).toBe(400);
+        expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
+        expect(res.headers.get('Location')).toBeNull();
+        expect(res.headers.get('Cache-Control')).toBe('no-store');
+        expect(entries).toHaveLength(1);
+        expect(entries[0]).toMatchObject({
+          event: 'jump_reject',
+          reason:
+            part === 'header' ? 'invalid_header' : json === '{}' ? 'invalid_claim' : 'malformed',
+          status: 400,
+        });
+        expect(fetchCount()).toBe(0);
+      },
+    );
   });
 
   test('typ mismatch reject', async () => {
@@ -1731,6 +1838,18 @@ describe('jump token validation', () => {
     }
   });
 
+  test('IDN hostnames expose Unicode alongside punycode', () => {
+    const normalized = normalizeUrl('https://xn--r8jz45g.example/path', {
+      edge: 'local',
+      production: true,
+    });
+    expect(normalized).toMatchObject({
+      hostname: 'xn--r8jz45g.example',
+      unicodeHostname: '例え.example',
+      hasNonAsciiHostname: true,
+    });
+  });
+
   test('non-production http is normalized by the URL parser', () => {
     const normalized = normalizeUrl('http://EXAMPLE.com.:80/a', {
       edge: 'local',
@@ -1740,6 +1859,7 @@ describe('jump token validation', () => {
       href: 'http://example.com/a',
       origin: 'http://example.com',
       hostname: 'example.com',
+      unicodeHostname: 'example.com',
       hasNonAsciiHostname: false,
     });
   });
@@ -1944,7 +2064,7 @@ describe('jump token validation', () => {
     expect(res.status).toBe(200);
     expect(html).toContain('Continue to external site');
     expect(html).toContain('href="https://example.com/jump/end?ok=1"');
-    expect(html).toContain('<dt>host</dt><dd>example.com</dd>');
+    expect(html).toContain('<dt>host</dt><dd class="host">example.com</dd>');
   });
 
   test('external cushion truncates long displayed URLs while preserving href', async () => {
@@ -2007,6 +2127,10 @@ describe('jump token validation', () => {
     const res = await jump(app, token);
     const html = await res.text();
     expect(html).toContain('非 ASCII');
+    expect(html).toContain('例え.example');
+    expect(html).toContain('xn--r8jz45g.example');
+    expect(html).toContain('このページを再読み込みすると、移動先は消えます。');
+    expect(html).toContain('href="/about"');
   });
 
   test('internal redirect carries outbound rt signed by jump', async () => {
@@ -2331,7 +2455,14 @@ function expectSecurityHeaders(res: Response) {
   expect(res.headers.get('Content-Security-Policy')).toContain(
     "'sha256-8A+3er73YJf04rRHGhbZwZQACPiiipi9EPduIeAAIDk='",
   );
+  expect(res.headers.get('Content-Security-Policy')).toContain(
+    `'sha256-${PRODUCT_PAGE_CSS_SHA256}'`,
+  );
+  expect(res.headers.get('Content-Security-Policy')).toContain(
+    `'sha256-${SPLASH_PAGE_CSS_SHA256}'`,
+  );
   expect(res.headers.get('Content-Security-Policy')).not.toContain("'unsafe-inline'");
+  expect(res.headers.get('Content-Security-Policy')).not.toContain("style-src 'none'");
   expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
   expect(res.headers.get('X-Frame-Options')).toBe('DENY');
   expect(res.headers.get('X-XSS-Protection')).toBe('0');
@@ -2877,13 +3008,14 @@ describe('route, rate limit, and request id contracts', () => {
     expect(first.headers.get('X-Request-ID')).not.toBe(second.headers.get('X-Request-ID'));
   });
 
-  test('an all-slashes jump path 404s rather than echoing the token into Location', async () => {
+  test('an all-slashes jump path redirects to about without echoing the token', async () => {
     const { app, signToken } = await fixture();
     const rt = await signToken();
     for (const path of ['//', '///']) {
       const res = await app.request(`https://jump.example.net${path}?rt=${rt}`);
-      expect(res.status).toBe(404);
-      expect(res.headers.get('Location')).toBeNull();
+      expect(res.status).toBe(302);
+      expect(res.headers.get('Location')).toBe('/about');
+      expect(res.headers.get('Location')).not.toContain('rt=');
     }
   });
 
@@ -3029,7 +3161,6 @@ describe('UMAXICA title contract', () => {
       'aboutPageTitle',
       'healthTitle',
       'errorTitle',
-      'notFoundTitle',
       'rateLimitTitle',
       'unavailableTitle',
       'cushionTitle',
@@ -3083,13 +3214,6 @@ describe('UMAXICA title contract', () => {
         ja: 'リクエストを処理できません',
         en: 'Cannot process this request',
         status: 400,
-      },
-      {
-        name: 'notFound',
-        path: '/no-such-page',
-        ja: 'ページが見つかりません',
-        en: 'Page not found',
-        status: 404,
       },
     ];
 
@@ -3241,6 +3365,36 @@ describe('UMAXICA title contract', () => {
     expect(parsed.observability?.traces?.persist).toBe(false);
     expect(parsed.observability?.traces?.destinations ?? []).toEqual([]);
     expect(config).not.toMatch(/head_sampling_rate["']?\s*:\s*0(\.0+)?\b/);
+  });
+
+  test('cloudflare jump limiter uses the net/jump namespace and internal port 5209', () => {
+    // jump.umaxica.net is the net/jump Global surface: TLD 52, surface 09,
+    // region 00 → production namespace 520900. The Cloudflare development
+    // server listens on that same four-digit port rather than Wrangler's
+    // generic 8787. Limit and period stay 600/60; this guard is allocation
+    // identity, not budget tuning.
+    const wranglerPath = new URL('../wrangler.jsonc', import.meta.url);
+    const wrangler = JSON.parse(
+      readFileSync(wranglerPath, 'utf8').replaceAll(/^\s*\/\/.*$/gm, ''),
+    ) as {
+      ratelimits?: Array<{
+        name?: string;
+        namespace_id?: string;
+        simple?: { limit?: number; period?: number };
+      }>;
+    };
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts?: { 'cloudflare:dev'?: string };
+    };
+
+    expect(pkg.scripts?.['cloudflare:dev']).toMatch(/--port 5209\b/);
+    expect(wrangler.ratelimits).toEqual([
+      {
+        name: 'JUMP_RATE_LIMITER',
+        namespace_id: '520900',
+        simple: { limit: 600, period: 60 },
+      },
+    ]);
   });
 
   test('cloudflare signing config uses a Worker secret and one matching public kid', () => {

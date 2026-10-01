@@ -59,7 +59,9 @@ record the full request URL, so for `GET /?rt=<jwt>` they would persist the inbo
 destination verbatim — the exact fields this document forbids. `redactLogLine` in `src/index.ts`
 only covers the application's own request log and cannot reach them. `wrangler.jsonc` therefore sets
 `observability.logs.invocation_logs: false` while leaving `observability.logs.enabled: true`, so the
-redacted structured logs are kept.
+redacted structured logs are kept. The application logger emits literal paths only for fixed public
+routes; every other parseable path is recorded as `[redacted-path]`, so encoded token-like paths and
+arbitrary customer paths are not retained.
 
 **Query strings must be redacted at the platform.** `observability.redact_query_string: true`
 removes request query strings (including `rt`) from Workers Logs and traces. Lowering

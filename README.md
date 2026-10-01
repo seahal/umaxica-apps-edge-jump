@@ -1,6 +1,6 @@
 # UMAXICA Jump Gateway
 
-Jump Gateway is a Hono-only, stateless redirect trust broker for `https://jump.example.net/?rt=<JWT>`.
+Jump Gateway is a stateless redirect trust broker for `https://jump.example.net/?rt=<JWT>`. This repository holds the reference Hono implementation; production runs only Hono.
 
 Issuer applications create an `rt` compact JWS. Jump validates the JWT, issuer registry, JWKS signature, destination policy, and normalized URL before crossing FQDN boundaries. Internal destinations may receive a redirect. External destinations always receive a cushion page first.
 
@@ -33,6 +33,19 @@ flowchart LR
   cushion -->|user continues| ext[External site]
 ```
 
+## Interfaces And Implementations
+
+Jump is one protocol with several implementations. This repository's Hono code is the reference, and production uses nothing else.
+
+| Implementation                         | Host                                   | Environment                       |
+| -------------------------------------- | -------------------------------------- | --------------------------------- |
+| Hono on Cloudflare Workers (reference) | `jump.umaxica.net`                     | production                        |
+| Hono on Fastly Compute                 | —                                      | experimental                      |
+| Hono local runtimes                    | `127.0.0.1:5209` / `127.0.0.1:7676`    | development of this repository    |
+| Rails-embedded implementation          | `leap.umaxica.net` (Cloudflare Tunnel) | Rails `development` / `test` only |
+
+Applications choose the Jump base URL through environment configuration. Production must always use `https://jump.umaxica.net`. See [Implementations](docs/implementations.md) and [ADR 0004](adr/0004-multiple-jump-implementations.md).
+
 ## Local Runtime Checks
 
 Use these commands when you want to run the same Hono app through the target edge runtimes locally.
@@ -63,7 +76,7 @@ Cloudflare Workers:
 ```sh
 pnpm run cloudflare:check
 pnpm run cloudflare:dev
-curl http://127.0.0.1:8787/health.json
+curl http://127.0.0.1:5209/health.json
 ```
 
 Expected health response includes:
@@ -89,7 +102,7 @@ curl http://127.0.0.1:<port>/robots.txt
 Default ports:
 
 - Fastly Compute: `7676`
-- Cloudflare Workers: `8787`
+- Cloudflare Workers: `5209`
 
 ## Security Notes
 
@@ -109,6 +122,7 @@ Default ports:
 ## Detailed Docs
 
 - [Architecture](docs/architecture.md)
+- [Implementations](docs/implementations.md)
 - [Security](docs/security.md)
 - [Threat Model](docs/threat-model.md)
 - [Operations: Key Rotation](docs/operations/key-rotation.md)

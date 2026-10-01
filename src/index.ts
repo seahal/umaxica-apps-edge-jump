@@ -16,7 +16,7 @@ import { JwksCache, type FetchJwks } from './core/jwks_cache';
 import { validateJumpJwks, type JumpJwks } from './core/jump_jwks';
 import { publicErrorResponse, publicJumpError } from './core/public_error';
 import { emitSecurityLog } from './core/security_log';
-import { renderErrorPage, renderNotFoundPage } from './core/page';
+import { renderErrorPage } from './core/page';
 import { renderAbout } from './core/render_about';
 import { renderRobots, renderSitemap } from './core/render_discovery';
 import { jumpSecureHeaders, responseHygiene } from './core/security_headers';
@@ -156,11 +156,17 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.notFound((c) => {
-    const locale = requestLocale(c);
-    return c.body(renderNotFoundPage(locale), 404, {
-      'Content-Language': locale,
-      'Content-Type': 'text/html; charset=utf-8',
-    });
+    // Trailing-slash 404s are rewritten to 301 by `trimTrailingSlash`.
+    if (c.req.path.length > 1 && c.req.path.endsWith('/') && !/^\/+$/.test(c.req.path)) {
+      return c.body(null, 404);
+    }
+    // Humans hitting a mistyped path land on About. JSON and non-GET clients
+    // get a plain 404 so machine probes are not fed an HTML document.
+    const method = c.req.method;
+    if ((method === 'GET' || method === 'HEAD') && !wantsJson(c.req.header('Accept') ?? null)) {
+      return c.redirect('/about', 302);
+    }
+    return c.body(null, 404);
   });
 
   app.onError((error, c) => {
@@ -221,12 +227,12 @@ export async function fetchExampleJwks() {
 }
 
 function redactLogLine(message: string) {
-  // eslint-disable-next-line no-console -- request logging is intentional, but rt values are redacted.
+  // eslint-disable-next-line no-console -- request logging is intentional, but arbitrary paths are not.
   console.log(
     message.replace(/(\s)(\/\S*)/, (_match, whitespace: string, target: string) => {
       try {
         const url = new URL(target, 'https://request-log.invalid');
-        return `${whitespace}${redactJwtPath(url.pathname)}`;
+        return `${whitespace}${safeLogPath(url.pathname)}`;
       } catch {
         return `${whitespace}[unparseable-request-target]`;
       }
@@ -234,11 +240,20 @@ function redactLogLine(message: string) {
   );
 }
 
-function redactJwtPath(pathname: string) {
-  return pathname.replace(
-    /(?:rt=)?[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,
-    '[redacted-jwt]',
-  );
+const LOGGABLE_PATHS = new Set([
+  '/',
+  '/about',
+  '/health',
+  '/health.json',
+  '/health.html',
+  '/favicon.ico',
+  '/robots.txt',
+  '/sitemap.xml',
+  '/.well-known/jwks.json',
+]);
+
+function safeLogPath(pathname: string) {
+  return LOGGABLE_PATHS.has(pathname) ? pathname : '[redacted-path]';
 }
 
 function auditLog(entry: JumpAuditLogEntry) {
@@ -263,7 +278,8 @@ function internalRequestId() {
  * trailing slash — query string included. For an all-slashes path that means
  * `GET //?rt=<jwt>` answers 301 with the inbound token echoed into `Location`,
  * on a status the jump contract does not define. Paths that collapse to the
- * jump route are left as a plain 404; `/about/` and friends still normalize.
+ * jump route skip that rewrite and fall through to notFound, which 302s to
+ * `/about` without the query; `/about/` and friends still normalize.
  */
 function trimSlashExceptRoot() {
   const trim = trimTrailingSlash();

@@ -13,16 +13,6 @@ const MAX_KID_LENGTH = 128;
 export const CLOCK_SKEW_SECONDS = 5;
 export const MAX_INBOUND_TTL_SECONDS = 300;
 
-type Header = {
-  typ?: unknown;
-  alg?: unknown;
-  kid?: unknown;
-  crit?: unknown;
-  jku?: unknown;
-  jwk?: unknown;
-  x5u?: unknown;
-};
-
 export async function verifyJumpJwt(
   token: string,
   registry: IssuerRegistry,
@@ -37,7 +27,7 @@ export async function verifyJumpJwt(
   if (parts.length !== 3) throw new JumpError('malformed', 'not compact jwt');
   for (const part of parts) assertBase64Url(part);
 
-  const header = decodeJson<Header>(String(parts[0]), 'invalid_header');
+  const header = decodeJsonObject(String(parts[0]), 'invalid_header');
   if (header.typ !== 'JWT') throw new JumpError('invalid_header', 'typ rejected');
   if (typeof header.alg !== 'string' || !ALLOWED_ALGS.has(header.alg)) {
     throw new JumpError('invalid_header', 'alg rejected');
@@ -48,7 +38,7 @@ export async function verifyJumpJwt(
     throw new JumpError('invalid_header', 'embedded key hints rejected');
   }
 
-  const unsafePayload = decodeJson<JWTPayload>(String(parts[1]), 'malformed');
+  const unsafePayload = decodeJsonObject(String(parts[1]), 'malformed');
   if (typeof unsafePayload.iss !== 'string') throw new JumpError('invalid_claim', 'iss required');
   const issuer = getIssuer(registry, unsafePayload.iss);
   if (!issuer) throw new JumpError('invalid_claim', 'issuer rejected');
@@ -113,13 +103,21 @@ export function assertBase64Url(value: string) {
   }
 }
 
-function decodeJson<T>(value: string, code: 'malformed' | 'invalid_header'): T {
+function decodeJsonObject(
+  value: string,
+  code: 'malformed' | 'invalid_header',
+): Record<string, unknown> {
+  let decoded: unknown;
   try {
     const bytes = Uint8Array.from(atob(toBase64(value)), (char) => char.charCodeAt(0));
-    return JSON.parse(new TextDecoder().decode(bytes)) as T;
+    decoded = JSON.parse(new TextDecoder().decode(bytes));
   } catch {
     throw new JumpError(code, 'json decode failed');
   }
+  if (typeof decoded !== 'object' || decoded === null || Array.isArray(decoded)) {
+    throw new JumpError(code, 'json object required');
+  }
+  return decoded as Record<string, unknown>;
 }
 
 function toBase64(value: string) {

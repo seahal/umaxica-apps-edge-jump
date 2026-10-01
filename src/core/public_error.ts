@@ -1,5 +1,4 @@
-import { renderError } from './render_error';
-import { renderUnavailablePage } from './page';
+import { renderSplashPage, type SplashKind } from './page';
 import type { Locale } from './i18n';
 
 export type PublicErrorCode =
@@ -66,12 +65,21 @@ export function publicErrorHeaders(
 
 export function publicErrorResponse(internal: string, locale: Locale = 'ja'): Response {
   const pub = publicJumpError(internal);
-  const body =
-    pub.code === 'temporarily_unavailable' || pub.code === 'service_unavailable'
-      ? renderUnavailablePage(locale)
-      : renderError(locale);
-  return new Response(body, {
+  return new Response(renderSplashPage(splashKind(pub.code), locale), {
     status: pub.status,
     headers: publicErrorHeaders(internal, locale),
   });
+}
+
+function splashKind(code: PublicErrorCode): SplashKind {
+  if (code === 'rate_limited') return 'rate';
+  if (
+    code === 'service_unavailable' ||
+    code === 'temporarily_unavailable' ||
+    code === 'deadline_exceeded' ||
+    code === 'internal_error'
+  ) {
+    return 'unavailable';
+  }
+  return 'invalid';
 }

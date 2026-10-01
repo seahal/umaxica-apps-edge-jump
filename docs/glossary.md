@@ -2,7 +2,10 @@
 
 - `issuer`: Application origin that signs an `rt` JWT.
 - `destination`: Final URL target after Jump validation.
-- `jump`: The gateway at `https://jump.example.net`.
+- `jump`: The gateway at `https://jump.example.net`. Its reference implementation is the Hono code in this repository.
+- `reference implementation`: The Hono implementation in this repository. When implementations disagree, it is correct.
+- `non-production implementation`: Any other program that speaks the Jump interface, such as the Rails-embedded one. Never used in production.
+- `leap`: `https://leap.umaxica.net`, the Cloudflare Tunnel hostname of the non-production Rails implementation for development and test.
 - `trust broker`: A service that validates signed intent and policy before crossing trust boundaries.
 - `cushion page`: HTML page shown before external redirects.
 - `internal destination`: Destination origin explicitly allowed in the issuer internal allowlist.

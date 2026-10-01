@@ -149,6 +149,9 @@ describe('public error contract', () => {
     expect(outage.status).toBe(503);
     expect(outage.headers.get('X-Jump-Error')).toBe('temporarily_unavailable');
     const body = await outage.text();
+    expect(body).toContain('<body class="splash">');
+    expect(body).toContain('再読み込み');
+    expect(body).toContain('href="/about"');
     expect(body).not.toContain('jwks');
     expect(body).not.toContain('app.example.com');
     expect(body).not.toContain('temporarily unavailable');
