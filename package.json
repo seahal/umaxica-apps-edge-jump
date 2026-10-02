@@ -1,6 +1,6 @@
 {
-  "name": "umaxica-apps-jump",
-  "version": "0.2.0",
+  "name": "umaxica-apps-edge-jump",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {

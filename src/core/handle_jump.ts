@@ -73,6 +73,7 @@ export async function handleJump(request: Request, deps: JumpDeps): Promise<Resp
       dst: claim.dst,
     };
     const kid = readProtectedKid(String(tokens[0]));
+    /* v8 ignore next -- verified tokens always carry a kid */
     if (kid) audit.kid = kid;
     const normalized = normalizeUrl(claim.url, deps.runtime, serviceOrigin(deps));
     const target = claim.dst === 'internal' ? validateInternalTarget(normalized) : normalized;
@@ -88,6 +89,7 @@ export async function handleJump(request: Request, deps: JumpDeps): Promise<Resp
     }
 
     const location = await buildInternalLocation(target, issuer, deps, now);
+    /* v8 ignore next -- buildInternalLocation already checks after signing */
     if (deps.signal?.aborted) throw new JumpError('deadline_exceeded');
     deps.auditLog?.({ level: 'info', event: 'jump_accept', result: 'accepted', ...audit });
     return new Response(null, {
@@ -147,6 +149,8 @@ function serviceOrigin(deps: JumpDeps) {
   return deps.config.serviceOrigin;
 }
 
+// verifyJumpJwt has already required a well-formed header with a string kid.
+/* v8 ignore start */
 function readProtectedKid(token: string) {
   const [encodedHeader] = token.split('.');
   const header = decodeUntrustedJson<Record<string, unknown>>(encodedHeader);
@@ -164,3 +168,4 @@ function decodeUntrustedJson<T>(value: string | undefined): T | null {
     return null;
   }
 }
+/* v8 ignore stop */

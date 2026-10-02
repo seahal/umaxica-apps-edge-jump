@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from 'vitest';
+import { beforeAll, describe, expect, test, vi } from 'vitest';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { JwksCache } from '../src/core/jwks_cache';
 import { verifyJumpJwt } from '../src/core/verify_jwt';
@@ -18,9 +18,9 @@ const base = {
   iss: issuer.iss,
   aud: 'https://jump.umaxica.net',
   sub: 'jump-redirect',
-  iat: now - 60,
-  nbf: now - 60,
-  exp: now + 60,
+  iat: now,
+  nbf: now,
+  exp: now + 30,
   jti: 'input',
   dst: 'internal',
   url: 'https://www.umaxica.app/receive',
@@ -48,13 +48,36 @@ describe('F: deterministic clock BVA (seed fixed now)', () => {
       await expect(check({ iat: now + offset })).rejects.toMatchObject({ code: 'invalid_claim' });
   });
   test.each([4, 5, 6])('expiration -%i seconds (jose strict boundary)', async (offset) => {
-    if (offset < 5) await expect(check({ exp: now - offset })).resolves.toBeDefined();
-    else await expect(check({ exp: now - offset })).rejects.toMatchObject({ code: 'expired' });
+    if (offset < 5)
+      await expect(
+        check({ iat: now - 30, nbf: now - 30, exp: now - offset }),
+      ).resolves.toBeDefined();
+    else
+      await expect(
+        check({ iat: now - 30, nbf: now - 30, exp: now - offset }),
+      ).rejects.toMatchObject({ code: 'expired' });
   });
   test('fractional NumericDates remain accepted', async () => {
-    await expect(
-      check({ iat: now - 0.5, nbf: now - 0.5, exp: now + 299.5 }),
-    ).resolves.toBeDefined();
+    await expect(check({ iat: now - 0.5, nbf: now - 0.5, exp: now + 29.5 })).resolves.toBeDefined();
+  });
+  test.each([30, 30.001, 31, 35])('structural TTL %s has no clock leeway', async (ttl) => {
+    const result = check({ iat: now - 0.5, nbf: now - 0.5, exp: now - 0.5 + ttl });
+    if (ttl === 30) await expect(result).resolves.toBeDefined();
+    else await expect(result).rejects.toMatchObject({ code: 'invalid_claim' });
+  });
+  test('kid over 128 rejects before verification key lookup', async () => {
+    const lookup = vi.spyOn(cache, 'getKey');
+    try {
+      const input = await new SignJWT(base)
+        .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'k'.repeat(129) })
+        .sign(pair.privateKey);
+      await expect(
+        verifyJumpJwt(input, registry, cache, now, 'https://jump.umaxica.net'),
+      ).rejects.toMatchObject({ code: 'invalid_header' });
+      expect(lookup).not.toHaveBeenCalled();
+    } finally {
+      lookup.mockRestore();
+    }
   });
   test('equal/reversed expiry and nbf after exp reject', async () => {
     for (const changes of [

@@ -39,23 +39,26 @@
   ],
   "observability": {
     "enabled": true,
-    // Strip `?rt=` from platform request URLs in logs and traces. Sampling
-    // is not a privacy control and must not be used as a substitute.
-    "redact_query_string": true,
     "head_sampling_rate": 1,
+    // Strip `?rt=` from platform request URLs in logs and traces. Invocation
+    // logs record the request URL, so they depend on this staying true.
+    // Sampling is not a privacy control and must not be used as a substitute.
+    "redact_query_string": true,
     "logs": {
       "enabled": true,
       "head_sampling_rate": 1,
-      // Invocation logs expose the full rt query token; application logs are redacted.
-      "invocation_logs": false,
+      "invocation_logs": true,
       "persist": true
     },
-    // Fetch-handler traces persist `url.full` and `user_agent.original`.
-    // Wrangler can redact query strings but cannot drop User-Agent, so traces
-    // are not persisted and are not exported.
+    // Native persisted traces are approved. Query values must never be put in
+    // pathnames; platform path/metadata persistence is an accepted risk.
     "traces": {
-      "enabled": false,
-      "persist": false
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true
+    },
+    "issues": {
+      "enabled": true
     }
   }
 }

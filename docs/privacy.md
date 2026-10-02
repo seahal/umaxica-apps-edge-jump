@@ -1,33 +1,35 @@
 # Privacy
 
-## Privacy Assumptions
+`rt` JWTs and destination URLs are URL-visible. Signing provides authenticity,
+not confidentiality. Browser history, screenshots, bookmarks, shared links and
+infrastructure can expose their contents.
 
-`rt` JWTs are NOT confidential. Redirect URLs and JWT claims must be treated as data that can be copied, logged, screenshotted, bookmarked, or shared.
+## Forbidden data
 
-Redirect URLs may appear in:
+Do not put passwords, private keys, long-lived credentials, access/refresh
+tokens, session credentials or unnecessary personal information in redirect
+URLs or JWT claims. Minimize claims and destination query values.
 
-- browser history
-- screenshots
-- bookmarks
-- analytics systems
-- chat tools
-- edge infrastructure logs
+OAuth authorization code, state, nonce and PKCE-related routing/state values
+may be necessary for a receiver flow. Treat them as **URL-visible, short-lived,
+security-sensitive protocol values**, not as non-secret data. This is not
+permission to transfer a PKCE verifier or other credential unnecessarily.
+Receivers independently verify state, nonce, PKCE and authorization-code use.
 
-Jump's own persisted Workers Logs must not store the `rt` query or User-Agent.
-Query strings are redacted in `wrangler.jsonc`; invocation logs and persisted
-traces stay off. See [logging](logging.md).
+## Transport and observability
 
-## Forbidden Data
+Transport `rt` only as a query parameter. Never put `rt`, JWTs or other protocol
+values in a pathname. Query-string redaction removes request queries from
+Cloudflare platform logs and traces; it does not protect pathname values or
+custom log messages.
 
-Do not put these values inside JWT claims or redirect URLs:
+Native invocation logs and traces are enabled and persisted at 100% sampling.
+Arbitrary pathnames and Cloudflare-generated request metadata may persist there;
+this is an accepted operational risk. The application logger separately records
+only allowlisted public paths and redacts arbitrary paths. It must never record
+raw protocol values, query strings, JWTs, arbitrary URLs, Authorization, Cookie,
+private keys, JWKS bodies or untrusted exception messages.
 
-- email addresses
-- passwords
-- OAuth authorization codes
-- access tokens
-- session ids
-- personal identifiers
-
-## Limitations
-
-Referrer policy and logging controls reduce leakage but cannot erase URL exposure. If a value must be confidential, it does not belong in `rt` or in the destination URL.
+Only native Cloudflare retention is used. No external archive or retention beyond
+the native service is implemented or guaranteed. See [logging](logging.md).
+Referrer policy and log controls reduce leakage but cannot erase URL exposure.

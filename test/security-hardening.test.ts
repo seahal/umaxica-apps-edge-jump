@@ -40,7 +40,7 @@ function baseClaim(): InboundJumpClaim {
     sub: 'jump-redirect',
     iat: NOW,
     nbf: NOW,
-    exp: NOW + 60,
+    exp: NOW + 30,
     jti: 'jti-1',
     dst: 'internal',
     url: 'https://docs.example.com/path',

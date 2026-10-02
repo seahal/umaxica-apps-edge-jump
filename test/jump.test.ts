@@ -74,7 +74,7 @@ const NOW = 1_800_000_000;
 
 test('security constants and escaping helpers retain their public contract', () => {
   expect(CLOCK_SKEW_SECONDS).toBe(5);
-  expect(MAX_INBOUND_TTL_SECONDS).toBe(300);
+  expect(MAX_INBOUND_TTL_SECONDS).toBe(30);
   expect(escapeHtml('<&>')).toBe('&lt;&amp;&gt;');
   expect(escapeAttribute('"&')).toBe('&quot;&amp;');
 });
@@ -150,7 +150,7 @@ function baseClaim(): InboundJumpClaim {
     sub: 'jump-redirect',
     iat: NOW,
     nbf: NOW,
-    exp: NOW + 300,
+    exp: NOW + 30,
     jti: crypto.randomUUID(),
     dst: 'internal',
     url: 'https://docs.example.com/path',
@@ -227,7 +227,7 @@ async function cloudflareHandshakeFixture(options: {
       aud: 'https://jump.umaxica.net',
       iat: now,
       nbf: now,
-      exp: now + 300,
+      exp: now + 30,
       jti: crypto.randomUUID(),
       dst: 'internal',
       url: `${options.destinationOrigin}/`,
@@ -442,7 +442,7 @@ describe('jump gateway routes', () => {
     expect(await json.json()).toMatchObject({
       status: 'OK',
       service: 'jump',
-      version: '0.2.0',
+      version: '0.3.0',
       edge: 'cloudflare',
     });
     const html = await app.request('https://jump.example.net/health.html');
@@ -453,7 +453,7 @@ describe('jump gateway routes', () => {
     expect(healthHtml).toContain('<h1>status</h1>');
     expect(healthHtml).toContain('<dt>status</dt><dd>OK</dd>');
     expect(healthHtml).toContain('<dt>service</dt><dd>jump</dd>');
-    expect(healthHtml).toContain('<dt>version</dt><dd>0.2.0</dd>');
+    expect(healthHtml).toContain('<dt>version</dt><dd>0.3.0</dd>');
     expect(healthHtml).toContain('<dt>edge</dt><dd>cloudflare</dd>');
     expect(healthHtml).toContain('<dt>time</dt><dd>');
     expect(healthHtml).toContain('<footer>© 2026 UMAXICA</footer>');
@@ -563,7 +563,7 @@ describe('jump gateway routes', () => {
     expect(await res.json()).toMatchObject({
       status: 'OK',
       edge: 'cloudflare',
-      version: '0.2.0',
+      version: '0.3.0',
     });
   });
 
@@ -920,7 +920,7 @@ describe('jump gateway routes', () => {
     expect(JSON.parse(body)).toMatchObject({
       status: 'OK',
       edge: 'cloudflare',
-      version: '0.2.0',
+      version: '0.3.0',
     });
     expect(body).not.toContain('cloudflare-revision-123');
     expect(body).not.toContain('deploy-tag');
@@ -1453,12 +1453,12 @@ describe('jump token validation', () => {
     expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
-  test('input ttl accepts 300 seconds and rejects 301 seconds', async () => {
+  test('input ttl accepts 30 seconds and rejects 31 seconds', async () => {
     const { app, signToken } = await fixture();
-    expect((await jump(app, await signToken({ iat: NOW, nbf: NOW, exp: NOW + 300 }))).status).toBe(
+    expect((await jump(app, await signToken({ iat: NOW, nbf: NOW, exp: NOW + 30 }))).status).toBe(
       302,
     );
-    const rejected = await jump(app, await signToken({ iat: NOW, nbf: NOW, exp: NOW + 301 }));
+    const rejected = await jump(app, await signToken({ iat: NOW, nbf: NOW, exp: NOW + 31 }));
     expect(rejected.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
@@ -1666,20 +1666,20 @@ describe('jump token validation', () => {
 
   test('skew handling permits recently expired token', async () => {
     const { app, signToken } = await fixture();
-    const res = await jump(app, await signToken({ iat: NOW - 300, nbf: NOW - 300, exp: NOW - 4 }));
+    const res = await jump(app, await signToken({ iat: NOW - 30, nbf: NOW - 30, exp: NOW - 4 }));
     expect(res.status).toBe(302);
   });
 
   test('clock skew rejects values beyond five seconds', async () => {
     const { app, signToken } = await fixture();
     expect(
-      (await jump(app, await signToken({ iat: NOW + 6, nbf: NOW, exp: NOW + 300 }))).status,
+      (await jump(app, await signToken({ iat: NOW + 6, nbf: NOW, exp: NOW + 30 }))).status,
     ).toBe(400);
     expect(
-      (await jump(app, await signToken({ iat: NOW, nbf: NOW + 6, exp: NOW + 300 }))).status,
+      (await jump(app, await signToken({ iat: NOW, nbf: NOW + 6, exp: NOW + 30 }))).status,
     ).toBe(400);
     expect(
-      (await jump(app, await signToken({ iat: NOW - 300, nbf: NOW - 300, exp: NOW - 6 }))).status,
+      (await jump(app, await signToken({ iat: NOW - 30, nbf: NOW - 30, exp: NOW - 6 }))).status,
     ).toBe(400);
   });
 
@@ -2230,7 +2230,7 @@ describe('jump token validation', () => {
       ...baseClaim(),
       iat: now,
       nbf: now,
-      exp: now + 300,
+      exp: now + 30,
     });
     const res = await handleJump(new Request(`https://jump.example.net/?rt=${token}`), {
       registry: {
@@ -2276,7 +2276,7 @@ describe('jump token validation', () => {
       ...baseClaim(),
       iat: now,
       nbf: now,
-      exp: now + 300,
+      exp: now + 30,
     });
     expect((await jump(app, token)).status).toBe(302);
   });
@@ -2325,7 +2325,7 @@ describe('jump token validation', () => {
       sub: 'jump-redirect',
       iat: NOW,
       nbf: NOW,
-      exp: NOW + 60,
+      exp: NOW + 30,
       jti: 'pkcs8-signer-test',
       src: 'https://www.umaxica.app',
       dst: 'internal',
@@ -3235,33 +3235,41 @@ describe('UMAXICA title contract', () => {
     }
   });
 
-  test('cloudflare observability never persists rt query strings or traces', () => {
-    // Invocation logs record the full request URL. Automatic traces persist
-    // `url.full` and `user_agent.original`. Wrangler can redact query strings
-    // but cannot strip User-Agent from traces, so traces must not persist.
-    const configPath = new URL('../wrangler.jsonc', import.meta.url);
-    const config = readFileSync(configPath, 'utf8');
-    const stripped = config.replaceAll(/^\s*\/\/.*$/gm, '');
-    const parsed = JSON.parse(stripped) as {
-      observability?: {
-        redact_query_string?: boolean;
-        logs?: {
-          enabled?: boolean;
-          invocation_logs?: boolean;
-          persist?: boolean;
+  test('cloudflare observability freezes native persisted logs and traces with query redaction', () => {
+    const config = readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
+    const parsed = JSON.parse(config.replaceAll(/^\s*\/\/.*$/gm, '')) as {
+      observability: {
+        enabled: boolean;
+        head_sampling_rate: number;
+        redact_query_string: boolean;
+        logs: {
+          enabled: boolean;
+          head_sampling_rate: number;
+          invocation_logs: boolean;
+          persist: boolean;
           destinations?: string[];
         };
-        traces?: { enabled?: boolean; persist?: boolean; destinations?: string[] };
+        traces: {
+          enabled: boolean;
+          head_sampling_rate: number;
+          persist: boolean;
+          destinations?: string[];
+        };
       };
     };
-    expect(parsed.observability?.redact_query_string).toBe(true);
-    expect(parsed.observability?.logs?.invocation_logs).toBe(false);
-    expect(parsed.observability?.logs?.enabled).toBe(true);
-    expect(parsed.observability?.logs?.destinations ?? []).toEqual([]);
-    expect(parsed.observability?.traces?.enabled).toBe(false);
-    expect(parsed.observability?.traces?.persist).toBe(false);
-    expect(parsed.observability?.traces?.destinations ?? []).toEqual([]);
-    expect(config).not.toMatch(/head_sampling_rate["']?\s*:\s*0(\.0+)?\b/);
+    const { observability: obs } = parsed;
+    expect(obs.enabled).toBe(true);
+    expect(obs.head_sampling_rate).toBe(1);
+    expect(obs.redact_query_string).toBe(true);
+    expect(obs.logs).toMatchObject({
+      enabled: true,
+      head_sampling_rate: 1,
+      invocation_logs: true,
+      persist: true,
+    });
+    expect(obs.traces).toMatchObject({ enabled: true, head_sampling_rate: 1, persist: true });
+    expect(obs.logs.destinations ?? []).toEqual([]);
+    expect(obs.traces.destinations ?? []).toEqual([]);
   });
 
   test('cloudflare jump limiter uses the net/jump namespace and internal port 5209', () => {

@@ -215,7 +215,7 @@ test('alternate origin governs inbound aud and outbound iss', async () => {
       sub: 'jump-redirect',
       iat: now,
       nbf: now,
-      exp: now + 60,
+      exp: now + 30,
       jti: crypto.randomUUID(),
       dst: 'internal',
       url: 'https://www.umaxica.app/receive',

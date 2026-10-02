@@ -59,11 +59,32 @@ Health200 proves only responsiveness.
 
 Verify real Worker version ID, canonical secret/config references, all13 issuer
 JWKS reachability and receiver reuse/URL/transaction contract, DNS/routes/Access/
-WAF/TLS and final response/log behavior. Check query redaction, invocation logs
-false, traces false, no token/code/state/nonce exposure in platform logs. Do not
+WAF/TLS and final response/log behavior. Check query redaction (including in
+invocation logs and traces), enabled native persistence and 100% sampling. Protocol
+values must stay in queries, never pathnames. Arbitrary pathname and generated
+metadata persistence is accepted; application logs still prohibit raw values. Do not
 equate Git SHA with deployed version. A compatible recovery artifact is mandatory;
 see compatibility matrix. Until verified: BLOCKED_FOR_ROLLOUT.
 
 ## Additional 0.2 hardening contract
 
 Use [deployment verification](deployment-verification.md) (health, JWKS, signed RT smoke), [origin cutover](origin-cutover.md) for identity changes and [rollback recovery](rollback-recovery.md) for recovery. Require the CI worker-runtime job in release/branch protection; repository YAML alone does not configure external branch protection. rollback-compatible immutable artifact: NOT YET VERIFIED. ROLLOUT_STATUS = BLOCKED_FOR_ROLLOUT.
+
+## 0.3 release blockers
+
+Required GitHub checks are `quality`, `unit` (coverage), `worker-runtime`, `e2e`,
+`secret-scan` and `cloudflare-dry-run`. The `dependencies` audit job must also pass.
+An administrator must enforce the checks in branch protection/rulesets; workflow
+presence does not enforce a merge gate. No remote settings were changed or verified.
+`GITHUB_RELEASE_GATE = BLOCKED_UNTIL_ENFORCED`.
+
+The reported Rails Rack nested-query Hash comparison does not implement the
+normative WHATWG URL/URLSearchParams receiver comparison. This remains an external
+integration blocker. Receivers must accept Jump outbound structural TTL of
+30 seconds; a 10-second maximum is incompatible. Do not negotiate down Hono TTL.
+See [receiver contract](../receiver-contract.md) and [compatibility](../compatibility.md).
+
+`ROLLBACK_ARTIFACT = NOT_VERIFIED`. A real immutable Worker version ID and its
+code/config/secret references must meet the recovery contract. Local tree, Git SHA
+and CI build ID do not satisfy this gate. Production bindings and traffic state
+remain unverified. `ROLLOUT_STATUS = BLOCKED_FOR_ROLLOUT`.

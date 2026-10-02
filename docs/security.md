@@ -9,7 +9,7 @@ issuers. Production external policy is false for every issuer.
 Every compact JWT is limited to 8192 characters; typ JWT, ES384, kid ≤128,
 object header/payload, Base64URL, registered issuer, signature, exact string aud,
 sub, schema/rpl, finite NumericDates, ordering and lifetime are required. Input
-TTL ≤300s, skew 5s, output TTL30s. Structural TTL has no skew allowance. jku,
+TTL ≤30s, skew 5s, output TTL30s. Structural TTL has no skew allowance. jku,
 jwk, x5u and crit are refused before fetch. Unverified decode is used only for
 shape checks and registered key lookup; no authorization precedes signature.
 

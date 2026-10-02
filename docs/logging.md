@@ -6,6 +6,9 @@ Logs should help operate Jump without storing redirect tokens or secrets.
 
 ## Must Not Log
 
+These prohibitions apply to application events. Accepted platform metadata
+persistence is described separately below.
+
 - The `rt` query parameter must NOT be stored in access logs.
 - Full JWTs must NOT appear in error logs.
 - Malformed JWTs must not be logged, including fragments.
@@ -47,39 +50,34 @@ dst="https://example.org/account?email=user@example.com"
 
 ## Malformed Token Handling
 
-For malformed input, record only the request metadata and coarse category. Do not log the raw token, its length, or a hash. A 30-day retention policy is an operational requirement, not a verified account setting; access must be least-privilege.
+For malformed input, record only approved metadata and a coarse category. Do not
+log the raw token, its length, or a hash. Log access must be least-privilege.
 
-## Platform Log Settings (operational preconditions)
+## Native platform observability
 
-The application logger is not the only thing that writes a log line. Two settings live outside the
-code and must be verified as part of any rollout — neither is enforceable by a unit test.
+`wrangler.jsonc` enables observability, logs, invocation logs and traces. Logs and
+traces persist natively with `head_sampling_rate: 1` (100%).
+`observability.redact_query_string: true` removes request query strings, including
+`rt`, from platform logs and traces. Sampling is not a privacy control. The config
+regression test freezes all these values and the absence of external destinations.
+It cannot verify a deployed configuration or a dashboard override.
 
-**Cloudflare invocation logs must stay disabled.** Invocation logs are emitted by the runtime and
-record the full request URL, so for `GET /?rt=<jwt>` they would persist the inbound token and the
-destination verbatim — the exact fields this document forbids. `redactLogLine` in `src/index.ts`
-only covers the application's own request log and cannot reach them. `wrangler.jsonc` therefore sets
-`observability.logs.invocation_logs: false` while leaving `observability.logs.enabled: true`, so the
-redacted structured logs are kept. The application logger emits literal paths only for fixed public
-routes; every other parseable path is recorded as `[redacted-path]`, so encoded token-like paths and
-arbitrary customer paths are not retained.
+Transport `rt` only in the query. Do not put JWTs or protocol values such as code,
+state or nonce into pathnames. Arbitrary pathnames and Cloudflare-generated
+metadata, including automatic trace attributes, may persist in invocation logs
+and traces: this is an accepted operational risk. Application path redaction
+cannot alter platform events. The application logger emits literal paths only
+for fixed public routes; other parseable paths become `[redacted-path]`.
+The application prohibitions above remain in force, including raw query, arbitrary
+URL, Authorization, Cookie, JWKS body and raw untrusted exception messages.
 
-**Query strings must be redacted at the platform.** `observability.redact_query_string: true`
-removes request query strings (including `rt`) from Workers Logs and traces. Lowering
-`head_sampling_rate` is not a substitute: a sampled leak is still a contract break.
-
-**Persisted traces must stay off.** Automatic Fetch-handler traces include `url.full` and
-`user_agent.original`. Wrangler can redact query strings but cannot drop User-Agent from traces,
-so `observability.traces.enabled` and `observability.traces.persist` are both `false`, and no
-trace destinations are configured. Do not re-enable persisted traces, and do not add an OTLP
-destination, unless User-Agent can be excluded from the exported attributes.
-
-The test `cloudflare observability never persists rt query strings or traces` guards these
-config values; it cannot guard an override applied in the Cloudflare dashboard. Dashboard
-trace contents were not inspected from this repository.
-
-**The 30-day retention above is an account-level setting.** Workers Logs retention is configured per
-account, not in `wrangler.jsonc`, so the repository cannot assert it. Confirm the account is set to
-30 days before rollout and re-confirm after any change to the observability configuration.
+Only Cloudflare native retention is used. No 30-day retention has been implemented
+or verified. No external OTLP, Logpush, R2 or S3 archive is configured; external
+archiving is future work. Retention beyond Cloudflare's native service is not
+guaranteed. Operators must verify their actual plan, retention and access controls
+against [Workers Logs documentation](https://developers.cloudflare.com/workers/observability/logs/workers-logs/)
+and [traces documentation](https://developers.cloudflare.com/workers/observability/traces/).
+No production log or trace contents were inspected in this local hardening.
 
 ## Additional 0.2 hardening contract
 
