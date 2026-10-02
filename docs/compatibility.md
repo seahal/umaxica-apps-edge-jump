@@ -7,7 +7,7 @@ the earlier Auth/Base-only registry, old Palm and Edit destinations.
 
 | Issuer packet                      | Jump                      | Receiver     | Outcome / gate                                                                         |
 | ---------------------------------- | ------------------------- | ------------ | -------------------------------------------------------------------------------------- |
-| New issuer                         | New 0.3                   | New receiver | Locally signed fixtures pass; real receivers unverified                                |
+| New issuer                         | New 0.3                   | New receiver | Pre-deployment acceptance USER_REPORTED complete; specific Rails URL/TTL gaps remain   |
 | Old packet missing rpl             | New 0.3                   | Any          | Intentional 400 invalid_request                                                        |
 | New issuer                         | Planned recovery artifact | New receiver | BLOCKED: artifact must pass rpl, graph, revocation and security tests                  |
 | Base/Auth six existing round trips | Recovery artifact         | New receiver | Must independently pass all six signed round trips                                     |
@@ -27,6 +27,13 @@ contracts, routes/DNS/TLS/Access/WAF, headers and platform logging before releas
 Tests with fixture JWKS or browser-only receivers are not Rails E2E.
 
 ## Current recovery and integration gates
+
+The user reports pre-deployment acceptance complete; this is accepted as a
+`USER_REPORTED` premise, not repeated by this follow-up. The tested revision and
+case inventory have not been linked here. Keep that report separate from the
+specific source-level Rails URL/TTL gaps below, deployed binding verification,
+and a tested immutable rollback artifact. The
+[current plan](../plans/jump-0.3-hardening.md) pins baseline CI evidence to its SHA.
 
 See [explicit recovery artifact conditions](operations/rollback-recovery.md). rollback-compatible immutable artifact: NOT YET VERIFIED. Identity migration requires issuer/receiver coordination; [origin cutover](operations/origin-cutover.md) describes future migration windows without implementing multi-origin trust.
 
@@ -48,5 +55,5 @@ must accept Jump's 30-second output; a configured 10-second limit is incompatibl
 `GITHUB_RELEASE_GATE = BLOCKED_UNTIL_ENFORCED`.
 `ROLLBACK_ARTIFACT = NOT_VERIFIED`.
 `ROLLOUT_STATUS = BLOCKED_FOR_ROLLOUT`.
-Production bindings/traffic, real receiver acceptance and immutable recovery
-remain external gates. See [current plan](../plans/jump-0.3-hardening.md).
+Production bindings/traffic, the specific Rails contract gaps and immutable
+recovery remain external gates. See the [Rails handoff](operations/rails-receiver-followup.md).

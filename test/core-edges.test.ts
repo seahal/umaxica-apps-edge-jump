@@ -191,27 +191,60 @@ describe('jwks cache negative entries', () => {
   test('expired negative entries are purged and refetched', async () => {
     vi.useFakeTimers();
     try {
-      const cache = new JwksCache(async () => ({ keys: [] }), 0, 10, 0);
+      const fetcher = vi.fn(async () => ({ keys: [] }));
+      const cache = new JwksCache(fetcher, 0, 10, 0);
       await expect(cache.getKey(ISSUER, 'missing', 'ES384')).rejects.toThrow(JumpError);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      await expect(cache.getKey(ISSUER, 'missing', 'ES384')).rejects.toThrow(JumpError);
+      expect(fetcher).toHaveBeenCalledTimes(2);
       vi.advanceTimersByTime(20);
       await expect(cache.getKey(ISSUER, 'missing', 'ES384')).rejects.toThrow(JumpError);
+      expect(fetcher).toHaveBeenCalledTimes(4);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  test('negative cache is bounded', async () => {
+  test('the 1025th negative entry evicts the oldest but preserves newer entries', async () => {
     vi.useFakeTimers();
     try {
-      const cache = new JwksCache(async () => ({ keys: [] }), 60_000, 10, 0);
-      for (let i = 0; i < 1025; i += 1) {
-        if (i === 1023) vi.advanceTimersByTime(20);
+      const fetcher = vi.fn(async () => ({ keys: [] }));
+      const cache = new JwksCache(fetcher, 60_000, 60_000, 0);
+      for (let i = 0; i < 1024; i += 1) {
         await expect(cache.getKey(ISSUER, `k${i}`, 'ES384')).rejects.toThrow(JumpError);
       }
-      const fresh = new JwksCache(async () => ({ keys: [] }), 60_000, 60_000, 0);
-      for (let i = 0; i < 1025; i += 1) {
-        await expect(fresh.getKey(ISSUER, `k${i}`, 'ES384')).rejects.toThrow(JumpError);
+      const filledCalls = fetcher.mock.calls.length;
+      await expect(cache.getKey(ISSUER, 'k0', 'ES384')).rejects.toThrow(JumpError);
+      expect(fetcher).toHaveBeenCalledTimes(filledCalls);
+
+      await expect(cache.getKey(ISSUER, 'k1024', 'ES384')).rejects.toThrow(JumpError);
+      expect(fetcher).toHaveBeenCalledTimes(filledCalls + 1);
+      await expect(cache.getKey(ISSUER, 'k1', 'ES384')).rejects.toThrow(JumpError);
+      await expect(cache.getKey(ISSUER, 'k1024', 'ES384')).rejects.toThrow(JumpError);
+      expect(fetcher).toHaveBeenCalledTimes(filledCalls + 1);
+      await expect(cache.getKey(ISSUER, 'k0', 'ES384')).rejects.toThrow(JumpError);
+      expect(fetcher).toHaveBeenCalledTimes(filledCalls + 2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('capacity cleanup removes expired entries before evicting a live entry', async () => {
+    vi.useFakeTimers();
+    try {
+      const fetcher = vi.fn(async () => ({ keys: [] }));
+      const cache = new JwksCache(fetcher, 60_000, 10, 0);
+      for (let i = 0; i < 1024; i += 1) {
+        if (i === 512) vi.advanceTimersByTime(5);
+        await expect(cache.getKey(ISSUER, `k${i}`, 'ES384')).rejects.toThrow(JumpError);
       }
+      vi.advanceTimersByTime(5);
+      await expect(cache.getKey(ISSUER, 'k1024', 'ES384')).rejects.toThrow(JumpError);
+      const afterCleanup = fetcher.mock.calls.length;
+      await expect(cache.getKey(ISSUER, 'k512', 'ES384')).rejects.toThrow(JumpError);
+      expect(fetcher).toHaveBeenCalledTimes(afterCleanup);
+      await expect(cache.getKey(ISSUER, 'k0', 'ES384')).rejects.toThrow(JumpError);
+      expect(fetcher).toHaveBeenCalledTimes(afterCleanup + 1);
     } finally {
       vi.useRealTimers();
     }

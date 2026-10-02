@@ -36,6 +36,18 @@ async function check(changes: Record<string, unknown>) {
     .sign(pair.privateKey);
   return verifyJumpJwt(input, registry, cache, now, 'https://jump.umaxica.net');
 }
+describe('exact string audience contract', () => {
+  test('accepts the configured origin as a string', async () => {
+    await expect(check({ aud: base.aud })).resolves.toBeDefined();
+  });
+  test.each([
+    ['single matching audience', [base.aud]],
+    ['matching and unrelated audiences', [base.aud, 'https://other.example']],
+    ['duplicate matching audiences', [base.aud, base.aud]],
+  ])('rejects a signed array with %s', async (_label, aud) => {
+    await expect(check({ aud })).rejects.toMatchObject({ code: 'invalid_claim' });
+  });
+});
 describe('F: deterministic clock BVA (seed fixed now)', () => {
   test.each([4, 5, 6])('nbf +%i seconds', async (offset) => {
     if (offset <= 5) await expect(check({ nbf: now + offset })).resolves.toBeDefined();

@@ -48,4 +48,7 @@ The reported Rails feature uses Rack nested-query Hash semantics, which differs
 from this contract. Hono's contract is not weakened to match it. Rails must pass
 these boundaries in its own runtime and real receiver integration tests before
 rollout. Fixture evaluation in this repository is not Rails acceptance or Rails
-runtime E2E. Rails code was not inspected or modified by this implementation task.
+runtime E2E. The read-only review inspected Rails feature
+`7c308e49831c2a906781ddd875a8cb78a6780ddd`; this local follow-up changes no Rails
+code. Pre-deployment acceptance is USER_REPORTED complete, separately from these
+specific contract gaps. See the [Rails handoff](operations/rails-receiver-followup.md).

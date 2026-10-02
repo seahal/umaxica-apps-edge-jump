@@ -130,7 +130,7 @@ function validateClaim(
   if (payload.schema !== 1) throw new JumpError('invalid_claim', 'schema rejected');
   /* v8 ignore next -- jose issuer verification enforces this before local shape checks */
   if (payload.iss !== iss) throw new JumpError('invalid_claim', 'iss mismatch');
-  /* v8 ignore next -- jose audience verification enforces this before local shape checks */
+  // jose accepts audience arrays containing this origin; this contract requires one string.
   if (payload.aud !== serviceOrigin) throw new JumpError('invalid_claim', 'aud rejected');
   if (payload.sub !== 'jump-redirect') throw new JumpError('invalid_claim', 'sub rejected');
   if (!isNumericDate(payload.exp)) throw new JumpError('invalid_claim', 'exp required');
