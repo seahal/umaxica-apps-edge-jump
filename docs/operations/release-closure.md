@@ -7,6 +7,17 @@ Record date, owner, target environment, exact source/lock hashes, immutable IDs,
 check run URLs and results in a flat `evidence/YYYY-MM-DD-release-closure.md`.
 Never record private PEM, secret contents, raw RT/JWT or raw request logs.
 
+## Evidence scope as of 2026-10-03
+
+The [current plan](../../plans/jump-0.3-hardening.md) records successful main CI
+and Workers Builds at `7ec79fe6c77af2c253e4ecfc3cc87c3231e4e30d`. Those passes
+close the corresponding baseline checks only; changed candidates require their
+own checks. Local DNS/install limitations do not invalidate those CI results.
+Pre-deployment acceptance is USER_REPORTED complete and is not to be repeated
+merely because earlier records said unverified. Link existing acceptance evidence
+to its revision and cases; the specific Rails contract gaps and actual rollback
+verification are separate gates. No production readiness is inferred.
+
 ## Dependency and runtime gate — dependency maintainer / CI owner
 
 1. Keep `https://npm.flatt.tech/` and pnpm 12.0.0. Restore mirror DNS/connectivity
@@ -103,7 +114,9 @@ Do not weaken the Hono normative [receiver contract](../receiver-contract.md).
 
 CLOSED: Rails revision, fixture hash, complete case results and actual receiver
 integration results attached and approved by receiver owner. Hono fixture passes
-alone do not close this gate. Rails was neither inspected nor changed here.
+alone do not close this gate. The read-only review inspected Rails feature
+`7c308e49831c2a906781ddd875a8cb78a6780ddd`; this local follow-up changes no Rails
+code. Use the [Rails handoff](rails-receiver-followup.md) for the exact gaps.
 
 ## Rails TTL contract — Rails receiver owner
 

@@ -75,7 +75,8 @@ Use [deployment verification](deployment-verification.md) (health, JWKS, signed 
 Required GitHub checks are `quality`, `unit` (coverage), `worker-runtime`, `e2e`,
 `secret-scan` and `cloudflare-dry-run`. The `dependencies` audit job must also pass.
 An administrator must enforce the checks in branch protection/rulesets; workflow
-presence does not enforce a merge gate. No remote settings were changed or verified.
+presence does not enforce a merge gate. The 2026-10-03 read-only API check found
+main protected=false and ruleset 16901037 disabled. No remote settings were changed.
 `GITHUB_RELEASE_GATE = BLOCKED_UNTIL_ENFORCED`.
 
 The reported Rails Rack nested-query Hash comparison does not implement the
