@@ -1,3 +1,4 @@
+import { assertDefined } from './assert-defined';
 import { PRODUCTION_SERVICE_ORIGIN } from './app-fixture';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
@@ -61,8 +62,8 @@ const cloudflareWorker = {
       adapterEnvs.set(settings, env);
     }
     const url = new URL(request.url);
-    url.protocol = new URL(env.UMAXICA_JUMP_ORIGIN!).protocol;
-    url.host = new URL(env.UMAXICA_JUMP_ORIGIN!).host;
+    url.protocol = new URL(assertDefined(env.UMAXICA_JUMP_ORIGIN)).protocol;
+    url.host = new URL(assertDefined(env.UMAXICA_JUMP_ORIGIN)).host;
     const headers = new Headers(request.headers);
     if (!headers.has('CF-Connecting-IP')) headers.set('CF-Connecting-IP', '203.0.113.7');
     return actualWorker.fetch(new Request(url, { method: request.method, headers }), env, ctx);

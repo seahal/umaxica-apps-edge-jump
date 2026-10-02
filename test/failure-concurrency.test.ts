@@ -1,3 +1,4 @@
+import { assertDefined } from './assert-defined';
 import { describe, expect, test, vi } from 'vitest';
 import { exportJWK, generateKeyPair } from 'jose';
 import { fetchRegistryJwks } from '../src/core/fetch_jwks';
@@ -76,8 +77,8 @@ describe('K: cancellation and isolated caches', () => {
           })),
       ),
     );
-    const ka = await caches[0]!.getKey(issuer, 'same', 'ES384');
-    const kb = await caches[1]!.getKey(issuer, 'same', 'ES384');
+    const ka = await assertDefined(caches[0]).getKey(issuer, 'same', 'ES384');
+    const kb = await assertDefined(caches[1]).getKey(issuer, 'same', 'ES384');
     expect(await exportJWK(ka)).not.toEqual(await exportJWK(kb));
   });
   test('invalid escaped control/UTF8 URL partitions reject before signing', () => {

@@ -2,7 +2,10 @@
 
 `UMAXICA_JUMP_ORIGIN` is required protocol identity configuration. The current
 production value is `https://jump.umaxica.net`; it is not a code constant or
-fallback. Missing, empty or malformed configuration fails closed. Exact HTTPS
+fallback. DNS labels must be valid; special-use address ranges and local/special
+DNS suffixes are denied. Explicit .example fixture identities remain permitted
+for configured test injection. This is syntactic policy, not DNS reachability proof.
+Missing, empty or malformed configuration fails closed. Exact HTTPS
 origin serialization is required: no userinfo, path beyond `/`, query, fragment,
 explicit port, localhost, private or special host. Configuration is never derived
 from forwarded headers. Requests must have the configured origin; rejection does
@@ -34,3 +37,5 @@ not undo receiver or issuer trust changes. Do not broaden graph/allowlists for
 cutover. See [receiver contract](../receiver-contract.md), [key lifecycle](key-rotation.md)
 and [recovery](rollback-recovery.md). Origin cutover operational readiness remains
 UNVERIFIED; ROLLOUT_STATUS = BLOCKED_FOR_ROLLOUT.
+
+Special-use references: [IANA IPv4](https://www.iana.org/assignments/iana-ipv4-special-registry/), [IANA IPv6](https://www.iana.org/assignments/iana-ipv6-special-registry/), [IANA domains](https://www.iana.org/assignments/special-use-domain-names/).

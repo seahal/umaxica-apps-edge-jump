@@ -12,6 +12,14 @@ export type NormalizedUrl = {
 const FORBIDDEN_PROTOCOLS = new Set(['javascript:', 'data:', 'file:', 'blob:']);
 const METADATA_V4 = '169.254.169.254';
 
+function containsControlCharacter(input: string) {
+  for (let index = 0; index < input.length; index++) {
+    const code = input.charCodeAt(index);
+    if (code < 32 || code === 127) return true;
+  }
+  return false;
+}
+
 export function normalizeUrl(
   input: string,
   runtime: RuntimeInfo,
@@ -20,13 +28,14 @@ export function normalizeUrl(
   if (
     typeof input !== 'string' ||
     !input ||
-    /[\x00-\x20\x7f\\]/.test(input) ||
+    /[ \\]/.test(input) ||
+    containsControlCharacter(input) ||
     /%(?![0-9a-fA-F]{2})/.test(input)
   )
     throw new JumpError('invalid_url');
   try {
     const decoded = decodeURI(input);
-    if (/[\x00-\x1f\x7f\\]/.test(decoded)) throw new Error();
+    if (/[\\]/.test(decoded) || containsControlCharacter(decoded)) throw new Error();
   } catch {
     throw new JumpError('invalid_url');
   }
@@ -224,7 +233,15 @@ function expandIpv6(address: string): number[] | null {
 function isForbiddenServiceHost(hostname: string) {
   if (isForbiddenHost(hostname)) return true;
   if (
-    ['local', 'internal', 'home.arpa', 'onion', 'invalid', 'test'].some(
+    !hostname.startsWith('[') &&
+    (hostname.length > 253 ||
+      !hostname
+        .split('.')
+        .every((label) => /^(?!-)[a-z0-9-]{1,63}$/.test(label) && !label.endsWith('-')))
+  )
+    return true;
+  if (
+    ['local', 'internal', 'arpa', 'alt', 'onion', 'invalid', 'test'].some(
       (suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`),
     )
   )
@@ -235,6 +252,9 @@ function isForbiddenServiceHost(hostname: string) {
     return (
       (a === 192 && b === 0 && c === 2) ||
       (a === 192 && b === 88 && c === 99) ||
+      (a === 192 && b === 31 && c === 196) ||
+      (a === 192 && b === 52 && c === 193) ||
+      (a === 192 && b === 175 && c === 48) ||
       (a === 198 && b === 51 && c === 100) ||
       (a === 203 && b === 0 && c === 113)
     );
@@ -248,6 +268,7 @@ function isForbiddenServiceHost(hostname: string) {
       (first & 0xe000) !== 0x2000 ||
       (first === 0x2001 && (second < 0x200 || second === 0xdb8)) ||
       first === 0x2002 ||
+      (first === 0x2620 && second === 0x4f && groups[2] === 0x8000) ||
       (first === 0x3fff && second < 0x1000)
     );
   }
@@ -257,7 +278,13 @@ function isForbiddenServiceHost(hostname: string) {
 /** Protocol identity; never derived from request headers or defaulted. */
 export function validateServiceOrigin(input: unknown): string {
   try {
-    if (typeof input !== 'string' || !input || /[\s\x00-\x1f\x7f\\]/.test(input)) throw new Error();
+    if (
+      typeof input !== 'string' ||
+      !input ||
+      /[\s\\]/.test(input) ||
+      containsControlCharacter(input)
+    )
+      throw new Error();
     const url = new URL(input);
     if (
       input !== url.origin ||

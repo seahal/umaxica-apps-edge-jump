@@ -29,6 +29,11 @@ suppresses the body. Final adapter errors cover initialization, limiter, assets,
 secrets and handler failures, with one entry ID and 1000ms deadline. Late work
 cannot change the returned error into a redirect or log success.
 
+Rate limiting uses only the Cloudflare Workers native binding
+(`wrangler.jsonc` `ratelimits`, keyed on CF-Connecting-IP). It is coarse abuse
+control, not an authentication, authorization or replay boundary; shared IPs
+can be limited together. No readiness endpoint is exposed.
+
 Canonical key bindings are required; private-only or alias-only bundles fail 503. Public keysets reject private fields rather than stripping them. The
 active pair is probe checked; import validity of other keys is a distinct check.
 extractable:false restricts CryptoKey export, not absolute PEM/memory leakage.

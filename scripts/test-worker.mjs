@@ -27,6 +27,7 @@ const bundle = await build({
     contents: `import worker from './src/cloudflare';
       export default { fetch(request, env, ctx) {
         const settings = env;
+        if (env.TEST_MISSING_IP) { request = new Request(request); request.headers.delete('CF-Connecting-IP'); }
         if (env.TEST_LIMIT_MODE === 'deny') settings.JUMP_RATE_LIMITER = { limit: async () => ({ success: false }) };
         if (env.TEST_LIMIT_MODE === 'throw') settings.JUMP_RATE_LIMITER = { limit: async () => { throw new Error('test-provider-exception'); } };
         if (env.TEST_LIMIT_MODE === 'missing') delete settings.JUMP_RATE_LIMITER;
@@ -43,6 +44,7 @@ const bundle = await build({
 });
 const logs = [];
 const options = {
+  cf: false,
   handleStructuredLogs: (entry) => logs.push(entry.message),
   modules: true,
   script: bundle.outputFiles[0].text,
@@ -72,6 +74,7 @@ const options = {
   },
 };
 let runtime;
+let sampleInput;
 try {
   runtime = new Miniflare(convertV4MiniflareOptions(options));
   for (const [src, dst] of edges) {
@@ -91,6 +94,7 @@ try {
     })
       .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'issuer' })
       .sign(pairs.get(nodes[src]).privateKey);
+    sampleInput ??= input;
     const response = await runtime.dispatchFetch(`${origin}/?rt=${input}`, {
       redirect: 'manual',
       headers: { 'CF-Connecting-IP': '203.0.113.7' },
@@ -128,26 +132,26 @@ try {
   const other = await generateKeyPair('ES384', { extractable: true });
   /** @type {Array<[string, Record<string, string | boolean>, string, number, string?, boolean?]>} */
   const cases = [
-    ['valid', {}, '/ready', 200],
-    ['private missing', { UMAXICA_JUMP_PRIVATE_KEY_PEM: '' }, '/ready', 503],
-    ['public missing', { UMAXICA_JUMP_PUBLIC_JWKS: '' }, '/ready', 503],
-    ['kid absent', { UMAXICA_JUMP_PRIVATE_KEY_KID: 'absent' }, '/ready', 503],
+    ['jwks valid', {}, '/.well-known/jwks.json', 200],
+    ['private missing', { UMAXICA_JUMP_PRIVATE_KEY_PEM: '' }, '/.well-known/jwks.json', 503],
+    ['public missing', { UMAXICA_JUMP_PUBLIC_JWKS: '' }, '/.well-known/jwks.json', 503],
+    ['kid absent', { UMAXICA_JUMP_PRIVATE_KEY_KID: 'absent' }, '/.well-known/jwks.json', 503],
     [
       'pair mismatch',
       { UMAXICA_JUMP_PRIVATE_KEY_PEM: await exportPKCS8(other.privateKey) },
-      '/ready',
+      '/.well-known/jwks.json',
       503,
     ],
-    ['origin invalid', { UMAXICA_JUMP_ORIGIN: '' }, '/ready', 503],
-    ['limiter missing readiness', { TEST_LIMIT_MODE: 'missing' }, '/ready', 503],
+    ['health with private missing', { UMAXICA_JUMP_PRIVATE_KEY_PEM: '' }, '/health.json', 200],
+    ['origin invalid', { UMAXICA_JUMP_ORIGIN: '' }, '/about', 503],
     ['limiter missing navigation', { TEST_LIMIT_MODE: 'missing' }, '/about', 503],
     ['limiter deny', { TEST_LIMIT_MODE: 'deny' }, '/about', 429],
-    ['limiter throw readiness', { TEST_LIMIT_MODE: 'throw' }, '/ready', 200],
+    ['limiter throw jwks', { TEST_LIMIT_MODE: 'throw' }, '/.well-known/jwks.json', 200],
     ['limiter throw navigation', { TEST_LIMIT_MODE: 'throw' }, '/?rt=malformed', 400],
     ['late asset', { TEST_LATE_ASSETS: true }, '/favicon.ico', 504],
     ['wrong origin', {}, '/about', 400, 'https://wrong.example'],
-    ['wrong origin readiness', {}, '/ready', 503, 'https://wrong.example'],
-    ['missing IP', {}, '/about', 503, origin, true],
+    ['wrong origin jwks', {}, '/.well-known/jwks.json', 400, 'https://wrong.example'],
+    ['missing IP', { TEST_MISSING_IP: true }, '/about', 503, origin, true],
   ];
   for (const [label, overrides, path, status, requestOrigin = origin, missingIp = false] of cases) {
     logs.length = 0;
@@ -167,13 +171,19 @@ try {
       assert.equal(response.headers.get('x-robots-tag'), 'noindex, nofollow, noarchive', label);
       const text = await response.text();
       if (method === 'HEAD') assert.equal(text, '', label);
-      else if (path === '/ready') {
-        assert.equal(response.headers.get('content-type'), 'application/json', label);
-        assert.equal(
-          text,
-          JSON.stringify({ status: status === 200 ? 'ready' : 'unavailable' }),
+      else if (status === 200 && path === '/.well-known/jwks.json') {
+        const published = JSON.parse(text);
+        assert.deepEqual(
+          published.keys.map((key) => key.kid),
+          ['nonproduction-active'],
           label,
         );
+        assert(
+          published.keys.every((key) => !('d' in key)),
+          `${label}: no private material`,
+        );
+      } else if (status === 200) {
+        assert.equal(JSON.parse(text).status, 'OK', label);
       } else {
         assert(!text.includes('test-provider-exception'), label);
         assert.equal(
@@ -190,6 +200,23 @@ try {
       }
     }
     if (label === 'limiter throw navigation') {
+      const accepted = await runtime.dispatchFetch(`${origin}/?rt=${sampleInput}`, {
+        redirect: 'manual',
+        headers: { 'CF-Connecting-IP': '203.0.113.7' },
+      });
+      assert.equal(
+        accepted.status,
+        302,
+        'provider failure still permits a valid fully checked token',
+      );
+      assert.equal(accepted.headers.get('set-cookie'), null);
+      assert.equal(accepted.headers.get('cache-control'), 'no-store');
+      const output = new URL(accepted.headers.get('location')).searchParams.get('rt');
+      const verified = await jwtVerify(output, jumpPair.publicKey, {
+        issuer: origin,
+        audience: nodes[edges[0][1]],
+      });
+      assert.equal(verified.payload.rpl, 'reuse');
       assert(
         logs.some((message) => message.includes('limiter_call_exception')),
         'provider exception must emit warning',
@@ -202,9 +229,24 @@ try {
     await runtime.dispose();
     runtime = undefined;
   }
+  // `/ready` is not a production interface: it must fall through to notFound.
+  runtime = new Miniflare(convertV4MiniflareOptions(options));
+  for (const method of ['GET', 'HEAD']) {
+    const response = await runtime.dispatchFetch(`${origin}/ready`, {
+      method,
+      redirect: 'manual',
+      headers: { 'CF-Connecting-IP': '203.0.113.7' },
+    });
+    assert.equal(response.status, 302, `${method} /ready`);
+    assert.equal(new URL(response.headers.get('location'), origin).pathname, '/about');
+    assert.notEqual(response.headers.get('content-type'), 'application/json');
+    await response.text();
+  }
+  await runtime.dispose();
+  runtime = undefined;
   // eslint-disable-next-line no-console -- concise runtime verification result.
   console.log(
-    'workerd: 20 signed edges, wrong-path rt, readiness, limiter and deadline contracts passed',
+    'workerd: 20 signed edges, wrong-path rt, signing material, limiter and deadline contracts passed',
   );
 } catch (error) {
   // eslint-disable-next-line no-console -- error code only, never raw exception text.

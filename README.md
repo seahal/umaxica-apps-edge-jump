@@ -31,5 +31,8 @@ pnpm run cloudflare:check
 `cloudflare:check` is `wrangler deploy --dry-run`, with no upload. Local browser
 and Worker tests use nonproduction generated keys and the production validation
 rules. `/health*` reports responsiveness and service version, not signer readiness.
+There is no readiness endpoint; verify deployments with `/health.json`,
+`/.well-known/jwks.json` and a signed RT smoke as described in
+[deployment verification](docs/operations/deployment-verification.md).
 Local evidence cannot prove production bindings, issuer reachability, receiver
 compatibility or a safe rollback artifact. Rollout remains gated separately.

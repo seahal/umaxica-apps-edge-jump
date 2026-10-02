@@ -1,3 +1,4 @@
+import { assertDefined } from './assert-defined';
 import { beforeAll, afterEach, expect, test, vi } from 'vitest';
 import { exportJWK, exportPKCS8, generateKeyPair, importJWK, jwtVerify, SignJWT } from 'jose';
 import worker, { resetIsolateCachesForTest, type CloudflareEnv } from '../src/cloudflare';
@@ -22,52 +23,88 @@ afterEach(() => {
   resetIsolateCachesForTest();
   vi.restoreAllMocks();
 });
-function request(path = '/ready', settings = env, method = 'GET', requestOrigin = origin) {
+const JWKS = '/.well-known/jwks.json';
+function request(
+  path = JWKS,
+  settings = env,
+  method = 'GET',
+  requestOrigin = origin,
+  headers: Record<string, string> = {},
+) {
   return worker.fetch(
     new Request(`${requestOrigin}${path}`, {
       method,
-      headers: { 'CF-Connecting-IP': '203.0.113.7' },
+      headers: { 'CF-Connecting-IP': '203.0.113.7', ...headers },
     }),
     settings,
     {} as ExecutionContext,
   );
 }
-async function readiness(response: Response, ready: boolean, head = false) {
-  expect(response.status).toBe(ready ? 200 : 503);
-  expect(response.headers.get('content-type')).toBe('application/json');
+/** The JWKS route publishes only a keyset that passed the private/public pair check. */
+async function signingMaterial(response: Response, ok: boolean, head = false) {
+  expect(response.status).toBe(ok ? 200 : 503);
   expect(response.headers.get('cache-control')).toBe('no-store');
   expect(response.headers.get('set-cookie')).toBeNull();
   expect(response.headers.get('location')).toBeNull();
   expect(response.headers.get('x-robots-tag')).toBe('noindex, nofollow, noarchive');
   expect(response.headers.get('referrer-policy')).toBe('no-referrer');
-  expect(await response.text()).toBe(
-    head ? '' : JSON.stringify({ status: ready ? 'ready' : 'unavailable' }),
-  );
+  const text = await response.text();
+  if (head) {
+    expect(text).toBe('');
+    return;
+  }
+  if (!ok) {
+    expect(response.headers.get('x-jump-error')).toBe('service_unavailable');
+    expect(text).not.toContain('PRIVATE KEY');
+    return;
+  }
+  expect(response.headers.get('content-type')).toBe('application/json; charset=utf-8');
+  const published = JSON.parse(text) as { keys: Array<Record<string, unknown>> };
+  expect(published.keys.map((key) => key.kid)).toContain('active');
+  for (const key of published.keys) expect(key).not.toHaveProperty('d');
 }
-test('ready reuses the checked bundle without quota, network or repeated private import', async () => {
+test('jwks reuses the checked bundle without network or repeated private import', async () => {
   const network = vi.spyOn(globalThis, 'fetch');
-  const limiter = vi.spyOn(env.JUMP_RATE_LIMITER!, 'limit');
+  const limiter = vi.spyOn(assertDefined(env.JUMP_RATE_LIMITER), 'limit');
   const imports = vi.spyOn(crypto.subtle, 'importKey');
-  await readiness(await request(), true);
+  await signingMaterial(await request(), true);
   const count = imports.mock.calls.length;
-  await readiness(await request(), true);
+  await signingMaterial(await request(), true);
   expect(imports.mock.calls.length).toBe(count);
   expect(network).not.toHaveBeenCalled();
-  expect(limiter).not.toHaveBeenCalled();
+  expect(limiter).toHaveBeenCalledTimes(2);
+});
+test.each(['GET', 'HEAD'])('%s /ready is not a production interface', async (method) => {
+  for (const settings of [env, { ...env, UMAXICA_JUMP_PRIVATE_KEY_PEM: '' }]) {
+    const response = await request('/ready', settings, method);
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toBe('/about');
+    expect(response.headers.get('content-type')).not.toBe('application/json');
+    const text = await response.text();
+    expect(text).not.toContain('ready');
+  }
+  const json = await request('/ready', env, method, origin, { Accept: 'application/json' });
+  expect(json.status).toBe(404);
+  expect(await json.text()).toBe('');
+});
+test.each(['/health', '/health.json'])('%s remains available', async (path) => {
+  const response = await request(path, env, 'GET', origin, { Accept: 'application/json' });
+  expect(response.status).toBe(200);
+  expect(((await response.json()) as { status: string }).status).toBe('OK');
 });
 test.each([
   'UMAXICA_JUMP_PRIVATE_KEY_PEM',
   'UMAXICA_JUMP_PRIVATE_KEY_KID',
   'UMAXICA_JUMP_PUBLIC_JWKS',
   'JUMP_RATE_LIMITER',
-] as const)('missing %s is unavailable without details', async (name) => {
+] as const)('missing %s fails closed without details', async (name) => {
   const settings = { ...env };
   delete settings[name];
-  await readiness(await request('/ready', settings), false);
+  await signingMaterial(await request(JWKS, settings), false);
 });
-test('noncallable limiter is not ready; callable runtime exception is not probed', async () => {
-  await readiness(
-    await request('/ready', {
+test('noncallable limiter fails closed; a limiter call exception stays the approved fail-open', async () => {
+  await signingMaterial(
+    await request(JWKS, {
       ...env,
       JUMP_RATE_LIMITER: {} as NonNullable<CloudflareEnv['JUMP_RATE_LIMITER']>,
     }),
@@ -76,19 +113,20 @@ test('noncallable limiter is not ready; callable runtime exception is not probed
   const limit = vi.fn(async () => {
     throw new Error('sensitive-runtime-message');
   });
-  await readiness(await request('/ready', { ...env, JUMP_RATE_LIMITER: { limit } }), true);
-  expect(limit).not.toHaveBeenCalled();
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  await signingMaterial(await request(JWKS, { ...env, JUMP_RATE_LIMITER: { limit } }), true);
+  expect(limit).toHaveBeenCalledTimes(1);
 });
 test('active kid must be in JWKS', async () => {
-  await readiness(
-    await request('/ready', { ...env, UMAXICA_JUMP_PRIVATE_KEY_KID: 'absent' }),
+  await signingMaterial(
+    await request(JWKS, { ...env, UMAXICA_JUMP_PRIVATE_KEY_KID: 'absent' }),
     false,
   );
 });
-test('private/public mismatch is unavailable', async () => {
+test('private/public mismatch fails closed', async () => {
   const other = await generateKeyPair('ES384', { extractable: true });
-  await readiness(
-    await request('/ready', {
+  await signingMaterial(
+    await request(JWKS, {
       ...env,
       UMAXICA_JUMP_PRIVATE_KEY_PEM: await exportPKCS8(other.privateKey),
     }),
@@ -97,8 +135,8 @@ test('private/public mismatch is unavailable', async () => {
 });
 test('secret backend text cannot escape public response or logs', async () => {
   const logs = vi.spyOn(console, 'warn').mockImplementation(() => {});
-  await readiness(
-    await request('/ready', {
+  await signingMaterial(
+    await request(JWKS, {
       ...env,
       UMAXICA_JUMP_PRIVATE_KEY_PEM: {
         get: async () => {
@@ -110,10 +148,10 @@ test('secret backend text cannot escape public response or logs', async () => {
   );
   expect(JSON.stringify(logs.mock.calls)).not.toContain('secret-sentinel');
 });
-test.each([true, false])('HEAD preserves status and security headers, ready=%s', async (ready) => {
-  await readiness(
-    await request('/ready', ready ? env : { ...env, UMAXICA_JUMP_PUBLIC_JWKS: '' }, 'HEAD'),
-    ready,
+test.each([true, false])('HEAD preserves status and security headers, ok=%s', async (ok) => {
+  await signingMaterial(
+    await request(JWKS, ok ? env : { ...env, UMAXICA_JUMP_PUBLIC_JWKS: '' }, 'HEAD'),
+    ok,
     true,
   );
 });
@@ -122,8 +160,10 @@ test('health remains liveness when signer is missing', async () => {
     200,
   );
 });
-test('origin mismatch is unavailable and discloses no configured origin', async () => {
-  await readiness(await request('/ready', env, 'GET', 'https://jump.umaxica.net'), false);
+test('origin mismatch is rejected and discloses no configured origin', async () => {
+  const jwks = await request(JWKS, env, 'GET', 'https://jump.umaxica.net');
+  expect(jwks.status).toBe(400);
+  expect(await jwks.text()).not.toContain(origin);
   const response = await request('/about', env, 'GET', 'https://jump.umaxica.net');
   expect(response.status).toBe(400);
   expect(await response.text()).not.toContain(origin);
@@ -141,7 +181,7 @@ test.each([
   'not-an-origin',
 ])('no silent fallback for %s', async (value) => {
   expect(() => validateServiceOrigin(value)).toThrow();
-  await readiness(await request('/ready', { ...env, UMAXICA_JUMP_ORIGIN: value ?? '' }), false);
+  await signingMaterial(await request(JWKS, { ...env, UMAXICA_JUMP_ORIGIN: value ?? '' }), false);
 });
 test('alternate origin follows discovery and self-link rejection', async () => {
   for (const path of ['/about', '/robots.txt', '/sitemap.xml']) {
@@ -184,7 +224,8 @@ test('alternate origin governs inbound aud and outbound iss', async () => {
       .sign(issuer.privateKey);
   const response = await request(`/?rt=${await sign(origin)}`);
   expect(response.status).toBe(302);
-  const rt = new URL(response.headers.get('location')!).searchParams.get('rt')!;
+  const location = new URL(assertDefined(response.headers.get('location')));
+  const rt = assertDefined(location.searchParams.get('rt'));
   const verified = await jwtVerify(rt, pair.publicKey, {
     issuer: origin,
     audience: 'https://www.umaxica.app',
@@ -204,9 +245,9 @@ test('normal activation and rollback retain public verification overlap', async 
     ),
   );
   for (const [pem, kid, keys] of [
-    [env.UMAXICA_JUMP_PRIVATE_KEY_PEM!, 'active', [aJwk, bJwk]],
+    [assertDefined(env.UMAXICA_JUMP_PRIVATE_KEY_PEM), 'active', [aJwk, bJwk]],
     [await exportPKCS8(b.privateKey), 'B', [bJwk, aJwk]],
-    [env.UMAXICA_JUMP_PRIVATE_KEY_PEM!, 'active', [aJwk, bJwk]],
+    [assertDefined(env.UMAXICA_JUMP_PRIVATE_KEY_PEM), 'active', [aJwk, bJwk]],
   ] as const) {
     const settings = {
       ...env,
@@ -214,7 +255,7 @@ test('normal activation and rollback retain public verification overlap', async 
       UMAXICA_JUMP_PRIVATE_KEY_KID: kid,
       UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({ keys }),
     };
-    await readiness(await request('/ready', settings), true);
+    await signingMaterial(await request(JWKS, settings), true);
     const published = (await (await request('/.well-known/jwks.json', settings)).json()) as {
       keys: typeof keys;
     };
@@ -222,7 +263,10 @@ test('normal activation and rollback retain public verification overlap', async 
     for (const [index, expectedKid] of ['active', 'B'].entries()) {
       const jwk = published.keys.find((key) => key.kid === expectedKid);
       expect(jwk).toBeDefined();
-      const verified = await jwtVerify(tokens[index]!, await importJWK(jwk!, 'ES384'));
+      const verified = await jwtVerify(
+        assertDefined(tokens[index]),
+        await importJWK(assertDefined(jwk), 'ES384'),
+      );
       expect(verified.payload.rpl).toBe('reuse');
     }
   }
@@ -235,7 +279,16 @@ test.each([
   'https://jump.onion',
   'https://jump.invalid',
   'https://jump.test',
+  'https://jump.alt',
+  'https://bad_.example',
+  'https://-bad.example',
+  'https://bad-.example',
+  'https://bad..example',
   'https://192.0.2.1',
+  'https://192.31.196.1',
+  'https://192.52.193.1',
+  'https://192.175.48.1',
+  'https://[2620:4f:8000::1]',
   'https://198.51.100.1',
   'https://203.0.113.1',
   'https://[2001:db8::1]',
@@ -244,7 +297,7 @@ test.each([
 ])('special-use identity %s fails closed', (value) => {
   expect(() => validateServiceOrigin(value)).toThrow();
 });
-test('readiness deadline is coarse and late secret completion cannot become ready', async () => {
+test('signing-material deadline is coarse and late secret completion cannot publish keys', async () => {
   let complete!: (value: string) => void;
   const settings = {
     ...env,
@@ -255,7 +308,12 @@ test('readiness deadline is coarse and late secret completion cannot become read
         }),
     },
   };
-  await readiness(await request('/ready', settings), false);
-  complete(String(env.UMAXICA_JUMP_PRIVATE_KEY_PEM));
+  const response = await request(JWKS, settings);
+  expect(response.status).toBe(504);
+  expect(response.headers.get('x-jump-error')).toBe('deadline_exceeded');
+  expect(await response.text()).not.toContain('"keys"');
+  const pem = env.UMAXICA_JUMP_PRIVATE_KEY_PEM;
+  if (typeof pem !== 'string') throw new Error('expected string test key');
+  complete(pem);
   await Promise.resolve();
 });

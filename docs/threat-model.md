@@ -16,9 +16,12 @@ replay prevention, idempotency or permission for double execution. Revocation
 checks precede cache; JWKS removal alone cannot invalidate cached public trust.
 Emergency deployment and coordinated receiver revocation are needed.
 
-The limiter uses provider-confirmed CF-Connecting-IP for coarse abuse control,
-600/60s namespace520900. It is neither user authentication nor a strict global
-counter. Shared IPs suffer collateral denials. Verified binding call exceptions
+The limiter is the Cloudflare Workers native Rate Limiting binding configured in
+wrangler.jsonc, keyed on provider-confirmed CF-Connecting-IP for coarse abuse
+control, 600/60s namespace520900. It is not authentication, authorization,
+replay protection or accounting, and no security decision depends on it. It is
+not a strict global counter. Shared NAT, mobile carrier and privacy-proxy users
+share one key and suffer collateral denials. Verified binding call exceptions
 fail open with a fixed warning; whether the fault is transient is unknown. All
 crypto/policy checks still apply. Residual availability/load risk and upstream
 JWKS load increase during such exceptions. Binding/IP/result mistakes fail503.
@@ -35,4 +38,4 @@ separate; no wholesale dependency upgrades are included in this change.
 
 ## Additional 0.2 hardening contract
 
-Readiness exposes only ready/unavailable, never signatures or secret/config detail. Fixed internal probe signing cannot mint navigation tokens. Successful material is cached; failures remain retryable and repeated broken-config probes are a residual availability risk. Emergency key removal alone cannot revoke receiver caches; receiver revocation must lead or accompany replacement. Arbitrary earlier Worker versions and identity-only rollback can break ongoing issuance.
+No readiness endpoint exists. Signing-material failures surface as coarse 503 on /.well-known/jwks.json and the redirect path, never signatures or secret/config detail. Fixed internal probe signing cannot mint navigation tokens. Successful material is cached; failed loads are retried on the next request, so broken configuration costs one load attempt per rate-limited request. Emergency key removal alone cannot revoke receiver caches; receiver revocation must lead or accompany replacement. Arbitrary earlier Worker versions and identity-only rollback can break ongoing issuance.

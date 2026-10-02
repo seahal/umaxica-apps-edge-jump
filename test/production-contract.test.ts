@@ -1,3 +1,4 @@
+import { assertDefined } from './assert-defined';
 import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
 import { exportJWK, exportPKCS8, generateKeyPair, jwtVerify, SignJWT } from 'jose';
 import worker, { resetIsolateCachesForTest, type CloudflareEnv } from '../src/cloudflare';
@@ -102,7 +103,7 @@ afterEach(() => {
 });
 function mockJwks() {
   return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
-    const key = String(input);
+    const key = input instanceof Request ? input.url : input.toString();
     expect(Object.hasOwn(jwks, key)).toBe(true);
     return Response.json({ keys: jwks[key] });
   });
@@ -110,7 +111,7 @@ function mockJwks() {
 async function token(payload: Record<string, unknown>, keyOrigin: string = nodes['auth-app-ww']) {
   return new SignJWT(payload)
     .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'same-kid' })
-    .sign(issuerKeys.get(keyOrigin)!.privateKey);
+    .sign(assertDefined(issuerKeys.get(keyOrigin)).privateKey);
 }
 async function request(
   path: string,
@@ -150,7 +151,7 @@ describe('A: exact production graph', () => {
     expect(Object.keys(registry).sort()).toEqual(Object.values(nodes).sort());
     let count = 0;
     for (const [src, origin] of Object.entries(nodes)) {
-      const issuer = registry[origin]!;
+      const issuer = assertDefined(registry[origin]);
       expect(issuer.jwks_uri).toBe(`${origin}/.well-known/jwks.json`);
       expect(issuer.allowed_dst_external).toBe(false);
       expect(issuer.allowed_dst_internal.slice().sort()).toEqual(
@@ -186,7 +187,7 @@ describe('A: exact production graph', () => {
           const check = () =>
             assertDestinationPolicy(
               claim(src, dst),
-              registry[nodes[src]]!,
+              assertDefined(registry[nodes[src]]),
               normalizeUrl(`${nodes[dst]}/receive`, runtime, jump),
             );
           if (a === b) expect(check).not.toThrow();
@@ -202,15 +203,19 @@ describe('B: real issuer-specific signatures through Worker adapter', () => {
     const res = await request(`/?rt=${input}`);
     expect(res.status).toBe(302);
     hygiene(res);
-    const location = new URL(res.headers.get('location')!);
+    const location = new URL(assertDefined(res.headers.get('location')));
     expect(location.origin).toBe(nodes[dst]);
     expect(location.pathname).toBe('/receive');
     expect(location.searchParams.getAll('rt')).toHaveLength(1);
-    const verified = await jwtVerify(location.searchParams.get('rt')!, jumpKeys.publicKey, {
-      issuer: jump,
-      audience: nodes[dst],
-      algorithms: ['ES384'],
-    });
+    const verified = await jwtVerify(
+      assertDefined(location.searchParams.get('rt')),
+      jumpKeys.publicKey,
+      {
+        issuer: jump,
+        audience: nodes[dst],
+        algorithms: ['ES384'],
+      },
+    );
     expect(verified.protectedHeader).toEqual({ alg: 'ES384', typ: 'JWT', kid: 'opaque-active' });
     location.searchParams.delete('rt');
     expect(verified.payload).toMatchObject({
@@ -254,16 +259,11 @@ describe('E: reuse strict type partitions', () => {
     for (let i = 0; i < 2; i++) {
       const res = await request(`/?rt=${input}`);
       expect(res.status).toBe(302);
-      outputs.push(
-        (
-          await jwtVerify(
-            new URL(res.headers.get('location')!).searchParams.get('rt')!,
-            jumpKeys.publicKey,
-          )
-        ).payload,
-      );
+      const location = new URL(assertDefined(res.headers.get('location')));
+      const rt = assertDefined(location.searchParams.get('rt'));
+      outputs.push((await jwtVerify(rt, jumpKeys.publicKey)).payload);
     }
-    expect(outputs[0]!.jti).not.toBe(outputs[1]!.jti);
+    expect(assertDefined(outputs[0]).jti).not.toBe(assertDefined(outputs[1]).jti);
     expect(outputs.map((p) => p.rpl)).toEqual(['reuse', 'reuse']);
   });
 });
@@ -396,7 +396,8 @@ describe('D/F/G/J/K: crypto, URL and configuration boundaries', () => {
     const data = { ...claim(), aud: alternate };
     const res = await request(`/?rt=${await token(data)}`, settings);
     expect(res.status).toBe(302);
-    const rt = new URL(res.headers.get('location')!).searchParams.get('rt')!;
+    const location = new URL(assertDefined(res.headers.get('location')));
+    const rt = assertDefined(location.searchParams.get('rt'));
     expect((await jwtVerify(rt, jumpKeys.publicKey, { issuer: alternate })).payload.iss).toBe(
       alternate,
     );
@@ -452,7 +453,7 @@ describe('D/F/G/J/K: crypto, URL and configuration boundaries', () => {
     const fetch = mockJwks();
     const rt = await new SignJWT(claim())
       .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'k'.repeat(length) })
-      .sign(issuerKeys.get(nodes['auth-app-ww'])!.privateKey);
+      .sign(assertDefined(issuerKeys.get(nodes['auth-app-ww'])).privateKey);
     await denied(await request(`/?rt=${rt}`));
     if (length > 128) expect(fetch).not.toHaveBeenCalled();
     else expect(fetch).toHaveBeenCalled();
@@ -631,14 +632,14 @@ describe('construction and runtime defensive policy', () => {
     const table = Object.entries(nodes) as [string, string][];
     expect(Object.keys(buildRegistry(table, edges))).toHaveLength(13);
     for (const invalid of [
-      [...table, table[0]!],
-      [...table, ['zzzz-zzz-zz', table[0]![1]]],
+      [...table, assertDefined(table[0])],
+      [...table, ['zzzz-zzz-zz', assertDefined(table[0])[1]]],
       [['auth-app-ww', 'http://auth.umaxica.app']],
       [['auth-app-ww', 'https://auth.umaxica.app/']],
     ])
       expect(() => buildRegistry(invalid as [string, string][], [])).toThrow();
     for (const invalid of [
-      [...edges, edges[0]!],
+      [...edges, assertDefined(edges[0])],
       [['zzzz-zzz-zz', 'base-app-ww']],
       [['base-app-ww', 'base-app-ww']],
       [['base-app-ww', 'auth-com-ww']],
@@ -669,7 +670,7 @@ describe('construction and runtime defensive policy', () => {
 
 describe('F/K: remaining validation partitions', () => {
   test('registry initialization configuration failure is 503 with HEAD hygiene', async () => {
-    const issuer = registry[nodes['auth-app-ww']]!;
+    const issuer = assertDefined(registry[nodes['auth-app-ww']]);
     const previous = issuer.jwks_uri;
     issuer.jwks_uri = 'https://foreign.example/jwks';
     try {

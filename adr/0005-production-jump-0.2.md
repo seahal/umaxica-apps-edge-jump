@@ -38,4 +38,4 @@ rotation is part of this local change. Tests and release permission are separate
 
 ## Additional 0.2 hardening contract
 
-Readiness is a machine-readable Cloudflare adapter endpoint separate from existing liveness. Reuse checked key material, do not probe limiter quota or remote trust, and keep unavailable details internal. The existing Miniflare/workerd harness is a mandatory CI runtime job, distinct from unit validation. Recovery requires a verified immutable compatible artifact; current artifact status is NOT YET VERIFIED.
+No readiness endpoint is exposed (an earlier `/ready` was removed on 2026-10-02). Liveness is /health*; signing material is checked through /.well-known/jwks.json, which publishes only the pair-checked bundle; the redirect path is checked with a valid signed RT smoke. Rate limiting is the Cloudflare native binding only. The existing Miniflare/workerd harness is a mandatory CI runtime job, distinct from unit validation. Recovery requires a verified immutable compatible artifact; current artifact status is NOT YET VERIFIED.
