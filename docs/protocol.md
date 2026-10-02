@@ -1,4 +1,4 @@
-# Jump 0.2 protocol (normative)
+# Jump 0.3 protocol (normative)
 
 Production has exactly these 13 nodes. Node ID syntax is
 `^[a-z]{4}-[a-z]{3}-[a-z]{2}$` (11 ASCII characters); syntax alone grants no trust.
@@ -46,14 +46,14 @@ Inbound: object claims schema1, required string rpl reuse, registered origin iss
 exact string aud equal to configured Jump identity, sub jump-redirect, finite
 iat/nbf/exp, nonempty string jti, dst internal/external, nonempty string url.
 Header typJWT, algES384, kid1–128; compact token≤8192 characters. Exp follows iat,
-nbf≤exp, TTL≤300s; clock tolerance5s affects now comparisons only. NumericDate
+nbf≤exp, TTL≤30s; clock tolerance5s affects now comparisons only. NumericDate
 fractions remain accepted where jose accepts them. No arbitrary claims are copied.
 
 Internal output302: schema1, rpl reuse, iss Jump identity, aud target origin,
 sub jump-redirect, src issuer origin, dst internal, url canonical validated target,
 iat=nbf=now, exp=now+30, fresh jti. One new rt is appended. Remove this rt then
 WHATWG/URLSearchParams serialize to compare against output url; %20/+ can change
-bytes without changing values. Existing rt/reserved nesting, fragments, ambiguous
+bytes without changing values. Existing rt/rt[...], fragments, ambiguous
 URLs and duplicate single-valued protocol query parameters are rejected, not repaired.
 No destination fetch. Output token size is also≤8192.
 
@@ -70,3 +70,7 @@ navigation and no Jump RT forwarding. Escaping, punycode warnings,
 noopener/noreferrer and CSP stay required. All13 production issuers have
 allowed_dst_external=false and no allowed external origins. Future policy addition
 requires separate approval; external cannot bypass internal prohibited edges.
+
+Transport `rt` only as a query parameter. JWTs and protocol values must not be
+placed in pathnames; native invocation logs and traces may persist arbitrary
+paths and generated metadata under the accepted [logging policy](logging.md).

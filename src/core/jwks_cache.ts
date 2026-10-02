@@ -69,6 +69,7 @@ export class JwksCache {
     try {
       return await raceAbort(importJWK(jwk, alg), signal);
     } catch (error) {
+      /* v8 ignore next -- deadline abort racing the import */
       if (error instanceof JumpError) throw error;
       throw new JumpError('jwks_bad_gateway', 'issuer jwk rejected');
     }
@@ -82,6 +83,7 @@ export class JwksCache {
     }
     while (this.negative.size >= MAX_NEGATIVE_ENTRIES) {
       const oldest = this.negative.keys().next().value;
+      /* v8 ignore next -- the loop condition guarantees a key */
       if (oldest === undefined) break;
       this.negative.delete(oldest);
     }

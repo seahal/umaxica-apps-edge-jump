@@ -1,9 +1,13 @@
 // Local workerd contract test; generates nonproduction keys only, no remote fetch.
+// dispatchFetch avoids an application server, but this Miniflare version still
+// requires internal TCP listeners. Do not replace workerd with a Node-only fake.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { build } from 'esbuild';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { exportJWK, exportPKCS8, generateKeyPair, jwtVerify, SignJWT } from 'jose';
+const runtimeConfig = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
+assert.match(runtimeConfig, /"redact_query_string"\s*:\s*true/, 'query redaction configured');
 const { nodes, edges } = JSON.parse(
   await readFile(new URL('../test/fixtures/production-graph.json', import.meta.url), 'utf8'),
 );
@@ -87,7 +91,7 @@ try {
       sub: 'jump-redirect',
       iat: now,
       nbf: now,
-      exp: now + 300,
+      exp: now + 30,
       jti: crypto.randomUUID(),
       dst: 'internal',
       url: `${nodes[dst]}/receive?state=keep&q=a%20b`,
@@ -132,6 +136,9 @@ try {
   const other = await generateKeyPair('ES384', { extractable: true });
   /** @type {Array<[string, Record<string, string | boolean>, string, number, string?, boolean?]>} */
   const cases = [
+    ['health', {}, '/health.json', 200],
+    ['health negotiated', {}, '/health', 200],
+    ['invalid rt', {}, '/?rt=malformed', 400],
     ['jwks valid', {}, '/.well-known/jwks.json', 200],
     ['private missing', { UMAXICA_JUMP_PRIVATE_KEY_PEM: '' }, '/.well-known/jwks.json', 503],
     ['public missing', { UMAXICA_JUMP_PUBLIC_JWKS: '' }, '/.well-known/jwks.json', 503],
@@ -162,7 +169,10 @@ try {
       const response = await runtime.dispatchFetch(`${requestOrigin}${path}`, {
         method,
         redirect: 'manual',
-        headers: missingIp ? {} : { 'CF-Connecting-IP': '203.0.113.7' },
+        headers: {
+          Accept: 'application/json',
+          ...(missingIp ? {} : { 'CF-Connecting-IP': '203.0.113.7' }),
+        },
       });
       assert.equal(response.status, status, label);
       assert.equal(response.headers.get('set-cookie'), null, label);

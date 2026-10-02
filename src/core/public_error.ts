@@ -1,7 +1,7 @@
 import { renderSplashPage, type SplashKind } from './page';
 import type { Locale } from './i18n';
 
-export type PublicErrorCode =
+type PublicErrorCode =
   | 'invalid_request'
   | 'service_unavailable'
   | 'temporarily_unavailable'

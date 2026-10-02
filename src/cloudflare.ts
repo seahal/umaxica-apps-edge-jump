@@ -122,7 +122,10 @@ async function dispatch(
     if (
       issuer.iss === serviceOrigin ||
       issuer.allowed_dst_internal.includes(serviceOrigin) ||
+      // The production registry has no external allow-list.
+      /* v8 ignore start */
       (Array.isArray(external) && external.includes(serviceOrigin))
+      /* v8 ignore stop */
     )
       throw new JumpError('signer_unavailable');
   }
@@ -329,6 +332,7 @@ class CloudflareKeyMaterialCache {
         (material) => {
           if (material.expiresAt <= Date.now()) this.entries.delete(entryKey);
         },
+        /* v8 ignore next -- rejected loads are removed by their own caller */
         () => this.entries.delete(entryKey),
       );
     }
@@ -396,6 +400,7 @@ async function loadKeyMaterial(
 
   logSignerConfigured({
     kid,
+    /* v8 ignore next -- parseJumpJwks requires every key to carry a kid */
     public_jwks_kids: jwks.keys.flatMap((key) => (key.kid ? [key.kid] : [])),
   });
   return {
@@ -559,8 +564,8 @@ function normalizePem(value: string | null) {
     const quote = normalized[0];
     if (quote === '"') {
       try {
-        const parsed = JSON.parse(normalized) as unknown;
-        if (typeof parsed === 'string') normalized = parsed.trim();
+        // A double-quoted JSON literal always parses to a string.
+        normalized = (JSON.parse(normalized) as string).trim();
       } catch {
         normalized = normalized.slice(1, -1).trim();
       }

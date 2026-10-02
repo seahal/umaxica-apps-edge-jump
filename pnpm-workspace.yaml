@@ -1,23 +1,24 @@
 packages:
   - .
 
+# Fail on a package-manager mismatch; never download or switch pnpm.
+pmOnFail: error
+# Preserve script denial; allowBuilds also documents dependency-specific denial.
+ignoreScripts: true
+# Do not introduce enforcement of the previously ignored .npmrc engine policy.
+engineStrict: false
+
 autoInstallPeers: false
 enableGlobalVirtualStore: false
 
 catalog:
   '@cloudflare/workers-types': 5.20260929.1
 
-overrides:
-  ajv: '>=8.18.0'
-  minimatch: '>=10.2.3'
-
-ignoredBuiltDependencies:
-  - '@sentry/cli'
-  - esbuild
-  - sharp
-  - workerd
-
 minimumReleaseAge: 4320
+
+# Replace only the vulnerable patch pinned by Miniflare (including Wrangler's).
+overrides:
+  'undici@7.29.0': '7.29.1'
 
 allowBuilds:
   esbuild: false

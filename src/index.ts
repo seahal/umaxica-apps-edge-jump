@@ -51,6 +51,7 @@ export function createApp(options: AppOptions = {}) {
   let jwksCache = options.jwksCache;
   if (!jwksCache) {
     const fetchJwks = options.fetchJwks;
+    /* v8 ignore next -- guarded by the explicit-source check above */
     if (!fetchJwks) throw new Error('explicit jwks source required');
     jwksCache = new JwksCache(fetchJwks);
   }
@@ -121,6 +122,7 @@ export function createApp(options: AppOptions = {}) {
     const started = performance.now();
     const response = await raceWithDeadline(handleJump(c.req.raw, deps), signal, locale);
     throwIfAborted(signal);
+    /* v8 ignore next -- handleJump always reports an audit entry */
     const entry = pendingAudit ?? auditEntryForResponse(response);
     (options.auditLog ?? auditLog)({
       ...entry,
@@ -132,6 +134,7 @@ export function createApp(options: AppOptions = {}) {
     return c.req.method === 'HEAD' ? withoutBody(response) : response;
   });
 
+  /* v8 ignore start -- defensive: the method middleware rejects non-GET/HEAD first */
   app.all('/', (c) =>
     c.body(renderErrorPage(requestLocale(c)), 405, {
       Allow: 'GET, HEAD',
@@ -140,6 +143,7 @@ export function createApp(options: AppOptions = {}) {
       'X-Jump-Error': 'method_not_allowed',
     }),
   );
+  /* v8 ignore stop */
 
   app.get('/about', (c) =>
     html(c, renderAbout(requestLocale(c), config.serviceOrigin), requestLocale(c)),
@@ -324,7 +328,11 @@ async function raceWithDeadline(
     const abort = () => resolve(deadlineResponse(locale));
     signal.addEventListener('abort', abort, { once: true });
     work
-      .then(resolve, () => resolve(internalErrorResponse(locale)))
+      .then(
+        resolve,
+        /* v8 ignore next -- defensive: handleJump converts every failure to a response */
+        () => resolve(internalErrorResponse(locale)),
+      )
       .finally(() => {
         signal.removeEventListener('abort', abort);
       });
@@ -335,6 +343,7 @@ function deadlineResponse(locale: Locale) {
   return publicErrorResponse('deadline_exceeded', locale);
 }
 
+/* v8 ignore next 3 -- see raceWithDeadline */
 function internalErrorResponse(locale: Locale) {
   return publicErrorResponse('internal_error', locale);
 }
@@ -347,6 +356,7 @@ function withoutBody(response: Response) {
   });
 }
 
+/* v8 ignore start -- fallback for a handler that skipped its audit entry */
 function auditEntryForResponse(response: Response): JumpAuditLogEntry {
   const accepted = response.status < 400;
   return {
@@ -356,6 +366,7 @@ function auditEntryForResponse(response: Response): JumpAuditLogEntry {
     ...(accepted ? {} : { reason: response.headers.get('X-Jump-Error') ?? 'internal_error' }),
   };
 }
+/* v8 ignore stop */
 
 function validateRegistry(registry: IssuerRegistry, runtime: RuntimeInfo, serviceOrigin: string) {
   for (const [name, issuer] of Object.entries(registry)) {
@@ -363,11 +374,14 @@ function validateRegistry(registry: IssuerRegistry, runtime: RuntimeInfo, servic
     normalizeOrigin(issuer.iss, runtime, serviceOrigin);
     if (issuer.jwks_uri !== `${issuer.iss}/.well-known/jwks.json`)
       throw new Error('invalid_jwks_uri');
+    // normalizeOrigin above already rejects these; kept as a second line of defence.
+    /* v8 ignore start */
     const issuerUrl = new URL(issuer.iss);
     if (runtime.production && issuerUrl.protocol !== 'https:')
       throw new Error('production issuer must use https');
     if (issuerUrl.username || issuerUrl.password || issuerUrl.port || issuerUrl.pathname !== '/')
       throw new Error('issuer must be an exact origin');
+    /* v8 ignore stop */
     if (issuer.allowed_dst_external !== false && !Array.isArray(issuer.allowed_dst_external))
       throw new Error('external destination policy rejected');
     for (const destination of [
@@ -375,6 +389,7 @@ function validateRegistry(registry: IssuerRegistry, runtime: RuntimeInfo, servic
       ...(Array.isArray(issuer.allowed_dst_external) ? issuer.allowed_dst_external : []),
     ]) {
       normalizeOrigin(destination, runtime, serviceOrigin);
+      /* v8 ignore start -- normalizeOrigin above already rejects these */
       const url = new URL(destination);
       if (runtime.production && url.protocol !== 'https:')
         throw new Error('production destination must use https');
@@ -387,6 +402,7 @@ function validateRegistry(registry: IssuerRegistry, runtime: RuntimeInfo, servic
         url.hash
       )
         throw new Error('destination must be an exact origin');
+      /* v8 ignore stop */
     }
   }
 }

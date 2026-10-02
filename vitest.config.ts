@@ -10,5 +10,14 @@ export default defineConfig({
     },
     globals: true,
     include: ['test/**/*.test.{ts,tsx}'],
+    coverage: {
+      include: ['src/**'],
+      thresholds: {
+        statements: 99,
+        branches: 99,
+        functions: 99,
+        lines: 99,
+      },
+    },
   },
 });

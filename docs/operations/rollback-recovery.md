@@ -14,7 +14,8 @@ A rollback-compatible recovery artifact must retain:
 - no private-to-public fallback and non-extractable private import;
 - expected limiter semantics: missing binding/IP fail closed, false yields 429,
   only a valid binding call's runtime exception warns and proceeds with all checks;
-- current coarse public-error boundary and headers;
+- current coarse public-error boundary, headers and schema-1 inbound TTL ≤30 seconds;
+- native invocation logs and traces enabled/persisted, 100% sampling, query redaction;
 - current revocations and receiver responsibility contract.
 
 Record a real immutable Worker version ID, validated code/config/secret references,

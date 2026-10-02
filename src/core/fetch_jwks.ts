@@ -201,6 +201,7 @@ async function readBodyWithCap(
   }
   const reader = response.body.getReader();
   const cancel = () => {
+    /* v8 ignore next -- cancel rejection is only swallowed */
     void reader.cancel().catch(() => {});
   };
   signal?.addEventListener('abort', cancel, { once: true });

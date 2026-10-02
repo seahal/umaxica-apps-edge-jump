@@ -87,7 +87,7 @@ export function normalizeOrigin(
   return parsed.origin;
 }
 
-export function isForbiddenHost(hostname: string) {
+function isForbiddenHost(hostname: string) {
   if (!hostname.includes('.') && !hostname.startsWith('[')) return true;
   if (hostname === 'localhost' || hostname.endsWith('.localhost')) return true;
   if (hostname === METADATA_V4 || hostname === 'metadata.google.internal') return true;
@@ -261,6 +261,7 @@ function isForbiddenServiceHost(hostname: string) {
   }
   if (hostname.startsWith('[')) {
     const groups = expandIpv6(hostname.slice(1, -1));
+    /* v8 ignore next -- URL parsing has already validated the IPv6 literal */
     if (!groups) return true;
     const first = Number(groups[0]);
     const second = Number(groups[1]);

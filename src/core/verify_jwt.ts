@@ -6,7 +6,7 @@ const ALLOWED_ALGS = new Set(['ES384']);
 const MAX_TOKEN_LENGTH = 8192;
 const MAX_KID_LENGTH = 128;
 export const CLOCK_SKEW_SECONDS = 5;
-export const MAX_INBOUND_TTL_SECONDS = 300;
+export const MAX_INBOUND_TTL_SECONDS = 30;
 
 export async function verifyJumpJwt(
   token: string,
@@ -151,6 +151,7 @@ function validateClaim(
     throw new JumpError('invalid_dst', 'dst rejected');
   if (typeof payload.url !== 'string' || !payload.url)
     throw new JumpError('invalid_url', 'url required');
+  /* v8 ignore next -- rpl is checked on the unverified payload before signature verification */
   if (payload.rpl !== 'reuse') throw new JumpError('invalid_claim');
   return payload as InboundJumpClaim;
 }

@@ -3,7 +3,7 @@ import type { IssuerRegistry } from '../core/types';
 
 export type NodeDefinition = readonly [id: string, origin: string];
 export type EdgeDefinition = readonly [source: string, destination: string];
-export const nodes: readonly NodeDefinition[] = [
+const nodes: readonly NodeDefinition[] = [
   ['auth-app-ww', 'https://auth.umaxica.app'],
   ['auth-com-ww', 'https://auth.umaxica.com'],
   ['auth-org-ww', 'https://auth.umaxica.org'],
@@ -18,7 +18,7 @@ export const nodes: readonly NodeDefinition[] = [
   ['warp-org-jp', 'https://www-jp.umaxica.org'],
   ['palm-app-jp', 'https://palm-jp.umaxica.app'],
 ];
-export const edges: readonly EdgeDefinition[] = [
+const edges: readonly EdgeDefinition[] = [
   ['auth-app-ww', 'base-app-ww'],
   ['auth-com-ww', 'base-com-ww'],
   ['auth-org-ww', 'base-org-ww'],
@@ -79,6 +79,7 @@ export function buildRegistry(
     seen.add(key);
     const source = origins.get(src);
     const destination = origins.get(dst);
+    /* v8 ignore next -- origins were checked when the edge was accepted */
     if (!source || !destination || !result[source]) throw new Error('invalid_edge_table');
     result[source].allowed_dst_internal.push(destination);
   }

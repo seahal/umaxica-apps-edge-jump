@@ -59,7 +59,7 @@ function claim(src: Node = 'auth-app-ww', dst: Node = 'base-app-ww'): InboundJum
     sub: 'jump-redirect',
     iat: now(),
     nbf: now(),
-    exp: now() + 60,
+    exp: now() + 30,
     jti: crypto.randomUUID(),
     dst: 'internal',
     url: `${nodes[dst]}/receive?state=keep&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&q=a%20b`,
@@ -242,9 +242,22 @@ describe('B: real issuer-specific signatures through Worker adapter', () => {
 
 describe('E: reuse strict type partitions', () => {
   test.each(
-    [undefined, null, '', ' ', 'once', 'Reuse', 'REUSE', 'other', false, true, 0, [], {}].map(
-      (rpl) => ({ rpl }),
-    ),
+    [
+      undefined,
+      null,
+      '',
+      ' ',
+      'once',
+      'Reuse',
+      'REUSE',
+      'reuse\0',
+      'other',
+      false,
+      true,
+      0,
+      [],
+      {},
+    ].map((rpl) => ({ rpl })),
   )('rejects rpl $rpl', async ({ rpl }) => {
     const fetch = mockJwks();
     const data: Record<string, unknown> = { ...claim(), rpl };
@@ -281,8 +294,9 @@ describe('G/H/I: adapter boundaries', () => {
           );
     },
   );
-  test.each(['?x=1', '?rt=', '?rt=a&rt=b', '?rt[]=x'])('invalid root %s', async (query) =>
-    denied(await request(`/${query}`)),
+  test.each(['?x=1', '?rt=', '?rt=a&rt=b', '?rt[]=x', '?rt[x]=x'])(
+    'invalid root %s',
+    async (query) => denied(await request(`/${query}`)),
   );
   test.each([
     undefined,
@@ -434,6 +448,13 @@ describe('D/F/G/J/K: crypto, URL and configuration boundaries', () => {
     'https://www.umaxica.app/a#fragment',
     'https://www.umaxica.app/a?rt=existing',
     'https://www.umaxica.app/a?rt%5Bx%5D=existing',
+    'https://www.umaxica.app/a?rt=a&rt=b',
+    'https://www.umaxica.app/a?rt[]=existing',
+    'https://www.umaxica.app/a?code=a&code=b',
+    'https://www.umaxica.app/a?nonce=a&nonce=b',
+    'https://www.umaxica.app/a?redirect_uri=a&redirect_uri=b',
+    'https://www.umaxica.app/a?next=a&next=b',
+    'https://www.umaxica.app/a?return_to=a&return_to=b',
     'https://www.umaxica.app/a?state=a&state=b',
     'https://www.umaxica.app/a?x=%xx',
     'https://www.umaxica.app/a\\b',
@@ -442,11 +463,11 @@ describe('D/F/G/J/K: crypto, URL and configuration boundaries', () => {
     mockJwks();
     await denied(await request(`/?rt=${await token({ ...claim(), url })}`));
   });
-  test.each([299, 300, 301])('TTL BVA %i without leeway in structure', async (ttl) => {
+  test.each([29, 30, 31, 35])('TTL BVA %i without leeway in structure', async (ttl) => {
     mockJwks();
     const t = now();
     const res = await request(`/?rt=${await token({ ...claim(), iat: t, nbf: t, exp: t + ttl })}`);
-    if (ttl <= 300) expect(res.status).toBe(302);
+    if (ttl <= 30) expect(res.status).toBe(302);
     else await denied(res);
   });
   test.each([127, 128, 129])('kid length BVA %i', async (length) => {
@@ -454,9 +475,31 @@ describe('D/F/G/J/K: crypto, URL and configuration boundaries', () => {
     const rt = await new SignJWT(claim())
       .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'k'.repeat(length) })
       .sign(assertDefined(issuerKeys.get(nodes['auth-app-ww'])).privateKey);
-    await denied(await request(`/?rt=${rt}`));
-    if (length > 128) expect(fetch).not.toHaveBeenCalled();
-    else expect(fetch).toHaveBeenCalled();
+    if (length <= 128) {
+      const origin = nodes['auth-app-ww'];
+      jwks[`${origin}/.well-known/jwks.json`] = [
+        {
+          ...(await exportJWK(assertDefined(issuerKeys.get(origin)).publicKey)),
+          kid: 'k'.repeat(length),
+          alg: 'ES384',
+          use: 'sig',
+        },
+      ];
+      try {
+        expect((await request(`/?rt=${rt}`)).status).toBe(302);
+        expect(fetch).toHaveBeenCalled();
+      } finally {
+        assertDefined(jwks[`${origin}/.well-known/jwks.json`])[0] = {
+          ...(await exportJWK(assertDefined(issuerKeys.get(origin)).publicKey)),
+          kid: 'same-kid',
+          alg: 'ES384',
+          use: 'sig',
+        };
+      }
+    } else {
+      await denied(await request(`/?rt=${rt}`));
+      expect(fetch).not.toHaveBeenCalled();
+    }
   });
   test.each([8191, 8192, 8193])('compact token size BVA %i', async (length) => {
     const fetch = mockJwks();
