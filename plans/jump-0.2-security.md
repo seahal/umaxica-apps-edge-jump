@@ -71,4 +71,14 @@ R14 is PARTIAL: format:check fails solely on preserved pre-existing test-results
 
 ## Additional 0.2 hardening contract
 
-Additional hardening A-F: origin-cutover.md formalizes provider versus identity migration; key-rotation.md separates normal grace from emergency revoke; rollback-recovery.md defines compatible artifacts; cloudflare.ts adds cached readiness; readiness.test.ts covers focused contracts; test-worker.mjs exercises the bundled adapter in workerd and CI worker-runtime gates release. operations/readiness.md defines low-cardinality incident classification. All production and immutable-recovery evidence remains UNVERIFIED. This update does not authorize installation or deployment.
+Additional hardening A-F: origin-cutover.md formalizes provider versus identity migration; key-rotation.md separates normal grace from emergency revoke; rollback-recovery.md defines compatible artifacts; cloudflare.ts caches pair-checked signing material (the former /ready endpoint was removed on 2026-10-02); signing-material.test.ts covers focused contracts; test-worker.mjs exercises the bundled adapter in workerd and CI worker-runtime gates release. operations/deployment-verification.md defines the health/JWKS/RT smoke checks and low-cardinality incident classification. All production and immutable-recovery evidence remains UNVERIFIED. This update does not authorize installation or deployment.
+
+### Additional-hardening final validation boundary
+
+See [actual commands and outcomes](../evidence/2026-10-02-additional-hardening.md).
+449 unit tests with coverage passed before final special-host/DNS-label and runtime
+fault-test additions. Final revalidation is BLOCKED_DEPENDENCIES; runtime
+execution is BLOCKED_EPERRM (OS EPERM). The targeted formatter command unexpectedly
+entered pnpm auto-install and was interrupted; no recovery is authorized.
+LOCAL_IMPLEMENTATION_COMPLETE does not imply READY_FOR_PRODUCTION_ROLLOUT.
+ROLLOUT_STATUS = BLOCKED_FOR_ROLLOUT.

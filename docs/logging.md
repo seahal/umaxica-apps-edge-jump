@@ -83,4 +83,4 @@ account, not in `wrangler.jsonc`, so the repository cannot assert it. Confirm th
 
 ## Additional 0.2 hardening contract
 
-See [readiness and incident monitoring](operations/readiness.md): configuration/deployment reasons may warrant investigation after one occurrence; malformed/signature/destination failures use rate-based monitoring. No external alert configuration is changed.
+See [deployment verification and incident monitoring](operations/deployment-verification.md): configuration/deployment reasons may warrant investigation after one occurrence; malformed/signature/destination failures use rate-based monitoring. No external alert configuration is changed.

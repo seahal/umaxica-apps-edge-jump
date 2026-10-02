@@ -26,9 +26,10 @@ it is cleared so a later request can retry.
 
 Signing material is cached per binding bundle, deployment revision and active
 kid for 300 seconds. Every loaded bundle imports all public keys, imports private
-PKCS#8 with extractable:false, and probe-verifies the active pair. No runtime
+PKCS#8 with extractable:false, and probe-verifies the active pair. A failed
+load is not cached. No runtime
 private-key export or derivation exists. See the immutable bundle runbook.
 
 ## Additional 0.2 hardening contract
 
-The Cloudflare adapter owns GET/HEAD /ready and checks configured identity, limiter structure and the cached cryptographic signing bundle. Hono /health* retains liveness only. No persistent replay state, new provider or receiver logic is added.
+There is no readiness endpoint. Hono /health* is liveness only; /.well-known/jwks.json publishes only the pair-checked signing bundle; a valid signed RT smoke proves the redirect path. See [deployment verification](operations/deployment-verification.md). No persistent replay state, new provider or receiver logic is added.

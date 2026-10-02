@@ -27,13 +27,17 @@ ROLLOUT_STATUS = BLOCKED_FOR_ROLLOUT until this and all other release gates pass
 An earlier graph can reject newly enabled issuers/edges continuously. Use the
 current approved graph; do not restore prohibited edges for availability.
 
-After activating B, an authorized return to uncompromised A requires signer=A,
-active kid=A, JWKS=[A,B]. Receivers must retain B verification for tokens already
-issued by B, until its last possible issuance plus maximum TTL, clock tolerance,
-propagation and receiver/CDN cache bounds. Never revert to A-only while valid B
-tokens may exist. Never roll back to a compromised private key or restore revoked
-trust. Atomic immutable versions must contain consistent private/kid/JWKS bundles;
+Before activating B, prepare and test a recovery version that uses B's private
+key, active kid B, and the required public JWKS. After activation, recover code
+behavior while keeping B as the signer. Retain A's public key until the measured
+grace period ends; retaining that public key does not require A's private key.
+Do not use an arbitrary previous A-signing version as the recovery target.
+Destroy A's private key only after the lifecycle runbook's disposal conditions
+are met. Never restore a compromised key or revoked trust.
+
+Atomic immutable versions must contain consistent private/kid/JWKS bundles;
 external mutable secret references must also have verified version semantics.
+Record the real tested B recovery version ID before rollout.
 
 Identity rollback must coordinate issuer aud and receiver trusted iss/JWKS URL
 with request routing; restoring an origin variable alone is insufficient. See

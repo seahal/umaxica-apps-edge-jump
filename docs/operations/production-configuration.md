@@ -45,8 +45,10 @@ Missing/noncallable binding, absent/invalid CF-Connecting-IP or nonobject/nonboo
 success are503 service_unavailable. Exactly success=true continues, false429.
 Only exception/rejection from an otherwise valid binding call warns and continues
 all JWT/URL/graph/key checks. No IP values are logged; IP is coarse abuse control,
-not authentication or replay prevention. Shared-IP collateral and fail-open load
-are accepted residual risks. Deadline504 never continues.
+not authentication, authorization or replay prevention. Shared-IP collateral and
+fail-open load are accepted residual risks. Deadline504 never continues. The
+Cloudflare native binding configured in `wrangler.jsonc` `ratelimits` is the only
+rate-limit mechanism; see [deployment verification](deployment-verification.md#rate-limiting).
 
 Initialization, ASSETS, secret and Hono failures get final common headers. Bad
 requests400; configuration503; unexpected exceptions500; entry deadline1000ms504.
@@ -64,4 +66,4 @@ see compatibility matrix. Until verified: BLOCKED_FOR_ROLLOUT.
 
 ## Additional 0.2 hardening contract
 
-Use [readiness](readiness.md) separately from liveness, [origin cutover](origin-cutover.md) for identity changes and [rollback recovery](rollback-recovery.md) for recovery. Require the CI worker-runtime job in release/branch protection; repository YAML alone does not configure external branch protection. rollback-compatible immutable artifact: NOT YET VERIFIED. ROLLOUT_STATUS = BLOCKED_FOR_ROLLOUT.
+Use [deployment verification](deployment-verification.md) (health, JWKS, signed RT smoke), [origin cutover](origin-cutover.md) for identity changes and [rollback recovery](rollback-recovery.md) for recovery. Require the CI worker-runtime job in release/branch protection; repository YAML alone does not configure external branch protection. rollback-compatible immutable artifact: NOT YET VERIFIED. ROLLOUT_STATUS = BLOCKED_FOR_ROLLOUT.

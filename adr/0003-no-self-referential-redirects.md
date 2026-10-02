@@ -1,3 +1,5 @@
+> Historical decision: FQDN counts and registry contents are superseded by [ADR0005](0005-production-jump-0.2.md). Original text below is retained.
+
 # ADR 0003: Prohibit Self-Referential Redirects
 
 ## Status

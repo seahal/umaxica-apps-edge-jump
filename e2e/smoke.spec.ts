@@ -141,9 +141,11 @@ function expectSecurityHeaders(response: APIResponse) {
 }
 
 for (const path of ['/about', '/about/', '//', '/favicon.ico', '/.well-known/jwks.json']) {
-  test(`rt wrong-path ${path} has no navigation or reflection`, async ({ request }) => {
+  test(`rt wrong-path ${path} has no navigation or reflection`, async ({ request, baseURL }) => {
+    // Resolve against baseURL so `//` stays a path instead of a scheme-relative URL.
+    const url = `${baseURL}${path}?rt%5Bx%5D=private-token`;
     for (const method of ['GET', 'HEAD']) {
-      const response = await request.fetch(`${path}?rt%5Bx%5D=private-token`, {
+      const response = await request.fetch(url, {
         method,
         maxRedirects: 0,
       });

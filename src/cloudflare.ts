@@ -87,9 +87,7 @@ export default {
     } catch (error) {
       const code = error instanceof JumpError ? error.code : 'internal_error';
       emitSecurityLog({ level: 'warn', event: 'jump_reject', reason: code, request_id: requestId });
-      response = isReadinessRequest(request)
-        ? readinessResponse(false)
-        : publicErrorResponse(code, locale);
+      response = publicErrorResponse(code, locale);
     } finally {
       clearTimeout(timer);
     }
@@ -153,32 +151,12 @@ async function dispatch(
         !url.searchParams.get('rt')))
   )
     throw new JumpError('malformed');
-  if (url.pathname === '/ready') {
-    assertLimiterBinding(env);
-    await keyMaterialCacheFor(env).getSigner(env, signal);
-    throwIfAborted(signal);
-    return readinessResponse(true);
-  }
   const limited = await checkRateLimit(request, env, requestId, signal);
   throwIfAborted(signal);
   if (limited) return limited;
   if (isStaticAsset(url)) return raceAbort(serveStaticAsset(request, env, requestId), signal);
   const app = getApp(env, serviceOrigin);
   return app.fetch(request, env, ctx, { requestId, signal });
-}
-
-function isReadinessRequest(request: Request) {
-  return (
-    new URL(request.url).pathname === '/ready' &&
-    (request.method === 'GET' || request.method === 'HEAD')
-  );
-}
-
-function readinessResponse(ready: boolean) {
-  return new Response(JSON.stringify({ status: ready ? 'ready' : 'unavailable' }), {
-    status: ready ? 200 : 503,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-  });
 }
 
 function assertLimiterBinding(env: CloudflareEnv) {
@@ -262,7 +240,7 @@ async function checkRateLimit(
 }
 
 function validClientIp(value: string | null): value is string {
-  if (!value || /[\s\[\]\/\\?#@%]/.test(value)) return false;
+  if (!value || /[\s[\]/\\?#@%]/.test(value)) return false;
   try {
     if (value.includes(':')) return new URL(`https://[${value}]`).hostname.startsWith('[');
     const parts = value.split('.');
