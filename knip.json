@@ -1,5 +1,4 @@
 {
   "$schema": "./node_modules/knip/schema.json",
-  "entry": ["src/index.ts", "src/fastly.ts", "e2e/server.ts", "test/**/*.test.ts"],
-  "ignoreBinaries": ["fastly"]
+  "entry": ["src/cloudflare.ts", "src/index.ts", "e2e/server.ts", "test/**/*.test.ts"]
 }

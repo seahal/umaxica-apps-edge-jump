@@ -1,15 +1,13 @@
 export const SERVICE = {
   name: 'jump',
-  version: '0.1.0',
+  version: '0.2.0',
 } as const;
 
-export const PRODUCTION_SERVICE_ORIGIN = 'https://jump.umaxica.net';
-
-type EdgeName = 'fastly' | 'cloudflare' | 'local' | 'unknown';
+type EdgeName = 'cloudflare';
 
 export type RuntimeInfo = {
   edge: EdgeName;
-  production: boolean;
+  production: true;
 };
 
 export type JumpConfig = {
@@ -30,6 +28,7 @@ type JumpDst = 'internal' | 'external';
 
 export type InboundJumpClaim = {
   schema: 1;
+  rpl: 'reuse';
   iss: string;
   aud: string;
   sub: 'jump-redirect';
@@ -43,6 +42,7 @@ export type InboundJumpClaim = {
 
 export type OutboundJumpClaim = {
   schema: 1;
+  rpl: 'reuse';
   iss: string;
   aud: string;
   sub: 'jump-redirect';

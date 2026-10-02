@@ -1,11 +1,10 @@
-import { normalizeUrl } from './normalize_url';
+import { normalizeUrl, validateInternalTarget } from './normalize_url';
 import { assertDestinationPolicy } from './policy';
 import { publicErrorResponse } from './public_error';
 import { renderCushion } from './render_cushion';
 import { verifyJumpJwt } from './verify_jwt';
 import {
   JumpError,
-  PRODUCTION_SERVICE_ORIGIN,
   type JumpConfig,
   type IssuerConfig,
   type IssuerRegistry,
@@ -22,7 +21,7 @@ export type JumpDeps = {
   jwksCache: JwksCache;
   runtime: RuntimeInfo;
   signer: OutboundSigner;
-  config?: JumpConfig;
+  config: JumpConfig;
   auditLog?: AuditLog;
   locale?: Locale;
   now?: () => number;
@@ -75,7 +74,8 @@ export async function handleJump(request: Request, deps: JumpDeps): Promise<Resp
     };
     const kid = readProtectedKid(String(tokens[0]));
     if (kid) audit.kid = kid;
-    const target = normalizeUrl(claim.url, deps.runtime, serviceOrigin(deps));
+    const normalized = normalizeUrl(claim.url, deps.runtime, serviceOrigin(deps));
+    const target = claim.dst === 'internal' ? validateInternalTarget(normalized) : normalized;
     audit.dst_origin = target.origin;
     assertDestinationPolicy(claim, issuer, target);
 
@@ -88,6 +88,7 @@ export async function handleJump(request: Request, deps: JumpDeps): Promise<Resp
     }
 
     const location = await buildInternalLocation(target, issuer, deps, now);
+    if (deps.signal?.aborted) throw new JumpError('deadline_exceeded');
     deps.auditLog?.({ level: 'info', event: 'jump_accept', result: 'accepted', ...audit });
     return new Response(null, {
       status: 302,
@@ -122,6 +123,7 @@ async function buildInternalLocation(
   const ttl = deps.outboundTtl ?? DEFAULT_OUTBOUND_TTL;
   const outbound: OutboundJumpClaim = {
     schema: 1,
+    rpl: 'reuse',
     iss: serviceOrigin(deps),
     aud: target.origin,
     sub: 'jump-redirect',
@@ -134,13 +136,15 @@ async function buildInternalLocation(
     url: target.href,
   };
   const token = await deps.signer.sign(outbound);
+  if (deps.signal?.aborted) throw new JumpError('deadline_exceeded');
+  if (token.length > 8192) throw new JumpError('invalid_claim');
   const destination = new URL(target.href);
   destination.searchParams.set('rt', token);
   return destination.href;
 }
 
 function serviceOrigin(deps: JumpDeps) {
-  return deps.config?.serviceOrigin ?? PRODUCTION_SERVICE_ORIGIN;
+  return deps.config.serviceOrigin;
 }
 
 function readProtectedKid(token: string) {

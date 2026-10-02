@@ -2,8 +2,6 @@ import { Hono, type Context } from 'hono';
 import { languageDetector, type LanguageVariables } from 'hono/language';
 import { logger } from 'hono/logger';
 import { trimTrailingSlash } from 'hono/trailing-slash';
-import exampleJwks from './config/jwks.example.json';
-import { registry as exampleRegistry } from './config/registry.example';
 import {
   handleJump,
   type AuditLog,
@@ -14,25 +12,23 @@ import { healthJson, renderHealthHtml, wantsJson } from './core/health';
 import { asLocale, type Locale } from './core/i18n';
 import { JwksCache, type FetchJwks } from './core/jwks_cache';
 import { validateJumpJwks, type JumpJwks } from './core/jump_jwks';
-import { publicErrorHeaders, publicErrorResponse, publicJumpError } from './core/public_error';
+import { publicErrorResponse, publicJumpError } from './core/public_error';
 import { emitSecurityLog } from './core/security_log';
-import { renderErrorPage, renderNotFoundPage } from './core/page';
+import { renderErrorPage } from './core/page';
 import { renderAbout } from './core/render_about';
 import { renderRobots, renderSitemap } from './core/render_discovery';
 import { jumpSecureHeaders, responseHygiene } from './core/security_headers';
+import { validateServiceOrigin, normalizeOrigin, isRtKey } from './core/normalize_url';
+import { throwIfAborted } from './core/deadline';
 import { NoopOutboundSigner, type OutboundSigner } from './core/sign_outbound';
-import {
-  JumpError,
-  PRODUCTION_SERVICE_ORIGIN,
-  type JumpConfig,
-  type IssuerRegistry,
-  type RuntimeInfo,
-} from './core/types';
+import { JumpError, type JumpConfig, type IssuerRegistry, type RuntimeInfo } from './core/types';
 
 type RequestVariables = LanguageVariables & {
   deadlineSignal: AbortSignal;
   requestId: string;
+  adapterContext?: AdapterContext;
 };
+export type AdapterContext = { requestId: string; signal: AbortSignal };
 type AppEnv = { Bindings: object; Variables: RequestVariables };
 
 export type AppOptions = Omit<Partial<JumpDeps>, 'config'> & {
@@ -45,26 +41,27 @@ export type AppOptions = Omit<Partial<JumpDeps>, 'config'> & {
   deadlineMs?: number;
 };
 
+const adapterContexts = new WeakMap<Request, AdapterContext>();
+
 export function createApp(options: AppOptions = {}) {
-  const runtime = options.runtime ?? detectRuntime();
-  // The example registry and example keyset exist for local runs and tests.
-  // A production runtime that reached them would broker redirects for
-  // `app.example.com` — including its `allowed_dst_external` entry — so refuse
-  // to build the app at all rather than serve a placeholder trust anchor.
-  if (runtime.production && (!options.registry || (!options.jwksCache && !options.fetchJwks))) {
-    throw new Error('production runtime requires an explicit registry and jwks source');
+  const runtime = { edge: 'cloudflare', production: true } as const;
+  if (!options.registry || (!options.jwksCache && !options.fetchJwks))
+    throw new Error('explicit registry and jwks source required');
+  const registry = options.registry;
+  let jwksCache = options.jwksCache;
+  if (!jwksCache) {
+    const fetchJwks = options.fetchJwks;
+    if (!fetchJwks) throw new Error('explicit jwks source required');
+    jwksCache = new JwksCache(fetchJwks);
   }
-  const registry = options.registry ?? exampleRegistry;
-  const jwksCache = options.jwksCache ?? new JwksCache(options.fetchJwks ?? fetchExampleJwks);
   const signer = options.signer ?? new NoopOutboundSigner();
   const config = resolveJumpConfig(runtime, options.config);
-  const jumpJwks = options.jumpJwks
-    ? validateJumpJwks(options.jumpJwks)
-    : runtime.production
-      ? null
-      : validateJumpJwks(exampleJwks);
-
-  validateRegistry(registry, runtime);
+  const jumpJwks = options.jumpJwks ? validateJumpJwks(options.jumpJwks) : null;
+  try {
+    validateRegistry(registry, runtime, config.serviceOrigin);
+  } catch {
+    throw new JumpError('signer_unavailable');
+  }
   const app = new Hono<AppEnv>({ strict: true });
   app.use('*', logger(redactLogLine));
   app.use(
@@ -80,6 +77,24 @@ export function createApp(options: AppOptions = {}) {
   app.use('*', responseHygiene);
   app.use('*', jumpSecureHeaders());
   app.use('*', requestDeadline(options.deadlineMs ?? 1000));
+  app.use('*', async (c, next) => {
+    const url = new URL(c.req.url);
+    if (c.req.method !== 'GET' && c.req.method !== 'HEAD') {
+      const response = publicErrorResponse('method_not_allowed', requestLocale(c));
+      response.headers.set('Allow', 'GET, HEAD');
+      return response;
+    }
+    if (
+      (url.pathname !== '/' && [...url.searchParams.keys()].some(isRtKey)) ||
+      (url.pathname === '/' &&
+        url.search &&
+        ([...url.searchParams.keys()].some((key) => key !== 'rt') ||
+          url.searchParams.getAll('rt').length !== 1 ||
+          !url.searchParams.get('rt')))
+    )
+      return publicErrorResponse('malformed', requestLocale(c));
+    await next();
+  });
   app.use('*', trimSlashExceptRoot());
 
   app.on(['GET', 'HEAD'], '/', async (c) => {
@@ -105,6 +120,7 @@ export function createApp(options: AppOptions = {}) {
     if (options.outboundTtl !== undefined) deps.outboundTtl = options.outboundTtl;
     const started = performance.now();
     const response = await raceWithDeadline(handleJump(c.req.raw, deps), signal, locale);
+    throwIfAborted(signal);
     const entry = pendingAudit ?? auditEntryForResponse(response);
     (options.auditLog ?? auditLog)({
       ...entry,
@@ -139,7 +155,7 @@ export function createApp(options: AppOptions = {}) {
     return html(c, renderHealthHtml(runtime, locale), locale);
   });
   // Cloudflare dispatches this path through the Worker first; cloudflare.ts
-  // delegates to the ASSETS binding. Fastly and Node use this fallback route.
+  // delegates to the ASSETS binding. Direct core tests use this fallback route.
   app.get('/favicon.ico', (c) => c.body(null, 204));
   app.get('/robots.txt', (c) => c.text(renderRobots(config.serviceOrigin)));
   app.get('/sitemap.xml', (c) =>
@@ -156,11 +172,17 @@ export function createApp(options: AppOptions = {}) {
   });
 
   app.notFound((c) => {
-    const locale = requestLocale(c);
-    return c.body(renderNotFoundPage(locale), 404, {
-      'Content-Language': locale,
-      'Content-Type': 'text/html; charset=utf-8',
-    });
+    // Trailing-slash 404s are rewritten to 301 by `trimTrailingSlash`.
+    if (c.req.path.length > 1 && c.req.path.endsWith('/') && !/^\/+$/.test(c.req.path)) {
+      return c.body(null, 404);
+    }
+    // Humans hitting a mistyped path land on About. JSON and non-GET clients
+    // get a plain 404 so machine probes are not fed an HTML document.
+    const method = c.req.method;
+    if ((method === 'GET' || method === 'HEAD') && !wantsJson(c.req.header('Accept') ?? null)) {
+      return c.redirect('/about', 302);
+    }
+    return c.body(null, 404);
   });
 
   app.onError((error, c) => {
@@ -175,14 +197,16 @@ export function createApp(options: AppOptions = {}) {
       ...cfRayFields(c.req.header('CF-Ray')),
       status: pub.status,
     });
-    return c.body(
-      renderErrorPage(requestLocale(c)),
-      pub.status,
-      publicErrorHeaders(jumpError.code, requestLocale(c)),
-    );
+    return publicErrorResponse(jumpError.code, requestLocale(c));
   });
 
-  return app;
+  return {
+    request: app.request.bind(app),
+    fetch(request: Request, env?: object, ctx?: ExecutionContext, adapterContext?: AdapterContext) {
+      if (adapterContext) adapterContexts.set(request, adapterContext);
+      return app.fetch(request, env, ctx);
+    },
+  };
 }
 
 export function resolveJumpConfig(
@@ -190,7 +214,7 @@ export function resolveJumpConfig(
   config: Partial<JumpConfig> = {},
 ): JumpConfig {
   return {
-    serviceOrigin: config.serviceOrigin ?? PRODUCTION_SERVICE_ORIGIN,
+    serviceOrigin: validateServiceOrigin(config.serviceOrigin),
   };
 }
 
@@ -209,28 +233,13 @@ function json(c: Context, body: unknown) {
   return c.body(JSON.stringify(body), 200, { 'Content-Type': 'application/json; charset=utf-8' });
 }
 
-export function detectRuntime(): RuntimeInfo {
-  const globalEdge = globalThis as { FASTLY_SERVICE_VERSION?: string; WebSocketPair?: unknown };
-  if (globalEdge.FASTLY_SERVICE_VERSION) {
-    return { edge: 'fastly', production: true };
-  }
-  if (globalEdge.WebSocketPair) {
-    return { edge: 'cloudflare', production: true };
-  }
-  return { edge: 'local', production: false };
-}
-
-export async function fetchExampleJwks() {
-  return exampleJwks;
-}
-
 function redactLogLine(message: string) {
-  // eslint-disable-next-line no-console -- request logging is intentional, but rt values are redacted.
+  // eslint-disable-next-line no-console -- request logging is intentional, but arbitrary paths are not.
   console.log(
     message.replace(/(\s)(\/\S*)/, (_match, whitespace: string, target: string) => {
       try {
         const url = new URL(target, 'https://request-log.invalid');
-        return `${whitespace}${redactJwtPath(url.pathname)}`;
+        return `${whitespace}${safeLogPath(url.pathname)}`;
       } catch {
         return `${whitespace}[unparseable-request-target]`;
       }
@@ -238,11 +247,20 @@ function redactLogLine(message: string) {
   );
 }
 
-function redactJwtPath(pathname: string) {
-  return pathname.replace(
-    /(?:rt=)?[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,
-    '[redacted-jwt]',
-  );
+const LOGGABLE_PATHS = new Set([
+  '/',
+  '/about',
+  '/health',
+  '/health.json',
+  '/health.html',
+  '/favicon.ico',
+  '/robots.txt',
+  '/sitemap.xml',
+  '/.well-known/jwks.json',
+]);
+
+function safeLogPath(pathname: string) {
+  return LOGGABLE_PATHS.has(pathname) ? pathname : '[redacted-path]';
 }
 
 function auditLog(entry: JumpAuditLogEntry) {
@@ -250,12 +268,12 @@ function auditLog(entry: JumpAuditLogEntry) {
 }
 
 function runtimeEdgeHint() {
-  return detectRuntime().edge;
+  return 'cloudflare';
 }
 
 function internalRequestId() {
   return async (c: Context<AppEnv>, next: () => Promise<void>) => {
-    const id = crypto.randomUUID();
+    const id = adapterContexts.get(c.req.raw)?.requestId ?? crypto.randomUUID();
     c.set('requestId', id);
     await next();
     c.header('X-Request-ID', id);
@@ -267,7 +285,8 @@ function internalRequestId() {
  * trailing slash — query string included. For an all-slashes path that means
  * `GET //?rt=<jwt>` answers 301 with the inbound token echoed into `Location`,
  * on a status the jump contract does not define. Paths that collapse to the
- * jump route are left as a plain 404; `/about/` and friends still normalize.
+ * jump route skip that rewrite and fall through to notFound, which 302s to
+ * `/about` without the query; `/about/` and friends still normalize.
  */
 function trimSlashExceptRoot() {
   const trim = trimTrailingSlash();
@@ -279,6 +298,11 @@ function trimSlashExceptRoot() {
 
 function requestDeadline(durationMs: number) {
   return async (c: Context<AppEnv>, next: () => Promise<void>) => {
+    const shared = adapterContexts.get(c.req.raw);
+    if (shared) {
+      c.set('deadlineSignal', shared.signal);
+      return next();
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), durationMs);
     c.set('deadlineSignal', controller.signal);
@@ -333,9 +357,12 @@ function auditEntryForResponse(response: Response): JumpAuditLogEntry {
   };
 }
 
-function validateRegistry(registry: IssuerRegistry, runtime: RuntimeInfo) {
+function validateRegistry(registry: IssuerRegistry, runtime: RuntimeInfo, serviceOrigin: string) {
   for (const [name, issuer] of Object.entries(registry)) {
     if (name !== issuer.iss) throw new Error('registry issuer key mismatch');
+    normalizeOrigin(issuer.iss, runtime, serviceOrigin);
+    if (issuer.jwks_uri !== `${issuer.iss}/.well-known/jwks.json`)
+      throw new Error('invalid_jwks_uri');
     const issuerUrl = new URL(issuer.iss);
     if (runtime.production && issuerUrl.protocol !== 'https:')
       throw new Error('production issuer must use https');
@@ -347,6 +374,7 @@ function validateRegistry(registry: IssuerRegistry, runtime: RuntimeInfo) {
       ...issuer.allowed_dst_internal,
       ...(Array.isArray(issuer.allowed_dst_external) ? issuer.allowed_dst_external : []),
     ]) {
+      normalizeOrigin(destination, runtime, serviceOrigin);
       const url = new URL(destination);
       if (runtime.production && url.protocol !== 'https:')
         throw new Error('production destination must use https');

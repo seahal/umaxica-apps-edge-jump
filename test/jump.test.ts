@@ -1,3 +1,5 @@
+import { PRODUCTION_SERVICE_ORIGIN } from './app-fixture';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import {
   decodeProtectedHeader,
@@ -12,30 +14,60 @@ import {
 } from 'jose';
 import { describe, expect, test, vi } from 'vitest';
 import { registry as umaxicaRegistry } from '../src/config/registry.umaxica';
-import { createApp, detectRuntime, fetchExampleJwks, type AppOptions } from '../src';
+import { createApp, type AppOptions } from './app-fixture';
+import { createApp as productionApp } from '../src';
 import { fetchRegistryJwks } from '../src/core/fetch_jwks';
 import { escapeAttribute, escapeHtml } from '../src/core/escape';
-import cloudflareWorker, { resetIsolateCachesForTest } from '../src/cloudflare';
+import actualWorker, { resetIsolateCachesForTest } from '../src/cloudflare';
 import { handleJump } from '../src/core/handle_jump';
 import { healthJson, renderHealthHtml, wantsJson } from '../src/core/health';
 import { JwksCache, type FetchJwks } from '../src/core/jwks_cache';
 import { messages } from '../src/core/i18n';
-import { normalizeOrigin, normalizeUrl } from '../src/core/normalize_url';
+import { normalizeOrigin, normalizeUrl } from './app-fixture';
 import { brandTitle, renderHealthPage } from '../src/core/page';
 import { assertDestinationPolicy } from '../src/core/policy';
-import { JoseOutboundSigner, NoopOutboundSigner } from '../src/core/sign_outbound';
 import {
-  JumpError,
-  PRODUCTION_SERVICE_ORIGIN,
-  type InboundJumpClaim,
-  type IssuerRegistry,
-} from '../src/core/types';
+  CUSHION_INLINE_SCRIPT,
+  PRODUCT_PAGE_CSS,
+  PRODUCT_PAGE_CSS_SHA256,
+  SPLASH_PAGE_CSS,
+  SPLASH_PAGE_CSS_SHA256,
+} from '../src/core/security_headers';
+import { JoseOutboundSigner, NoopOutboundSigner } from '../src/core/sign_outbound';
+import { JumpError, type InboundJumpClaim, type IssuerRegistry } from '../src/core/types';
 import {
   assertBase64Url,
   CLOCK_SKEW_SECONDS,
   MAX_INBOUND_TTL_SECONDS,
-  verifyJumpJwt,
 } from '../src/core/verify_jwt';
+import { verifyJumpJwt } from './app-fixture';
+
+// Legacy tests explicitly supply the new adapter prerequisites. Missing-config
+// acceptance tests call the raw worker in production-contract.test.ts.
+const adapterEnvs = new WeakMap<object, Parameters<typeof actualWorker.fetch>[1]>();
+const cloudflareWorker = {
+  fetch(
+    request: Request,
+    settings: Parameters<typeof actualWorker.fetch>[1],
+    ctx: ExecutionContext,
+  ) {
+    let env = adapterEnvs.get(settings);
+    if (!env) {
+      env = {
+        UMAXICA_JUMP_ORIGIN: PRODUCTION_SERVICE_ORIGIN,
+        JUMP_RATE_LIMITER: { limit: async () => ({ success: true }) },
+        ...settings,
+      };
+      adapterEnvs.set(settings, env);
+    }
+    const url = new URL(request.url);
+    url.protocol = new URL(env.UMAXICA_JUMP_ORIGIN!).protocol;
+    url.host = new URL(env.UMAXICA_JUMP_ORIGIN!).host;
+    const headers = new Headers(request.headers);
+    if (!headers.has('CF-Connecting-IP')) headers.set('CF-Connecting-IP', '203.0.113.7');
+    return actualWorker.fetch(new Request(url, { method: request.method, headers }), env, ctx);
+  },
+};
 
 const NOW = 1_800_000_000;
 
@@ -74,7 +106,7 @@ async function fixtureWithOptions(options: AppOptions = {}): Promise<Fixture> {
     'https://app.example.com': {
       iss: 'https://app.example.com',
       jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-      allowed_dst_internal: ['https://app.example.com', 'https://docs.example.com'],
+      allowed_dst_internal: ['https://docs.example.com'],
       allowed_dst_external: ['https://example.org'],
     },
   };
@@ -84,7 +116,7 @@ async function fixtureWithOptions(options: AppOptions = {}): Promise<Fixture> {
       fetches += 1;
       return { keys: [publicJwk] };
     }),
-    runtime: { edge: 'local', production: true },
+    runtime: { edge: 'cloudflare', production: true },
     signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
     now: () => NOW,
     ...options,
@@ -111,6 +143,7 @@ async function signToken(
 function baseClaim(): InboundJumpClaim {
   return {
     schema: 1,
+    rpl: 'reuse',
     iss: 'https://app.example.com',
     aud: PRODUCTION_SERVICE_ORIGIN,
     sub: 'jump-redirect',
@@ -119,7 +152,7 @@ function baseClaim(): InboundJumpClaim {
     exp: NOW + 300,
     jti: crypto.randomUUID(),
     dst: 'internal',
-    url: 'https://app.example.com/path',
+    url: 'https://docs.example.com/path',
   };
 }
 
@@ -215,95 +248,28 @@ describe('jump gateway routes', () => {
   test('default app serves local health data', async () => {
     const app = createApp();
     const res = await app.request('https://jump.example.net/health.json');
-    expect(await res.json()).toMatchObject({ edge: 'local' });
-    expect((await fetchExampleJwks()).keys.length).toBeGreaterThan(0);
+    expect(await res.json()).toMatchObject({ edge: 'cloudflare' });
+    expect(res.status).toBe(200);
   });
 
-  test('umaxica production registry limits issuers and internal destinations', () => {
-    expect(Object.keys(umaxicaRegistry)).toEqual([
-      'https://auth.umaxica.app',
-      'https://auth.umaxica.com',
-      'https://auth.umaxica.org',
-      'https://www.umaxica.app',
-      'https://www.umaxica.com',
-      'https://www.umaxica.org',
-    ]);
-    expect(umaxicaRegistry['https://auth.umaxica.app']).toMatchObject({
-      jwks_uri: 'https://auth.umaxica.app/.well-known/jwks.json',
-      allowed_dst_internal: ['https://www.umaxica.app'],
-      allowed_dst_external: false,
-    });
-    expect(umaxicaRegistry['https://www.umaxica.app']).toMatchObject({
-      jwks_uri: 'https://www.umaxica.app/.well-known/jwks.json',
-      allowed_dst_internal: [
-        'https://auth.umaxica.app',
-        'https://www-jp.umaxica.app',
-        'https://jp.umaxica.app',
-        'https://palm.umaxica.app',
-      ],
-      allowed_dst_external: false,
-    });
-    expect(umaxicaRegistry['https://auth.umaxica.com']).toMatchObject({
-      jwks_uri: 'https://auth.umaxica.com/.well-known/jwks.json',
-      allowed_dst_internal: ['https://www.umaxica.com'],
-      allowed_dst_external: false,
-    });
-    expect(umaxicaRegistry['https://www.umaxica.com']).toMatchObject({
-      jwks_uri: 'https://www.umaxica.com/.well-known/jwks.json',
-      allowed_dst_internal: [
-        'https://auth.umaxica.com',
-        'https://www-jp.umaxica.com',
-        'https://jp.umaxica.com',
-      ],
-      allowed_dst_external: false,
-    });
-    expect(umaxicaRegistry['https://auth.umaxica.org']).toMatchObject({
-      jwks_uri: 'https://auth.umaxica.org/.well-known/jwks.json',
-      allowed_dst_internal: ['https://www.umaxica.org'],
-      allowed_dst_external: false,
-    });
-    expect(umaxicaRegistry['https://www.umaxica.org']).toMatchObject({
-      jwks_uri: 'https://www.umaxica.org/.well-known/jwks.json',
-      allowed_dst_internal: [
-        'https://auth.umaxica.org',
-        'https://www-jp.umaxica.org',
-        'https://jp.umaxica.org',
-        'https://edit.umaxica.org',
-      ],
-      allowed_dst_external: false,
-    });
+  test('production registration rejects aliases, edit and future regions', () => {
+    expect(Object.keys(umaxicaRegistry)).toHaveLength(13);
+    for (const origin of [
+      'https://edit.umaxica.org',
+      'https://palm.umaxica.app',
+      'https://www.jp.umaxica.app',
+      'https://jpx.umaxica.app',
+      'https://us.umaxica.app',
+    ])
+      expect(Object.hasOwn(umaxicaRegistry, origin)).toBe(false);
     for (const issuer of Object.values(umaxicaRegistry)) {
-      expect(issuer.iss).toBeTruthy();
       expect(issuer.jwks_uri).toBe(`${issuer.iss}/.well-known/jwks.json`);
       expect(issuer.allowed_dst_external).toBe(false);
       expect(issuer.revoked_kids).toEqual([]);
-      for (const origin of issuer.allowed_dst_internal) {
-        expect(new URL(origin).origin).toBe(origin);
-      }
-    }
-  });
-
-  test('umaxica registry forbids auth <-> non-base routing on every tld', () => {
-    for (const tld of ['app', 'com', 'org']) {
-      expect(umaxicaRegistry[`https://auth.umaxica.${tld}`]?.allowed_dst_internal).toEqual([
-        `https://www.umaxica.${tld}`,
-      ]);
-    }
-    const issuers = Object.keys(umaxicaRegistry);
-    for (const host of ['www-jp', 'jp', 'edit', 'palm']) {
-      for (const tld of ['app', 'com', 'org']) {
-        expect(issuers).not.toContain(`https://${host}.umaxica.${tld}`);
-      }
-    }
-    for (const issuer of Object.values(umaxicaRegistry)) {
-      const issuerHost = new URL(issuer.iss).hostname;
-      for (const origin of issuer.allowed_dst_internal) {
-        const dstHost = new URL(origin).hostname;
-        // auth only ever reaches base; every other role is reachable from base alone
-        if (issuerHost.startsWith('auth.')) expect(dstHost.startsWith('www.')).toBe(true);
-        // never across tlds
-        expect(dstHost.split('.').at(-1)).toBe(issuerHost.split('.').at(-1));
-      }
+      for (const dst of issuer.allowed_dst_internal)
+        expect(new URL(dst).hostname.split('.').at(-1)).toBe(
+          new URL(issuer.iss).hostname.split('.').at(-1),
+        );
     }
   });
 
@@ -328,13 +294,14 @@ describe('jump gateway routes', () => {
       jwksCache: new JwksCache(async () => ({
         keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
-      runtime: { edge: 'local', production: true },
+      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
+      runtime: { edge: 'cloudflare', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       now: () => NOW,
     });
 
     // behavioural: every one of the 14 hosts is refused a jump back to itself
-    expect(fqdns).toHaveLength(14);
+    expect(fqdns).toHaveLength(13);
     for (const host of fqdns) {
       const res = await jump(
         app,
@@ -363,60 +330,14 @@ describe('jump gateway routes', () => {
     }
   });
 
-  test('umaxica registry accepts exactly the 14 allowed edges of the 196 ordered pairs', async () => {
-    const fqdns = [
-      ...new Set([
-        ...Object.keys(umaxicaRegistry),
-        ...Object.values(umaxicaRegistry).flatMap((issuer) => issuer.allowed_dst_internal),
-      ]),
-    ].sort();
-    expect(fqdns).toHaveLength(14);
-
-    const allowed = new Set(
-      Object.values(umaxicaRegistry).flatMap((issuer) =>
-        issuer.allowed_dst_internal.map((dst) => `${issuer.iss} ${dst}`),
-      ),
+  test('independent graph contract suite exists', () => {
+    const contract = readFileSync(
+      new URL('./production-contract.test.ts', import.meta.url),
+      'utf8',
     );
-    expect(allowed.size).toBe(14);
-
-    const issuerKeys = await generateKeyPair('ES384');
-    const jumpKeys = await generateKeyPair('ES384');
-    const jwk = await exportJWK(issuerKeys.publicKey);
-    const app = createApp({
-      registry: umaxicaRegistry,
-      jwksCache: new JwksCache(async () => ({
-        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
-      })),
-      runtime: { edge: 'local', production: true },
-      signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
-      now: () => NOW,
-    });
-
-    const accepted: string[] = [];
-    const rejected: string[] = [];
-    for (const iss of fqdns) {
-      for (const dst of fqdns) {
-        const token = await signPayload(issuerKeys.privateKey, {
-          ...baseClaim(),
-          iss,
-          url: `${dst}/path`,
-        });
-        const res = await jump(app, token);
-        const edge = `${iss} ${dst}`;
-        if (res.status === 302) {
-          accepted.push(edge);
-          expect(new URL(String(res.headers.get('Location'))).origin).toBe(dst);
-          continue;
-        }
-        rejected.push(edge);
-        // an issuer the registry does not know never reaches destination policy
-        expect(res.headers.get('X-Jump-Error'), edge).toBe('invalid_request');
-      }
-    }
-
-    expect(accepted.sort()).toEqual([...allowed].sort());
-    expect(accepted).toHaveLength(14);
-    expect(rejected).toHaveLength(196 - 14);
+    expect(contract).toContain('169 ordered pairs');
+    expect(contract).toContain('20 allow / 149 deny');
+    expect(contract).toContain('same-kid');
   });
 
   test('umaxica registry rejects cross-tld hops at runtime', async () => {
@@ -428,7 +349,8 @@ describe('jump gateway routes', () => {
       jwksCache: new JwksCache(async () => ({
         keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
-      runtime: { edge: 'local', production: true },
+      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
+      runtime: { edge: 'cloudflare', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       now: () => NOW,
     });
@@ -489,22 +411,10 @@ describe('jump gateway routes', () => {
     }
   });
 
-  test('runtime detection names fastly and cloudflare explicitly', () => {
-    const globalEdge = globalThis as { FASTLY_SERVICE_VERSION?: string; WebSocketPair?: unknown };
-    const previousFastly = globalEdge.FASTLY_SERVICE_VERSION;
-    const previousCloudflare = globalEdge.WebSocketPair;
-    try {
-      globalEdge.FASTLY_SERVICE_VERSION = '1';
-      expect(detectRuntime().edge).toBe('fastly');
-      delete globalEdge.FASTLY_SERVICE_VERSION;
-      globalEdge.WebSocketPair = function WebSocketPair() {};
-      expect(detectRuntime().edge).toBe('cloudflare');
-    } finally {
-      if (previousFastly === undefined) delete globalEdge.FASTLY_SERVICE_VERSION;
-      else globalEdge.FASTLY_SERVICE_VERSION = previousFastly;
-      if (previousCloudflare === undefined) delete globalEdge.WebSocketPair;
-      else globalEdge.WebSocketPair = previousCloudflare;
-    }
+  test('production has no provider runtime detection', async () => {
+    const source = readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8');
+    expect(source).not.toContain('detectRuntime');
+    expect(source).not.toContain('FASTLY_SERVICE_VERSION');
   });
 
   test('GET / redirects to about when rt is absent', async () => {
@@ -531,8 +441,8 @@ describe('jump gateway routes', () => {
     expect(await json.json()).toMatchObject({
       status: 'OK',
       service: 'jump',
-      version: '0.1.0',
-      edge: 'local',
+      version: '0.2.0',
+      edge: 'cloudflare',
     });
     const html = await app.request('https://jump.example.net/health.html');
     const healthHtml = await html.text();
@@ -542,8 +452,8 @@ describe('jump gateway routes', () => {
     expect(healthHtml).toContain('<h1>status</h1>');
     expect(healthHtml).toContain('<dt>status</dt><dd>OK</dd>');
     expect(healthHtml).toContain('<dt>service</dt><dd>jump</dd>');
-    expect(healthHtml).toContain('<dt>version</dt><dd>0.1.0</dd>');
-    expect(healthHtml).toContain('<dt>edge</dt><dd>local</dd>');
+    expect(healthHtml).toContain('<dt>version</dt><dd>0.2.0</dd>');
+    expect(healthHtml).toContain('<dt>edge</dt><dd>cloudflare</dd>');
     expect(healthHtml).toContain('<dt>time</dt><dd>');
     expect(healthHtml).toContain('<footer>© 2026 UMAXICA</footer>');
     expect(html.headers.get('Content-Language')).toBe('ja');
@@ -572,7 +482,7 @@ describe('jump gateway routes', () => {
   test('health helpers cover accept parsing', () => {
     expect(wantsJson(null)).toBe(false);
     expect(wantsJson('text/html, application/json')).toBe(true);
-    expect(healthJson({ edge: 'local', production: false }, new Date(0))).toMatchObject({
+    expect(healthJson({ edge: 'cloudflare', production: true }, new Date(0))).toMatchObject({
       time: '1970-01-01T00:00:00.000Z',
     });
   });
@@ -652,7 +562,7 @@ describe('jump gateway routes', () => {
     expect(await res.json()).toMatchObject({
       status: 'OK',
       edge: 'cloudflare',
-      version: '0.1.0',
+      version: '0.2.0',
     });
   });
 
@@ -712,36 +622,18 @@ describe('jump gateway routes', () => {
     }
   });
 
-  test('cloudflare worker derives Jump public jwks from private key secret', async () => {
+  test('cloudflare worker refuses private-only bundle without deriving JWKS', async () => {
     const setup = await cloudflareInternalRedirectFixture();
     try {
       const res = await fetchCloudflareWorker('/.well-known/jwks.json', {
         UMAXICA_JUMP_PRIVATE_KEY_PEM: setup.jumpPrivatePem,
         UMAXICA_JUMP_PRIVATE_KEY_KID: 'cloudflare-active-2026-05',
       });
-
-      expect(res.status).toBe(200);
-      const jwks = (await res.json()) as { keys: JWK[] };
-      expect(jwks.keys).toHaveLength(1);
-      expect(jwks.keys[0]).toMatchObject({
-        kid: 'cloudflare-active-2026-05',
-        kty: 'EC',
-        crv: 'P-384',
-        alg: 'ES384',
-        use: 'sig',
-      });
-      expect(jwks.keys[0]).not.toHaveProperty('d');
-
-      const privateKey = await importPKCS8(setup.jumpPrivatePem, 'ES384');
-      const token = await new SignJWT({ ok: true })
-        .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'cloudflare-active-2026-05' })
-        .sign(privateKey);
-      await expect(
-        jwtVerify(token, await importJWK(jwks.keys[0] ?? {}, 'ES384'), {
-          algorithms: ['ES384'],
-          typ: 'JWT',
-        }),
-      ).resolves.toBeTruthy();
+      expect(res.status).toBe(503);
+      expect(res.headers.get('X-Jump-Error')).toBe('service_unavailable');
+      expect(res.headers.get('Location')).toBeNull();
+      expectSecurityHeaders(res);
+      expect(await res.text()).not.toContain('"keys"');
     } finally {
       setup.restore();
     }
@@ -760,7 +652,7 @@ describe('jump gateway routes', () => {
       expect(res.status).toBe(503);
       expect(res.headers.get('X-Jump-Error')).toBe('service_unavailable');
       expect(warn.mock.calls.map(([message]) => String(message)).join('\n')).toContain(
-        'pkcs8_import_failed',
+        'key_import_failed',
       );
       expect(warn.mock.calls.map(([message]) => String(message)).join('\n')).toContain(
         '"private_key_present":true',
@@ -796,6 +688,7 @@ describe('jump gateway routes', () => {
       const res = await fetchCloudflareWorker(`/?rt=${setup.inboundToken}`, {
         UMAXICA_JUMP_PRIVATE_KEY_PEM: `  ${setup.jumpPrivatePem.replaceAll('\n', '\\n')}  `,
         UMAXICA_JUMP_PRIVATE_KEY_KID: ' cloudflare-active-2026-05 ',
+        UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({ keys: [setup.jumpPublicJwk] }),
       });
 
       expect(res.status).toBe(302);
@@ -813,6 +706,7 @@ describe('jump gateway routes', () => {
       });
       expect(verified.payload).toMatchObject({
         schema: 1,
+        rpl: 'reuse',
         iss: 'https://jump.umaxica.net',
         aud: 'https://jp.umaxica.app',
         sub: 'jump-redirect',
@@ -824,19 +718,20 @@ describe('jump gateway routes', () => {
       expect(infoLines).toContain('"signer_configured":true');
       expect(infoLines).toContain('"signer_kid":"cloudflare-active-2026-05"');
       expect(infoLines).toContain('"private_key_imported":true');
-      expect(infoLines).toContain('"jwks_derived_from_private_key":true');
+      expect(infoLines).not.toContain('jwks_derived_from_private_key');
     } finally {
       setup.restore();
       info.mockRestore();
     }
   });
 
-  test('cloudflare worker live rails acme app handshake contract stays stable', async () => {
+  test('cloudflare worker local signed app contract (no Rails E2E) contract stays stable', async () => {
     const setup = await cloudflareInternalRedirectFixture();
     try {
       const env = {
         UMAXICA_JUMP_PRIVATE_KEY_PEM: setup.jumpPrivatePem,
         UMAXICA_JUMP_PRIVATE_KEY_KID: 'cloudflare-active-2026-05',
+        UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({ keys: [setup.jumpPublicJwk] }),
       };
       const res = await fetchCloudflareWorker(`/?rt=${setup.inboundToken}`, env);
 
@@ -882,6 +777,7 @@ describe('jump gateway routes', () => {
       expect(locationUrl.href).toBe('https://jp.umaxica.app/');
       expect(verified.payload).toMatchObject({
         schema: 1,
+        rpl: 'reuse',
         iss: 'https://jump.umaxica.net',
         aud: 'https://jp.umaxica.app',
         sub: 'jump-redirect',
@@ -898,7 +794,7 @@ describe('jump gateway routes', () => {
     ['com', 'https://www.umaxica.com', 'https://jp.umaxica.com'],
     ['org', 'https://www.umaxica.org', 'https://jp.umaxica.org'],
   ])(
-    'cloudflare worker live rails %s handshake contract stays stable',
+    'cloudflare worker local signed %s contract (no Rails E2E) contract stays stable',
     async (family, origin, destination) => {
       expect(family).toMatch(/^(com|org)$/);
       const setup = await cloudflareHandshakeFixture({
@@ -910,6 +806,7 @@ describe('jump gateway routes', () => {
         const env = {
           UMAXICA_JUMP_PRIVATE_KEY_PEM: setup.jumpPrivatePem,
           UMAXICA_JUMP_PRIVATE_KEY_KID: 'cloudflare-active-2026-05',
+          UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({ keys: [setup.jumpPublicJwk] }),
         };
         const res = await fetchCloudflareWorker(`/?rt=${setup.inboundToken}`, env);
 
@@ -955,6 +852,7 @@ describe('jump gateway routes', () => {
         expect(locationUrl.href).toBe(`${destination}/`);
         expect(verified.payload).toMatchObject({
           schema: 1,
+          rpl: 'reuse',
           iss: 'https://jump.umaxica.net',
           aud: destination,
           sub: 'jump-redirect',
@@ -978,6 +876,7 @@ describe('jump gateway routes', () => {
       const env = {
         UMAXICA_JUMP_PRIVATE_KEY_PEM: setup.jumpPrivatePem,
         UMAXICA_JUMP_PRIVATE_KEY_KID: 'cloudflare-active-2026-05',
+        UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({ keys: [setup.jumpPublicJwk] }),
       };
       const res = await fetchCloudflareWorker(`/?rt=${setup.inboundToken}`, env);
 
@@ -1020,7 +919,7 @@ describe('jump gateway routes', () => {
     expect(JSON.parse(body)).toMatchObject({
       status: 'OK',
       edge: 'cloudflare',
-      version: '0.1.0',
+      version: '0.2.0',
     });
     expect(body).not.toContain('cloudflare-revision-123');
     expect(body).not.toContain('deploy-tag');
@@ -1028,7 +927,7 @@ describe('jump gateway routes', () => {
 
   test('renderHealthHtml escapes html metacharacters in runtime fields', () => {
     const html = renderHealthHtml({
-      edge: `"><script>alert(1)</script>` as 'local',
+      edge: `"><script>alert(1)</script>` as 'cloudflare',
       production: true,
     });
     expect(html).toContain('<dd>&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;</dd>');
@@ -1038,6 +937,62 @@ describe('jump gateway routes', () => {
   test('renderHealthPage renders a null value as an empty string', () => {
     const html = renderHealthPage([['version', null]]);
     expect(html).toContain('<dt>version</dt><dd></dd>');
+  });
+
+  test('about and cushion carry product styles; health does not; errors splash', async () => {
+    const { app, signToken } = await fixture();
+    const about = await (await app.request('https://jump.example.net/about')).text();
+    const health = await (await app.request('https://jump.example.net/health')).text();
+    const error = await (await app.request('https://jump.example.net/?rt=not-a-jwt')).text();
+    const cushion = await (
+      await jump(app, await signToken({ dst: 'external', url: 'https://example.org/a' }))
+    ).text();
+
+    expect(about).toContain('<body class="product">');
+    expect(about).toContain(`<style>${PRODUCT_PAGE_CSS}</style>`);
+    expect(about).toContain('class="origin"');
+    expect(cushion).toContain('<body class="product">');
+    expect(cushion).toContain(`<style>${PRODUCT_PAGE_CSS}</style>`);
+    expect(cushion).toContain('class="continue"');
+    expect(cushion).toContain('class="host"');
+    expect(health).not.toContain('class="product"');
+    expect(health).not.toContain('class="splash"');
+    expect(health).not.toContain('<style>');
+    expect(health).toContain('<body>');
+    expect(error).toContain('<body class="splash">');
+    expect(error).toContain(`<style>${SPLASH_PAGE_CSS}</style>`);
+    expect(error).toContain('href="/about"');
+    expect(error).toContain('reload');
+    expect(error).toContain('再読み込みでは直りません');
+    expect(error).not.toContain('class="product"');
+    expect(error).not.toContain('<header>');
+  });
+
+  test('unknown GET paths redirect to about; JSON and POST stay 404', async () => {
+    const { app } = await fixture();
+    const html = await app.request('https://jump.example.net/no-such-page');
+    expect(html.status).toBe(302);
+    expect(html.headers.get('Location')).toBe('/about');
+    const json = await app.request('https://jump.example.net/no-such-page', {
+      headers: { Accept: 'application/json' },
+    });
+    expect(json.status).toBe(404);
+    expect(json.headers.get('Location')).toBeNull();
+    const posted = await app.request('https://jump.example.net/no-such-page', { method: 'POST' });
+    expect(posted.status).toBe(405);
+    expect(posted.headers.get('Location')).toBeNull();
+  });
+
+  test('product and splash CSS hashes are pinned in CSP', () => {
+    expect(createHash('sha256').update(PRODUCT_PAGE_CSS).digest('base64')).toBe(
+      PRODUCT_PAGE_CSS_SHA256,
+    );
+    expect(createHash('sha256').update(SPLASH_PAGE_CSS).digest('base64')).toBe(
+      SPLASH_PAGE_CSS_SHA256,
+    );
+    expect(createHash('sha256').update(CUSHION_INLINE_SCRIPT).digest('base64')).toBe(
+      '8A+3er73YJf04rRHGhbZwZQACPiiipi9EPduIeAAIDk=',
+    );
   });
 
   test('security headers are applied to static and well-known responses', async () => {
@@ -1068,9 +1023,10 @@ describe('jump gateway routes', () => {
   });
 
   test('production app refuses to publish example jwks without configured Jump public keyset', async () => {
-    const app = createApp({
+    const app = productionApp({
       registry: umaxicaRegistry,
       jwksCache: new JwksCache(fetchRegistryJwks),
+      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
       runtime: { edge: 'cloudflare', production: true },
     });
     const res = await app.request('https://jump.umaxica.net/.well-known/jwks.json');
@@ -1085,6 +1041,7 @@ describe('jump gateway routes', () => {
       createApp({
         registry: umaxicaRegistry,
         jwksCache: new JwksCache(fetchRegistryJwks),
+        config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
         runtime: { edge: 'cloudflare', production: true },
         jumpJwks: { keys: [{ ...jumpPublicJwk, d: 'private' }] },
       }),
@@ -1096,8 +1053,10 @@ describe('jump gateway routes', () => {
     const invalid = await jump(app, 'abc.def');
     expectSecurityHeaders(invalid);
     const invalidHtml = await invalid.text();
-    expect(invalidHtml).toContain('<header><a href="/">UMAXICA</a></header>');
-    expect(invalidHtml).toContain('<footer>© 2026 UMAXICA</footer>');
+    expect(invalidHtml).toContain('<body class="splash">');
+    expect(invalidHtml).toContain('href="/about"');
+    expect(invalidHtml).toContain('secondary reload');
+    expect(invalidHtml).not.toContain('<header>');
     const cushion = await jump(
       app,
       await signToken({ dst: 'external', url: 'https://example.org/a?b=1' }),
@@ -1108,7 +1067,7 @@ describe('jump gateway routes', () => {
     expect(cushionHtml).toContain('<footer>© 2026 UMAXICA</footer>');
   });
 
-  test('request logs redact rt tokens', async () => {
+  test('request logs expose only allowlisted paths', async () => {
     const { app } = await fixture();
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
     let lines: string[] = [];
@@ -1118,14 +1077,22 @@ describe('jump gateway routes', () => {
       }
       await app.request('https://jump.example.net/rt=header.payload.signature');
       await app.request('https://jump.example.net/header.payload.signature');
+      await app.request('https://jump.example.net/header%2Epayload%2Esignature');
+      await app.request('https://jump.example.net/header%252Epayload%252Esignature');
+      await app.request('https://jump.example.net/private-customer-path');
+      await app.request('https://jump.example.net/health');
       lines = log.mock.calls.map(([message]) => String(message));
     } finally {
       log.mockRestore();
     }
     expect(lines.some((line) => line.includes('header.payload.signature'))).toBe(false);
+    expect(lines.some((line) => line.includes('header%2Epayload%2Esignature'))).toBe(false);
+    expect(lines.some((line) => line.includes('header%252Epayload%252Esignature'))).toBe(false);
+    expect(lines.some((line) => line.includes('private-customer-path'))).toBe(false);
     expect(lines.some((line) => line.includes('?'))).toBe(false);
-    expect(lines.filter((line) => line.includes('GET /'))).toHaveLength(10);
-    expect(lines.some((line) => line.includes('[redacted-jwt]'))).toBe(true);
+    expect(lines.filter((line) => line.includes('GET /'))).toHaveLength(8);
+    expect(lines.filter((line) => line.includes('[redacted-path]'))).toHaveLength(10);
+    expect(lines.filter((line) => line.includes('GET /health'))).toHaveLength(2);
   });
 
   test('signer unavailable maps to 503 for internal redirects', async () => {
@@ -1136,14 +1103,15 @@ describe('jump gateway routes', () => {
         'https://app.example.com': {
           iss: 'https://app.example.com',
           jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-          allowed_dst_internal: ['https://app.example.com'],
+          allowed_dst_internal: ['https://docs.example.com'],
           allowed_dst_external: false,
         },
       },
       jwksCache: new JwksCache(async () => {
         return { keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }] };
       }),
-      runtime: { edge: 'local', production: true },
+      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
+      runtime: { edge: 'cloudflare', production: true },
       now: () => NOW,
     });
     const res = await noSigner.request(
@@ -1172,7 +1140,7 @@ describe('jump gateway routes', () => {
     });
     const token = await signToken({
       jti: 'audit-jti',
-      url: 'https://app.example.com/a/path?secret=value#frag',
+      url: 'https://docs.example.com/a/path?secret=value',
     });
     const res = await jump(app, token);
 
@@ -1185,7 +1153,7 @@ describe('jump gateway routes', () => {
       iss: 'https://app.example.com',
       kid: 'kid-1',
       dst: 'internal',
-      dst_origin: 'https://app.example.com',
+      dst_origin: 'https://docs.example.com',
       status: 302,
     });
     expect(JSON.stringify(entries)).not.toContain(token);
@@ -1266,6 +1234,39 @@ describe('jump token validation', () => {
     const { app } = await fixture();
     const res = await jump(app, 'abc=.def.ghi');
     expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
+  });
+
+  describe.each(['header', 'payload'] as const)('JWT %s JSON root boundary', (part) => {
+    test.each(['null', '[]', '"string"', '0', '1', 'true', 'false', '{}', '{'])(
+      'rejects %s as client input, never 500 internal_error',
+      async (json) => {
+        const entries: unknown[] = [];
+        const { app, fetchCount } = await fixtureWithOptions({
+          auditLog: (entry) => entries.push(entry),
+        });
+        const header =
+          part === 'header' ? json : JSON.stringify({ typ: 'JWT', alg: 'ES384', kid: 'kid-1' });
+        const payload = part === 'payload' ? json : JSON.stringify(baseClaim());
+        const token = [b64(header), b64(payload), 'dummy-signature'].join('.');
+
+        const res = await jump(app, token);
+
+        expect(res.status).not.toBe(500);
+        expect(res.headers.get('X-Jump-Error')).not.toBe('internal_error');
+        expect(res.status).toBe(400);
+        expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
+        expect(res.headers.get('Location')).toBeNull();
+        expect(res.headers.get('Cache-Control')).toBe('no-store');
+        expect(entries).toHaveLength(1);
+        expect(entries[0]).toMatchObject({
+          event: 'jump_reject',
+          reason:
+            part === 'header' ? 'invalid_header' : json === '{}' ? 'invalid_claim' : 'malformed',
+          status: 400,
+        });
+        expect(fetchCount()).toBe(0);
+      },
+    );
   });
 
   test('typ mismatch reject', async () => {
@@ -1493,7 +1494,7 @@ describe('jump token validation', () => {
       'https://app.example.com': {
         iss: 'https://app.example.com',
         jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-        allowed_dst_internal: ['https://app.example.com'],
+        allowed_dst_internal: ['https://docs.example.com'],
         allowed_dst_external: false,
       },
     };
@@ -1521,7 +1522,7 @@ describe('jump token validation', () => {
       'https://app.example.com': {
         iss: 'https://app.example.com',
         jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-        allowed_dst_internal: ['https://app.example.com'],
+        allowed_dst_internal: ['https://docs.example.com'],
         allowed_dst_external: false,
       },
     };
@@ -1560,7 +1561,7 @@ describe('jump token validation', () => {
     const issuer = {
       iss: 'https://app.example.com',
       jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-      allowed_dst_internal: ['https://app.example.com'],
+      allowed_dst_internal: ['https://docs.example.com'],
       allowed_dst_external: false,
     } satisfies IssuerRegistry[string];
     let fetches = 0;
@@ -1593,7 +1594,7 @@ describe('jump token validation', () => {
       'https://app.example.com': {
         iss: 'https://app.example.com',
         jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-        allowed_dst_internal: ['https://app.example.com'],
+        allowed_dst_internal: ['https://docs.example.com'],
         allowed_dst_external: false,
       },
     };
@@ -1621,7 +1622,7 @@ describe('jump token validation', () => {
       'https://app.example.com': {
         iss: 'https://app.example.com',
         jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-        allowed_dst_internal: ['https://app.example.com'],
+        allowed_dst_internal: ['https://docs.example.com'],
         allowed_dst_external: false,
       },
     };
@@ -1648,7 +1649,7 @@ describe('jump token validation', () => {
     const issuer = {
       iss: 'https://app.example.com',
       jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-      allowed_dst_internal: ['https://app.example.com'],
+      allowed_dst_internal: ['https://docs.example.com'],
       allowed_dst_external: false,
     } satisfies IssuerRegistry[string];
     const cache = new JwksCache(async () => {
@@ -1731,29 +1732,39 @@ describe('jump token validation', () => {
     }
   });
 
-  test('non-production http is normalized by the URL parser', () => {
-    const normalized = normalizeUrl('http://EXAMPLE.com.:80/a', {
-      edge: 'local',
-      production: false,
+  test('IDN hostnames expose Unicode alongside punycode', () => {
+    const normalized = normalizeUrl('https://xn--r8jz45g.example/path', {
+      edge: 'cloudflare',
+      production: true,
     });
     expect(normalized).toMatchObject({
-      href: 'http://example.com/a',
-      origin: 'http://example.com',
-      hostname: 'example.com',
-      hasNonAsciiHostname: false,
+      hostname: 'xn--r8jz45g.example',
+      unicodeHostname: '例え.example',
+      hasNonAsciiHostname: true,
     });
+  });
+
+  test('HTTP and trailing-dot hosts are rejected in every runtime', () => {
+    for (const value of [
+      'http://EXAMPLE.com.:80/a',
+      'http://example.com/a',
+      'https://example.com./a',
+    ])
+      expect(() => normalizeUrl(value, { edge: 'cloudflare', production: true })).toThrow(
+        JumpError,
+      );
   });
 
   test('public IP and public IPv6 hosts are allowed through URL normalization', () => {
     expect(
       normalizeUrl('https://192.0.2.1/path', {
-        edge: 'local',
+        edge: 'cloudflare',
         production: true,
       }).hostname,
     ).toBe('192.0.2.1');
     expect(
       normalizeUrl('https://[2001:db8::1]/path', {
-        edge: 'local',
+        edge: 'cloudflare',
         production: true,
       }).hostname,
     ).toBe('[2001:db8::1]');
@@ -1767,14 +1778,14 @@ describe('jump token validation', () => {
       'https://172.16.0.1/path',
       'https://0.0.0.0/path',
     ]) {
-      expect(() => normalizeUrl(url, { edge: 'local', production: true })).toThrow(JumpError);
+      expect(() => normalizeUrl(url, { edge: 'cloudflare', production: true })).toThrow(JumpError);
     }
   });
 
   test('normalizeOrigin requires origin-only allowlist entries', () => {
     expect(() =>
       normalizeOrigin('https://example.com/path', {
-        edge: 'local',
+        edge: 'cloudflare',
         production: true,
       }),
     ).toThrow(JumpError);
@@ -1821,7 +1832,7 @@ describe('jump token validation', () => {
 
   test('malformed IPv6 rejected when runtime parser accepts bracket form', () => {
     for (const url of ['https://[::1::2]/', 'https://[2001:db8::1::2]/']) {
-      expect(() => normalizeUrl(url, { edge: 'local', production: true })).toThrow(JumpError);
+      expect(() => normalizeUrl(url, { edge: 'cloudflare', production: true })).toThrow(JumpError);
     }
   });
 
@@ -1857,11 +1868,7 @@ describe('jump token validation', () => {
 
   test('origin policy treats equivalent host spellings and default ports as the same origin', async () => {
     const { app, signToken } = await fixture();
-    for (const url of [
-      'https://APP.example.com/path',
-      'https://app.example.com./path',
-      'https://app.example.com:443/path',
-    ]) {
+    for (const url of ['https://DOCS.example.com/path', 'https://docs.example.com:443/path']) {
       const res = await jump(app, await signToken({ url }));
       expect(res.status).toBe(302);
     }
@@ -1889,11 +1896,12 @@ describe('jump token validation', () => {
         jwksCache: new JwksCache(async () => ({
           keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
         })),
-        runtime: { edge: 'local', production: true },
+        config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
+        runtime: { edge: 'cloudflare', production: true },
         signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
         now: () => NOW,
       }),
-    ).toThrow(/exact origin/i);
+    ).toThrow(JumpError);
   });
 
   test('external cushion renders continue URL and replaceState', async () => {
@@ -1927,7 +1935,8 @@ describe('jump token validation', () => {
       jwksCache: new JwksCache(async () => ({
         keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
-      runtime: { edge: 'local', production: true },
+      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
+      runtime: { edge: 'cloudflare', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       now: () => NOW,
     });
@@ -1944,7 +1953,7 @@ describe('jump token validation', () => {
     expect(res.status).toBe(200);
     expect(html).toContain('Continue to external site');
     expect(html).toContain('href="https://example.com/jump/end?ok=1"');
-    expect(html).toContain('<dt>host</dt><dd>example.com</dd>');
+    expect(html).toContain('<dt>host</dt><dd class="host">example.com</dd>');
   });
 
   test('external cushion truncates long displayed URLs while preserving href', async () => {
@@ -1952,7 +1961,7 @@ describe('jump token validation', () => {
       'https://app.example.com': {
         iss: 'https://app.example.com',
         jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-        allowed_dst_internal: ['https://app.example.com'],
+        allowed_dst_internal: ['https://docs.example.com'],
         allowed_dst_external: ['https://example.org'],
       },
     };
@@ -1964,7 +1973,8 @@ describe('jump token validation', () => {
       jwksCache: new JwksCache(async () => ({
         keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
-      runtime: { edge: 'local', production: true },
+      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
+      runtime: { edge: 'cloudflare', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       now: () => NOW,
     });
@@ -1984,7 +1994,7 @@ describe('jump token validation', () => {
       'https://app.example.com': {
         iss: 'https://app.example.com',
         jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-        allowed_dst_internal: ['https://app.example.com'],
+        allowed_dst_internal: ['https://docs.example.com'],
         allowed_dst_external: ['https://xn--r8jz45g.example'],
       },
     };
@@ -1996,7 +2006,8 @@ describe('jump token validation', () => {
       jwksCache: new JwksCache(async () => ({
         keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
-      runtime: { edge: 'local', production: true },
+      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
+      runtime: { edge: 'cloudflare', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       now: () => NOW,
     });
@@ -2007,6 +2018,10 @@ describe('jump token validation', () => {
     const res = await jump(app, token);
     const html = await res.text();
     expect(html).toContain('非 ASCII');
+    expect(html).toContain('例え.example');
+    expect(html).toContain('xn--r8jz45g.example');
+    expect(html).toContain('このページを再読み込みすると、移動先は消えます。');
+    expect(html).toContain('href="/about"');
   });
 
   test('internal redirect carries outbound rt signed by jump', async () => {
@@ -2020,19 +2035,20 @@ describe('jump token validation', () => {
     expect(rt).toBeTruthy();
     const verified = await jwtVerify(rt ?? '', jumpPublicKey, {
       issuer: PRODUCTION_SERVICE_ORIGIN,
-      audience: 'https://app.example.com',
+      audience: 'https://docs.example.com',
       algorithms: ['ES384'],
       typ: 'JWT',
       currentDate: new Date(NOW * 1000),
     });
     expect(verified.payload).toMatchObject({
       schema: 1,
+      rpl: 'reuse',
       iss: PRODUCTION_SERVICE_ORIGIN,
-      aud: 'https://app.example.com',
+      aud: 'https://docs.example.com',
       sub: 'jump-redirect',
       dst: 'internal',
       src: 'https://app.example.com',
-      url: 'https://app.example.com/path',
+      url: 'https://docs.example.com/path',
     });
   });
 
@@ -2057,7 +2073,7 @@ describe('jump token validation', () => {
     const inbound = await signToken({
       aud: 'https://jump.umaxica.net',
       dst: 'internal',
-      url: 'https://app.example.com/return',
+      url: 'https://docs.example.com/return',
     });
 
     const res = await app.request(`https://jump.umaxica.net/?rt=${inbound}`);
@@ -2072,7 +2088,7 @@ describe('jump token validation', () => {
     expect(jumpKey).toBeTruthy();
     const verified = await jwtVerify(returnedRt ?? '', await importJWK(jumpKey ?? {}, 'ES384'), {
       issuer: 'https://jump.umaxica.net',
-      audience: 'https://app.example.com',
+      audience: 'https://docs.example.com',
       algorithms: ['ES384'],
       typ: 'JWT',
       currentDate: new Date(NOW * 1000),
@@ -2080,12 +2096,13 @@ describe('jump token validation', () => {
     expect(verified.protectedHeader.kid).toBe('jump-test');
     expect(verified.payload).toMatchObject({
       schema: 1,
+      rpl: 'reuse',
       iss: 'https://jump.umaxica.net',
-      aud: 'https://app.example.com',
+      aud: 'https://docs.example.com',
       sub: 'jump-redirect',
       dst: 'internal',
       src: 'https://app.example.com',
-      url: 'https://app.example.com/return',
+      url: 'https://docs.example.com/return',
     });
   });
 
@@ -2099,7 +2116,7 @@ describe('jump token validation', () => {
     const rt = new URL(location ?? '').searchParams.get('rt');
     const verified = await jwtVerify(rt ?? '', jumpPublicKey, {
       issuer: PRODUCTION_SERVICE_ORIGIN,
-      audience: 'https://app.example.com',
+      audience: 'https://docs.example.com',
       algorithms: ['ES384'],
       typ: 'JWT',
       currentDate: new Date(NOW * 1000),
@@ -2119,6 +2136,46 @@ describe('jump token validation', () => {
     expect((await jump(app, missing)).headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
+  test('JWKS fetch outages are negatively cached at the existing negative TTL', async () => {
+    const issuerKeys = await generateKeyPair('ES384');
+    const jumpKeys = await generateKeyPair('ES384');
+    const token = await signToken(issuerKeys.privateKey, { jti: 'outage' });
+    vi.useFakeTimers({ now: NOW * 1000 });
+    try {
+      let fetches = 0;
+      const app = createApp({
+        registry: {
+          'https://app.example.com': {
+            iss: 'https://app.example.com',
+            jwks_uri: 'https://app.example.com/.well-known/jwks.json',
+            allowed_dst_internal: ['https://docs.example.com'],
+            allowed_dst_external: false,
+          },
+        },
+        jwksCache: new JwksCache(async () => {
+          fetches += 1;
+          throw new JumpError('jwks_unavailable', 'issuer jwks temporarily unavailable');
+        }),
+        config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
+        runtime: { edge: 'cloudflare', production: true },
+        signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
+        now: () => Math.floor(Date.now() / 1000),
+      });
+      const first = await jump(app, token);
+      const second = await jump(app, token);
+      expect(first.status).toBe(503);
+      expect(second.status).toBe(503);
+      expect(first.headers.get('X-Jump-Error')).toBe('temporarily_unavailable');
+      expect(fetches).toBe(1);
+      await vi.advanceTimersByTimeAsync(30_000);
+      const third = await jump(app, token);
+      expect(third.status).toBe(503);
+      expect(fetches).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test('a valid token remains usable while claims remain valid', async () => {
     const issuerKeys = await generateKeyPair('ES384');
     const jumpKeys = await generateKeyPair('ES384');
@@ -2127,7 +2184,7 @@ describe('jump token validation', () => {
       'https://app.example.com': {
         iss: 'https://app.example.com',
         jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-        allowed_dst_internal: ['https://app.example.com'],
+        allowed_dst_internal: ['https://docs.example.com'],
         allowed_dst_external: false,
       },
     };
@@ -2137,7 +2194,8 @@ describe('jump token validation', () => {
         keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
-      runtime: { edge: 'local', production: true },
+      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
+      runtime: { edge: 'cloudflare', production: true },
       now: () => NOW,
     });
     const token = await signToken(issuerKeys.privateKey, { jti: 'same-jti' });
@@ -2147,13 +2205,13 @@ describe('jump token validation', () => {
 
   test('direct policy helpers reject disabled external and unknown destinations', () => {
     const target = normalizeUrl('https://app.example.com/path', {
-      edge: 'local',
+      edge: 'cloudflare',
       production: true,
     });
     const issuer = {
       iss: 'https://app.example.com',
       jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-      allowed_dst_internal: ['https://app.example.com'],
+      allowed_dst_internal: ['https://docs.example.com'],
       allowed_dst_external: false as const,
     };
     const externalClaim: InboundJumpClaim = { ...baseClaim(), dst: 'external' };
@@ -2178,14 +2236,15 @@ describe('jump token validation', () => {
         'https://app.example.com': {
           iss: 'https://app.example.com',
           jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-          allowed_dst_internal: ['https://app.example.com'],
+          allowed_dst_internal: ['https://docs.example.com'],
           allowed_dst_external: false,
         },
       },
       jwksCache: new JwksCache(async () => ({
         keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
-      runtime: { edge: 'local', production: true },
+      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
+      runtime: { edge: 'cloudflare', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
     });
     expect(res.status).toBe(302);
@@ -2201,14 +2260,15 @@ describe('jump token validation', () => {
         'https://app.example.com': {
           iss: 'https://app.example.com',
           jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-          allowed_dst_internal: ['https://app.example.com'],
+          allowed_dst_internal: ['https://docs.example.com'],
           allowed_dst_external: false,
         },
       },
       jwksCache: new JwksCache(async () => ({
         keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
-      runtime: { edge: 'local', production: true },
+      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
+      runtime: { edge: 'cloudflare', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
     });
     const token = await signPayload(issuerKeys.privateKey, {
@@ -2234,7 +2294,7 @@ describe('jump token validation', () => {
     const issuer = {
       iss: 'https://app.example.com',
       jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-      allowed_dst_internal: ['https://app.example.com'],
+      allowed_dst_internal: ['https://docs.example.com'],
       allowed_dst_external: false as const,
       revoked_kids: ['revoked'],
     };
@@ -2258,6 +2318,7 @@ describe('jump token validation', () => {
     const signer = new JoseOutboundSigner(privateKey, 'cloudflare-active-2026-05');
     const token = await signer.sign({
       schema: 1,
+      rpl: 'reuse',
       iss: 'https://jump.umaxica.net',
       aud: 'https://www.umaxica.app',
       sub: 'jump-redirect',
@@ -2292,9 +2353,17 @@ function expectSecurityHeaders(res: Response) {
   expect(res.headers.get('Content-Security-Policy')).toContain(
     "'sha256-8A+3er73YJf04rRHGhbZwZQACPiiipi9EPduIeAAIDk='",
   );
+  expect(res.headers.get('Content-Security-Policy')).toContain(
+    `'sha256-${PRODUCT_PAGE_CSS_SHA256}'`,
+  );
+  expect(res.headers.get('Content-Security-Policy')).toContain(
+    `'sha256-${SPLASH_PAGE_CSS_SHA256}'`,
+  );
   expect(res.headers.get('Content-Security-Policy')).not.toContain("'unsafe-inline'");
+  expect(res.headers.get('Content-Security-Policy')).not.toContain("style-src 'none'");
   expect(res.headers.get('X-Content-Type-Options')).toBe('nosniff');
   expect(res.headers.get('X-Frame-Options')).toBe('DENY');
+  expect(res.headers.get('X-XSS-Protection')).toBe('0');
   expect(res.headers.get('Cross-Origin-Embedder-Policy')).toBe('require-corp');
   expect(res.headers.get('Cross-Origin-Opener-Policy')).toBe('same-origin');
   expect(res.headers.get('Cross-Origin-Resource-Policy')).toBe('same-origin');
@@ -2302,7 +2371,9 @@ function expectSecurityHeaders(res: Response) {
   expect(res.headers.get('Permissions-Policy')).toBeTruthy();
   expect(res.headers.get('Cache-Control')).toBe('no-store');
   expect(res.headers.get('X-Robots-Tag')).toBe('noindex, nofollow, noarchive');
-  expect(res.headers.get('Strict-Transport-Security')).toContain('max-age=63072000');
+  expect(res.headers.get('Strict-Transport-Security')).toBe(
+    'max-age=31536000; includeSubDomains; preload',
+  );
   expect(res.headers.get('Set-Cookie')).toBeNull();
 }
 
@@ -2779,21 +2850,17 @@ describe('route, rate limit, and request id contracts', () => {
     expect(res.headers.get('Set-Cookie')).toBeNull();
   });
 
-  test('a missing client IP fails open but says so', async () => {
-    const { jump, env } = limiterEnv();
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      const res = await workerFetch('/?rt=abc', env);
-      expect(res.status).toBe(400);
-      expect(jump.limit).not.toHaveBeenCalled();
-      const lines = warn.mock.calls.map(([message]) => String(message)).join('\n');
-      expect(lines).toContain('jump_rate_limit_skipped');
-      expect(lines).toContain('client_ip_unavailable');
-      // The skip notice must not carry an address or the request target.
-      expect(lines).not.toContain('203.0.113');
-    } finally {
-      warn.mockRestore();
-    }
+  test('a missing client IP fails closed', async () => {
+    const { jump: limiter, env } = limiterEnv();
+    const res = await actualWorker.fetch(
+      new Request('https://jump.umaxica.net/?rt=abc'),
+      { ...env, UMAXICA_JUMP_ORIGIN: PRODUCTION_SERVICE_ORIGIN },
+      {} as ExecutionContext,
+    );
+    expect(res.status).toBe(503);
+    expect(res.headers.get('X-Jump-Error')).toBe('service_unavailable');
+    expect(limiter.limit).not.toHaveBeenCalled();
+    expectSecurityHeaders(res);
   });
 
   test('a rate limiter binding failure fails open without logging request data', async () => {
@@ -2806,8 +2873,8 @@ describe('route, rate limit, and request id contracts', () => {
       );
       expect(res.status).toBe(400);
       const lines = warn.mock.calls.map(([message]) => String(message)).join('\n');
-      expect(lines).toContain('limiter_unavailable');
-      expect(lines).toContain('TypeError');
+      expect(lines).toContain('limiter_call_exception');
+      expect(lines).not.toContain('TypeError');
       expect(lines).not.toContain('secret');
       expect(lines).not.toContain('203.0.113.9');
     } finally {
@@ -2835,13 +2902,14 @@ describe('route, rate limit, and request id contracts', () => {
     expect(first.headers.get('X-Request-ID')).not.toBe(second.headers.get('X-Request-ID'));
   });
 
-  test('an all-slashes jump path 404s rather than echoing the token into Location', async () => {
+  test('all-slashes rt paths reject without reflecting the token', async () => {
     const { app, signToken } = await fixture();
     const rt = await signToken();
     for (const path of ['//', '///']) {
       const res = await app.request(`https://jump.example.net${path}?rt=${rt}`);
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(400);
       expect(res.headers.get('Location')).toBeNull();
+      expect(await res.text()).not.toContain(rt);
     }
   });
 
@@ -2868,12 +2936,13 @@ describe('route, rate limit, and request id contracts', () => {
         'https://app.example.com': {
           iss: 'https://app.example.com',
           jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-          allowed_dst_internal: ['https://app.example.com'],
+          allowed_dst_internal: ['https://docs.example.com'],
           allowed_dst_external: false,
         },
       },
       jwksCache: new JwksCache(async () => ({ keys: [publicJwk] })),
-      runtime: { edge: 'local', production: true },
+      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
+      runtime: { edge: 'cloudflare', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       now: () => NOW,
     });
@@ -2890,7 +2959,7 @@ describe('route, rate limit, and request id contracts', () => {
         'https://app.example.com': {
           iss: 'https://app.example.com',
           jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-          allowed_dst_internal: ['https://app.example.com'],
+          allowed_dst_internal: ['https://docs.example.com'],
           allowed_dst_external: false,
           revoked_kids: ['kid-1'],
         },
@@ -2945,6 +3014,7 @@ describe('outbound token contract', () => {
       'iss',
       'jti',
       'nbf',
+      'rpl',
       'schema',
       'src',
       'sub',
@@ -2987,8 +3057,8 @@ describe('UMAXICA title contract', () => {
       'aboutPageTitle',
       'healthTitle',
       'errorTitle',
-      'notFoundTitle',
       'rateLimitTitle',
+      'unavailableTitle',
       'cushionTitle',
     ] as const;
     for (const locale of ['ja', 'en'] as const) {
@@ -3040,13 +3110,6 @@ describe('UMAXICA title contract', () => {
         ja: 'リクエストを処理できません',
         en: 'Cannot process this request',
         status: 400,
-      },
-      {
-        name: 'notFound',
-        path: '/no-such-page',
-        ja: 'ページが見つかりません',
-        en: 'Page not found',
-        status: 404,
       },
     ];
 
@@ -3171,19 +3234,63 @@ describe('UMAXICA title contract', () => {
     }
   });
 
-  test('cloudflare observability never enables invocation logs', () => {
-    // Invocation logs are emitted by the runtime and record the full request
-    // URL, so `GET /?rt=<jwt>` would persist the inbound token and the
-    // destination. redactLogLine cannot reach them; they must stay off.
+  test('cloudflare observability never persists rt query strings or traces', () => {
+    // Invocation logs record the full request URL. Automatic traces persist
+    // `url.full` and `user_agent.original`. Wrangler can redact query strings
+    // but cannot strip User-Agent from traces, so traces must not persist.
     const configPath = new URL('../wrangler.jsonc', import.meta.url);
     const config = readFileSync(configPath, 'utf8');
     const stripped = config.replaceAll(/^\s*\/\/.*$/gm, '');
     const parsed = JSON.parse(stripped) as {
-      observability?: { logs?: { enabled?: boolean; invocation_logs?: boolean } };
+      observability?: {
+        redact_query_string?: boolean;
+        logs?: {
+          enabled?: boolean;
+          invocation_logs?: boolean;
+          persist?: boolean;
+          destinations?: string[];
+        };
+        traces?: { enabled?: boolean; persist?: boolean; destinations?: string[] };
+      };
     };
+    expect(parsed.observability?.redact_query_string).toBe(true);
     expect(parsed.observability?.logs?.invocation_logs).toBe(false);
-    // The redacted structured logs stay on.
     expect(parsed.observability?.logs?.enabled).toBe(true);
+    expect(parsed.observability?.logs?.destinations ?? []).toEqual([]);
+    expect(parsed.observability?.traces?.enabled).toBe(false);
+    expect(parsed.observability?.traces?.persist).toBe(false);
+    expect(parsed.observability?.traces?.destinations ?? []).toEqual([]);
+    expect(config).not.toMatch(/head_sampling_rate["']?\s*:\s*0(\.0+)?\b/);
+  });
+
+  test('cloudflare jump limiter uses the net/jump namespace and internal port 5209', () => {
+    // jump.umaxica.net is the net/jump Global surface: TLD 52, surface 09,
+    // region 00 → production namespace 520900. The Cloudflare development
+    // server listens on that same four-digit port rather than Wrangler's
+    // generic 8787. Limit and period stay 600/60; this guard is allocation
+    // identity, not budget tuning.
+    const wranglerPath = new URL('../wrangler.jsonc', import.meta.url);
+    const wrangler = JSON.parse(
+      readFileSync(wranglerPath, 'utf8').replaceAll(/^\s*\/\/.*$/gm, ''),
+    ) as {
+      ratelimits?: Array<{
+        name?: string;
+        namespace_id?: string;
+        simple?: { limit?: number; period?: number };
+      }>;
+    };
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts?: { 'cloudflare:dev'?: string };
+    };
+
+    expect(pkg.scripts?.['cloudflare:dev']).toMatch(/--port 5209\b/);
+    expect(wrangler.ratelimits).toEqual([
+      {
+        name: 'JUMP_RATE_LIMITER',
+        namespace_id: '520900',
+        simple: { limit: 600, period: 60 },
+      },
+    ]);
   });
 
   test('cloudflare signing config uses a Worker secret and one matching public kid', () => {
@@ -3222,6 +3329,7 @@ describe('UMAXICA title contract', () => {
       const env = {
         UMAXICA_JUMP_PRIVATE_KEY_PEM: setup.jumpPrivatePem,
         UMAXICA_JUMP_PRIVATE_KEY_KID: 'cloudflare-active-2026-05',
+        UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({ keys: [setup.jumpPublicJwk] }),
       };
       const first = await fetchCloudflareWorker(`/?rt=${setup.inboundToken}`, env);
       expect(first.status).toBe(302);
@@ -3239,11 +3347,10 @@ describe('UMAXICA title contract', () => {
       expect(signerConfigured).toHaveLength(1);
 
       // A fresh `env` object stands in for a new isolate handing over a new
-      // reference: the app and its JWKS cache must still be reused, because
-      // they are keyed on configuration rather than on object identity.
+      // reference: separate binding bundles have separate caches.
       const third = await fetchCloudflareWorker(`/?rt=${setup.inboundToken}`, { ...env });
       expect(third.status).toBe(302);
-      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     } finally {
       setup.restore();
       info.mockRestore();
@@ -3258,8 +3365,9 @@ describe('UMAXICA title contract', () => {
     for (const header of [
       'X-Content-Type-Options: nosniff',
       'X-Frame-Options: DENY',
+      'X-XSS-Protection: 0',
       'Referrer-Policy: no-referrer',
-      'Strict-Transport-Security: max-age=63072000',
+      'Strict-Transport-Security: max-age=31536000; includeSubDomains; preload',
     ]) {
       expect(policy).toContain(header);
     }

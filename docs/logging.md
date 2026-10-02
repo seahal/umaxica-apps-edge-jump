@@ -8,7 +8,7 @@ Logs should help operate Jump without storing redirect tokens or secrets.
 
 - The `rt` query parameter must NOT be stored in access logs.
 - Full JWTs must NOT appear in error logs.
-- Malformed JWTs must be truncated or redacted.
+- Malformed JWTs must not be logged, including fragments.
 - Complete request URLs and destination path, query, and fragment must not be logged.
 - Do not log `jti`, token hashes, URL hashes, IP addresses or their hashes, Referer, User-Agent, or Cookie.
 - Do not log private keys, secret binding values, JWT payloads, or token fragments.
@@ -19,7 +19,7 @@ Logs should help operate Jump without storing redirect tokens or secrets.
 - Runtime/service version, route class, method, status, internal result code, and latency.
 - After successful signature verification: issuer, verified kid, destination class, and allowlisted destination origin.
 - JWKS cache outcome and coarse upstream-failure category.
-- Rate-limit operational outcomes (`client_ip_unavailable`, `limiter_unavailable`) without IP addresses or tokens.
+- Rate-limit operational outcomes (including `limiter_call_exception`) without IP addresses or tokens.
 
 Public HTTP responses expose only coarse `X-Jump-Error` classes. Internal reason codes stay in structured security logs.
 
@@ -47,7 +47,7 @@ dst="https://example.org/account?email=user@example.com"
 
 ## Malformed Token Handling
 
-For malformed input, record only the request metadata and coarse category. Do not log the raw token, its length, or a hash. Raw audit logs are retained for 30 days and then automatically deleted; access must be least-privilege.
+For malformed input, record only the request metadata and coarse category. Do not log the raw token, its length, or a hash. A 30-day retention policy is an operational requirement, not a verified account setting; access must be least-privilege.
 
 ## Platform Log Settings (operational preconditions)
 
@@ -59,10 +59,28 @@ record the full request URL, so for `GET /?rt=<jwt>` they would persist the inbo
 destination verbatim — the exact fields this document forbids. `redactLogLine` in `src/index.ts`
 only covers the application's own request log and cannot reach them. `wrangler.jsonc` therefore sets
 `observability.logs.invocation_logs: false` while leaving `observability.logs.enabled: true`, so the
-redacted structured logs are kept. The test
-`cloudflare observability never enables invocation logs` guards the config value; it cannot guard an
-override applied in the Cloudflare dashboard.
+redacted structured logs are kept. The application logger emits literal paths only for fixed public
+routes; every other parseable path is recorded as `[redacted-path]`, so encoded token-like paths and
+arbitrary customer paths are not retained.
+
+**Query strings must be redacted at the platform.** `observability.redact_query_string: true`
+removes request query strings (including `rt`) from Workers Logs and traces. Lowering
+`head_sampling_rate` is not a substitute: a sampled leak is still a contract break.
+
+**Persisted traces must stay off.** Automatic Fetch-handler traces include `url.full` and
+`user_agent.original`. Wrangler can redact query strings but cannot drop User-Agent from traces,
+so `observability.traces.enabled` and `observability.traces.persist` are both `false`, and no
+trace destinations are configured. Do not re-enable persisted traces, and do not add an OTLP
+destination, unless User-Agent can be excluded from the exported attributes.
+
+The test `cloudflare observability never persists rt query strings or traces` guards these
+config values; it cannot guard an override applied in the Cloudflare dashboard. Dashboard
+trace contents were not inspected from this repository.
 
 **The 30-day retention above is an account-level setting.** Workers Logs retention is configured per
 account, not in `wrangler.jsonc`, so the repository cannot assert it. Confirm the account is set to
 30 days before rollout and re-confirm after any change to the observability configuration.
+
+## Additional 0.2 hardening contract
+
+See [readiness and incident monitoring](operations/readiness.md): configuration/deployment reasons may warrant investigation after one occurrence; malformed/signature/destination failures use rate-based monitoring. No external alert configuration is changed.

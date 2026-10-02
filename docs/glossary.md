@@ -1,16 +1,10 @@
 # Glossary
 
-- `issuer`: Application origin that signs an `rt` JWT.
-- `destination`: Final URL target after Jump validation.
-- `jump`: The gateway at `https://jump.example.net`.
-- `trust broker`: A service that validates signed intent and policy before crossing trust boundaries.
-- `cushion page`: HTML page shown before external redirects.
-- `internal destination`: Destination origin explicitly allowed in the issuer internal allowlist.
-- `external destination`: Destination allowed by external policy and requiring a cushion page.
-- `schema`: Integer JWT claim version. Initial value is `1`.
-- `kid`: Key identifier in the JWT protected header.
-- `active key`: Key used for signing and verification.
-- `grace key`: Old key kept for verification only.
-- `revoked key`: Key identifier that is immediately rejected.
-- `self-referential redirect`: A redirect whose destination origin equals its
-  source, or whose destination is Jump itself. Always prohibited.
+- Node: registered surface-TLD-region identity; issuers/audiences remain origins.
+- ww: internal global deployment convention; jp: registered regional deployment.
+- Warp: www-jp.umaxica.*; historical internal side name is superseded.
+- RT: signed redirect instruction; input reuse creates a new output jti.
+- Jump identity: strictly validated UMAXICA_JUMP_ORIGIN.
+- Receiver: independently verifies Jump and operation/transaction requirements.
+- Grace/future key: published verification trust, regardless of active signing kid.
+- Health: responsiveness only, not signer readiness or rollout proof.

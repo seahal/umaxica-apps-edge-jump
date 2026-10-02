@@ -1,122 +1,34 @@
-# Security
+# Security contract
 
-## Purpose
+The exact [protocol graph](protocol.md) is the authorization boundary. Registry
+construction rejects duplicate node/origin/edge, unknown references, self loops,
+TLD crossings and noncanonical origins. Runtime still refuses self and Jump
+links even with an incorrectly permissive fixture. Prototype keys do not register
+issuers. Production external policy is false for every issuer.
 
-Jump reduces redirect risk by verifying signed redirect requests at a dedicated FQDN boundary. It is not a confidentiality layer.
+Every compact JWT is limited to 8192 characters; typ JWT, ES384, kid ≤128,
+object header/payload, Base64URL, registered issuer, signature, exact string aud,
+sub, schema/rpl, finite NumericDates, ordering and lifetime are required. Input
+TTL ≤300s, skew 5s, output TTL30s. Structural TTL has no skew allowance. jku,
+jwk, x5u and crit are refused before fetch. Unverified decode is used only for
+shape checks and registered key lookup; no authorization precedes signature.
 
-## NON-GOALS
+HTTPS URLs use WHATWG parsing. Userinfo, private/loopback/link-local/metadata
+hosts, ambiguous control/backslash/percent encodings, trailing-dot hosts and
+nonstandard ports are refused. Internal targets additionally reject fragments,
+existing rt/rt[...] and duplicate single-valued redirect_uri/state/nonce/code/
+next/return_to. Valid OAuth values are preserved; external query semantics are
+not rewritten under internal rules. Claim URL and Location share query
+serialization; this preserves meaning, not unprocessed input bytes. Oversized
+output RT is rejected rather than truncated.
 
-- This project is NOT an authentication provider.
-- This project is NOT a session manager.
-- This project is NOT a generic proxy.
-- This project is NOT a URL shortener.
-- This project is NOT a confidential transport.
-- This project does NOT hide redirect destinations.
-- This project does NOT replace OAuth/OIDC.
-- This project is ONLY a redirect trust broker across FQDN boundaries.
+[Receiver responsibilities](receiver-contract.md) remain mandatory. All responses
+are no-store, no-referrer, cookie-free, CSP/frame/nosniff protected, HSTS
+max-age=31536000; includeSubDomains; preload. HEAD performs validation and
+suppresses the body. Final adapter errors cover initialization, limiter, assets,
+secrets and handler failures, with one entry ID and 1000ms deadline. Late work
+cannot change the returned error into a redirect or log success.
 
-## Self-Referential Redirects
-
-A Jump destination must never equal its source, and must never be Jump itself. A
-same-origin hop achieves nothing a local navigation could not, and it is the
-primitive a redirect loop is built from: an application that mints a new token
-on arriving at itself will do so on every iteration, producing a chain of fully
-valid, correctly signed requests that the verification path cannot distinguish
-from legitimate traffic and that ends in a browser redirect limit rather than a
-service alarm.
-
-No issuer lists its own origin as an allowed destination, so the route does not
-exist to be taken. Independently, a destination equal to the service origin is
-rejected as `invalid_url` during URL normalization, which also prevents a Jump
-request from being nested inside another. Jump is stateless and sees one hop at
-a time, so it cannot detect a longer cycle such as `base -> core -> base`;
-avoiding those remains the responsibility of the applications that mint tokens.
-See [ADR 0003](../adr/0003-no-self-referential-redirects.md).
-
-## OpenRedirect Risk
-
-OpenRedirect bugs let attackers create trusted-looking links that send users to attacker-controlled destinations. Jump mitigates this by requiring a valid issuer signature, fixed audience, claim validation, URL normalization, and issuer-scoped allowlists.
-
-## Referer And URL Leakage
-
-`rt` appears in the URL by design. It can leak through browser history, screenshots, bookmarks, chat previews, analytics, and infrastructure logs. Referrer policy is `no-referrer`, but that does not make URLs confidential.
-
-## JWT Leakage
-
-`rt` JWTs are NOT confidential. They should contain only routing claims, never secrets or personal data. Every token must include a random `jti` and an `exp`.
-
-## Why jti Exists
-
-`jti` identifies that JWT. It is not an authentication claim and does not imply single use. Schema 1 does not copy the input `jti` into the output token and does not add `src_jti`.
-
-## Why exp Exists
-
-`exp` bounds token lifetime. Production input tokens must have `exp - iat <= 300` seconds. Output redirect tokens have exactly `exp = iat + 30` seconds. The common clock tolerance is 5 seconds and is never added to these structural TTL limits.
-
-## Replay Detection
-
-Jump does not detect replay and holds no persistent or shared state. Schema 1 tokens are short-lived signed navigation instructions; the same token may be evaluated more than once until `exp`. Cloudflare and Fastly apply the same contract: signature, claims, issuer, audience, time, destination policy, public errors, security headers, and structured logs.
-
-A Jump token MUST NOT by itself authorize authentication completion, authorization decisions, CSRF approval, destructive operations, purchases, state-changing actions, privilege changes, Step-Up completion, or other replay-sensitive side effects. One-time use, idempotency, and replay-sensitive defenses belong to the receiving application. See [ADR 0002](../adr/0002-security-review-rails-handshake.md).
-
-## JWT Schema Version
-
-JWT schema is independent from service version. Service `0.1.0` starts with `schema: 1`. Patch or minor service releases must not change JWT compatibility. Increase schema only when token compatibility changes.
-
-## Issuer-Scoped Allowlists
-
-Each issuer has its own internal and external destination policy. This prevents a valid issuer from becoming a confused deputy for every destination.
-
-## External Cushion Pages
-
-External redirects require a cushion page. The page escapes the URL, displays the punycode hostname, warns about non-ASCII hostnames, removes `?rt` with `history.replaceState`, and uses `rel="noopener noreferrer"`.
-
-## Security Headers
-
-Responses use CSP, `nosniff`, frame denial, no-referrer, restrictive permissions policy, HSTS, no-store, and noindex headers. `Set-Cookie` is forbidden.
-
-## Public Errors
-
-Every rejection an untrusted `rt` can provoke answers with one public class,
-`invalid_request` / 400. This includes failures fetching the issuer's JWKS,
-which are reachable only for a registered `iss`: a separate class there would
-let an anonymous caller tell a registered issuer from an unregistered one
-during an issuer outage. `service_unavailable` / 503 is reserved for Jump's own
-missing signer configuration, which is independent of any inbound token. The
-precise internal reason is carried by the structured security log, never by the
-public response.
-
-## Rate Limiting
-
-On Cloudflare, the per-IP limiter meters every path the Worker serves,
-including static assets and the discovery endpoints — all of them are
-unauthenticated. It is coarse abuse control, not an authorization gate, so it
-fails open (and logs) when `CF-Connecting-IP` is absent or the binding faults.
-
-## Attack Surface
-
-- Public `GET /?rt=<JWT>` entry point.
-- Public `GET /.well-known/jwks.json` key discovery endpoint.
-- Public health and informational HTML endpoints.
-- Issuer registry configuration.
-- Runtime secret stores holding private keys.
-- Edge access logs and error logs.
-- Cushion page rendering of external URLs.
-
-Each surface is designed to expose public data only, except runtime private keys. Private keys must remain in runtime secrets and must never enter git, logs, screenshots, or example configs. The Cloudflare signer imports its private key as a non-extractable `CryptoKey` whenever a public keyset is configured, so the deployed Worker holds no key it is able to serialize. Health endpoints publish the service version only, never the deployment revision.
-
-## Migration Strategy
-
-Security-sensitive compatibility changes must use JWT schema migration rather than silent behavior changes. See [schema migration](operations/schema-migration.md).
-
-## Operational Procedures
-
-Key rotation, compromise response, and key state definitions live in [key rotation](operations/key-rotation.md). Logging requirements live in [logging](logging.md).
-
-## Known Limitations
-
-- Jump cannot prevent a user from copying a URL with `rt`.
-- Jump cannot make URL-visible JWTs confidential.
-- Jump does not detect replay; schema 1 permits reuse within the short validity window.
-- External cushion pages reduce phishing risk but cannot eliminate it.
-- Issuer key compromise requires operational rotation and revocation.
+Canonical key bindings are required; private-only or alias-only bundles fail 503. Public keysets reject private fields rather than stripping them. The
+active pair is probe checked; import validity of other keys is a distinct check.
+extractable:false restricts CryptoKey export, not absolute PEM/memory leakage.

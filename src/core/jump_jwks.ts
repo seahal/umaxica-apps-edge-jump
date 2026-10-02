@@ -44,6 +44,14 @@ function validatePublicJwk(value: unknown): JWK {
   if (!isP384Coordinate(value.x) || !isP384Coordinate(value.y)) {
     throw new JumpError('malformed', 'jump jwk coordinate rejected');
   }
+  if (
+    String(value.kid).length > 128 ||
+    (value.key_ops !== undefined &&
+      (!Array.isArray(value.key_ops) ||
+        value.key_ops.length !== 1 ||
+        value.key_ops[0] !== 'verify'))
+  )
+    throw new JumpError('malformed');
   for (const field of PRIVATE_JWK_FIELDS) {
     if (field in value) throw new JumpError('malformed', 'jump private jwk material rejected');
   }

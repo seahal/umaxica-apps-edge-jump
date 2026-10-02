@@ -1,105 +1,67 @@
-# Production Configuration
+# Production configuration and origin changes
 
-## Current Registry Source
+Cloudflare production is the sole deployed target. Canonical settings:
 
-Production edge entry points use the checked-in Umaxica issuer registry in
-`src/config/registry.umaxica.ts`.
+| Name                         | Contract                                            |
+| ---------------------------- | --------------------------------------------------- |
+| UMAXICA_JUMP_ORIGIN          | Required canonical HTTPS origin, no trailing slash  |
+| UMAXICA_JUMP_PRIVATE_KEY_PEM | One active ES384 PKCS#8 private secret              |
+| UMAXICA_JUMP_PRIVATE_KEY_KID | One opaque active kid, ≤128 characters              |
+| UMAXICA_JUMP_PUBLIC_JWKS     | Explicit valid public set containing active kid     |
+| JUMP_RATE_LIMITER            | Callable provider binding, 600/60s, namespace520900 |
+| ASSETS                       | Existing Worker-first static binding                |
 
-This registry is not a secret. It defines which issuers are trusted, where their
-JWKS documents are fetched from, and which normalized destination origins are
-allowed.
+JUMP_PRIVATE_KEY_PEM/KID and UMAXICA_JUMP_PUBLIC_KEYSET are removed aliases:
+alias-only settings fail503. Verify deployed canonical references without obtaining
+or printing private values. Checked-in kid/JWK/origin values were not rotated.
+Live presence is unverified and is a deployment gate, not inferred from config.
 
-## Allowed Issuers And Destinations
+UMAXICA_JUMP_ORIGIN has no default. Require complete equality to URL.origin and
+HTTPS, no userinfo/path/query/fragment/nonstandard port/whitespace/control/trailing
+dot, localhost/single-label/private/link-local/loopback/metadata host. Identity may
+not collide with any application or external allowlisted origin. Request origin
+must match; forwarded request headers cannot change it. See protocol and plan
+for status precedence and the alternate canonical identity regression.
 
-| Issuer                     | JWKS                                 | Allowed internal destination origins                                                                           | External |
-| -------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------- | -------- |
-| `https://auth.umaxica.app` | same origin `/.well-known/jwks.json` | `https://www.umaxica.app`                                                                                      | no       |
-| `https://auth.umaxica.com` | same origin `/.well-known/jwks.json` | `https://www.umaxica.com`                                                                                      | no       |
-| `https://auth.umaxica.org` | same origin `/.well-known/jwks.json` | `https://www.umaxica.org`                                                                                      | no       |
-| `https://www.umaxica.app`  | same origin `/.well-known/jwks.json` | `https://auth.umaxica.app`, `https://www-jp.umaxica.app`, `https://jp.umaxica.app`, `https://palm.umaxica.app` | no       |
-| `https://www.umaxica.com`  | same origin `/.well-known/jwks.json` | `https://auth.umaxica.com`, `https://www-jp.umaxica.com`, `https://jp.umaxica.com`                             | no       |
-| `https://www.umaxica.org`  | same origin `/.well-known/jwks.json` | `https://auth.umaxica.org`, `https://www-jp.umaxica.org`, `https://jp.umaxica.org`, `https://edit.umaxica.org` | no       |
+## Switching provider while retaining public identity
 
-Roles are defined once in `src/config/registry.umaxica.ts` and expanded over
-`app` / `com` / `org`, so the three TLDs cannot drift apart: `auth` = `auth.*`,
-`base` = `www.*`, `side` = `www-jp.*`, `core` = `jp.*`, plus `edit.umaxica.org`
-and `palm.umaxica.app`. Only `auth` and `base` are issuers, and `auth` may only
-travel to and from `base` — `auth` <-> any other role is prohibited in both
-directions, because a round trip from auth through anything but base widens the
-redirect surface and makes post-incident reconstruction unreliable.
+A future adapter must pass the same contracts before any traffic steering.
+Retaining the public origin avoids changing JWT identity, but requires separately
+verified DNS/routes/TLS, bindings, key bundle and platform security/log behavior.
+Portable core is not an already deployed backup. No DNS or provider changes were
+performed in this work.
 
-## Final Desired Shape
+## Changing public origin
 
-The long-term production shape is:
+Treat this as a coordinated protocol identity migration. Prepare issuer aud,
+receiver trust/iss/JWKS references, DNS/TLS/routes and all deployment controls.
+Validate a consistent bundle and request origin. Configuration alone does not
+change external trust, DNS or TLS. Do not register extra production domains to
+make a test pass; alternate-origin tests inject configuration locally.
 
-- DNS: `jump.umaxica.net` points to the selected edge runtime.
-- TLS: certificate is issued and managed by the edge provider for
-  `jump.umaxica.net`.
-- Runtime: Cloudflare Workers is the production entry point. Fastly Compute is experimental, unverified, and outside the production scope of this hardening work.
-- Private key: stored only as the Cloudflare Worker secret
-  `UMAXICA_JUMP_PRIVATE_KEY_PEM`.
-- Private key `kid`: stored in the provider secret backend or non-secret runtime
-  config.
-- Issuer registry: stored in a reviewed runtime configuration source or secret
-  backend if operational policy requires central runtime updates.
-- Logs: access logs omit the query entirely; audit fields follow `docs/logging.md` and are retained for 30 days.
+## Rate limiter and errors
 
-## Cloudflare Workers
+Missing/noncallable binding, absent/invalid CF-Connecting-IP or nonobject/nonboolean
+success are503 service_unavailable. Exactly success=true continues, false429.
+Only exception/rejection from an otherwise valid binding call warns and continues
+all JWT/URL/graph/key checks. No IP values are logged; IP is coarse abuse control,
+not authentication or replay prevention. Shared-IP collateral and fail-open load
+are accepted residual risks. Deadline504 never continues.
 
-Cloudflare Workers is the first production target in this repository. Keep the
-`jump.umaxica.net` contract aligned here before mirroring any runtime-specific
-changes elsewhere.
+Initialization, ASSETS, secret and Hono failures get final common headers. Bad
+requests400; configuration503; unexpected exceptions500; entry deadline1000ms504.
+Issuer network/5xx/429503 temporarily_unavailable differs from bad documents400.
+Health200 proves only responsiveness.
 
-`wrangler.jsonc` binds `jump.umaxica.net` as a custom domain. The private key is
-not declared in that file: it is uploaded as the Worker secret
-`UMAXICA_JUMP_PRIVATE_KEY_PEM`. The matching `kid` and public JWKS are ordinary
-variables because they are not confidential.
+## Release gate
 
-Before production traffic:
+Verify real Worker version ID, canonical secret/config references, all13 issuer
+JWKS reachability and receiver reuse/URL/transaction contract, DNS/routes/Access/
+WAF/TLS and final response/log behavior. Check query redaction, invocation logs
+false, traces false, no token/code/state/nonce exposure in platform logs. Do not
+equate Git SHA with deployed version. A compatible recovery artifact is mandatory;
+see compatibility matrix. Until verified: BLOCKED_FOR_ROLLOUT.
 
-1. Confirm the `jump.umaxica.net` DNS record is proxied by Cloudflare.
-2. Confirm Cloudflare has issued an active certificate for `jump.umaxica.net`.
-3. Store the ES384 P-384 private key as `UMAXICA_JUMP_PRIVATE_KEY_PEM`.
-4. Put the matching active signing key id in
-   `UMAXICA_JUMP_PRIVATE_KEY_KID`.
-5. Put the public JWK derived from that private key in
-   `UMAXICA_JUMP_PUBLIC_JWKS`.
-6. Use the atomic version-upload procedure in `key-rotation.md`; do not update
-   the three values independently.
-7. Verify `/health.json`.
-8. Verify a valid issuer token redirects only to the configured internal origin
-   and emits `jump_signer_configured` for the expected `kid`.
-9. Verify a token targeting an unlisted origin is rejected with `invalid_dst`.
-10. Verify logs do not contain the full `rt` value.
+## Additional 0.2 hardening contract
 
-## Fastly Compute
-
-Fastly is experimental, unverified, and not a production target. Its code, configuration, dependencies, and deployment procedure are intentionally unchanged by the Cloudflare hardening work.
-
-## Registry Rotation
-
-Registry changes are policy changes. Review them like code changes.
-
-Normal update:
-
-1. Add or update issuer entries in `src/config/registry.umaxica.ts`.
-2. Ensure every `allowed_dst_internal` entry is an origin only. Paths, query
-   strings, and fragments are rejected.
-3. Keep `allowed_dst_external` as `false` unless external redirects are explicitly
-   approved.
-4. Deploy.
-5. Verify an allowed token succeeds.
-6. Verify an unlisted destination is rejected.
-
-Compromise update:
-
-1. Add the compromised `kid` to the issuer's `revoked_kids`.
-2. Deploy immediately.
-3. Verify tokens signed with the revoked `kid` fail with `invalid_signature`.
-4. Rotate the issuer signing key and publish the new public JWK.
-
-## Key Rotation
-
-Use `docs/operations/key-rotation.md` for key generation and private-key
-handling. Private keys must stay out of git, logs, screenshots, and example
-configs.
+Use [readiness](readiness.md) separately from liveness, [origin cutover](origin-cutover.md) for identity changes and [rollback recovery](rollback-recovery.md) for recovery. Require the CI worker-runtime job in release/branch protection; repository YAML alone does not configure external branch protection. rollback-compatible immutable artifact: NOT YET VERIFIED. ROLLOUT_STATUS = BLOCKED_FOR_ROLLOUT.

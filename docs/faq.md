@@ -24,9 +24,9 @@ External direct redirects increase phishing and OpenRedirect risk. Jump uses cus
 
 JWKS lets Jump verify public keys while private keys stay in issuer or runtime secret stores.
 
-## Why Active-Active?
+## Which Provider Runs Production?
 
-Active-active Fastly and Cloudflare operation improves resilience and lets traffic move during provider incidents.
+Cloudflare Workers is the only current production adapter. The portable core permits future adapters, but does not provide active-active redundancy. Historical provider descriptions are superseded by ADR 0005.
 
 ## Why Not OAuth?
 

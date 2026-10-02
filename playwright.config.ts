@@ -22,7 +22,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'tsx e2e/server.ts',
+    command: 'node --import tsx e2e/server.ts',
     url: baseURL,
     reuseExistingServer: !isCI,
     timeout: 15_000,

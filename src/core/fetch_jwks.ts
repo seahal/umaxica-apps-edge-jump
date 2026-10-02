@@ -1,3 +1,4 @@
+import { raceAbort, throwIfAborted } from './deadline';
 import type { JWK } from 'jose';
 import type { FetchJwks } from './jwks_cache';
 import { JumpError } from './types';
@@ -40,7 +41,7 @@ export const fetchRegistryJwks: FetchJwks = async (issuer, signal) => {
     }
 
     stage = 'body';
-    const body = await readBodyWithCap(response, MAX_BYTES);
+    const body = await readBodyWithCap(response, MAX_BYTES, signal);
     let parsed: unknown;
     try {
       stage = 'json';
@@ -144,8 +145,13 @@ function isVerificationJwk(jwk: Record<string, unknown>) {
     (jwk.use === undefined || jwk.use === 'sig') &&
     typeof jwk.kid === 'string' &&
     jwk.kid !== '' &&
+    String(jwk.kid).length <= 128 &&
     typeof jwk.x === 'string' &&
-    typeof jwk.y === 'string'
+    /^[A-Za-z0-9_-]{64}$/.test(jwk.x) &&
+    typeof jwk.y === 'string' &&
+    /^[A-Za-z0-9_-]{64}$/.test(jwk.y) &&
+    (jwk.key_ops === undefined ||
+      (Array.isArray(jwk.key_ops) && jwk.key_ops.length === 1 && jwk.key_ops[0] === 'verify'))
   );
 }
 
@@ -182,7 +188,11 @@ function parseJwks(value: unknown): { keys: JWK[] } | null {
   return usable.length > 0 ? { keys: usable } : null;
 }
 
-async function readBodyWithCap(response: Response, maxBytes: number): Promise<string> {
+async function readBodyWithCap(
+  response: Response,
+  maxBytes: number,
+  signal?: AbortSignal,
+): Promise<string> {
   if (!response.body) {
     const text = await response.text();
     if (new TextEncoder().encode(text).byteLength > maxBytes)
@@ -190,24 +200,30 @@ async function readBodyWithCap(response: Response, maxBytes: number): Promise<st
     return text;
   }
   const reader = response.body.getReader();
+  const cancel = () => {
+    void reader.cancel().catch(() => {});
+  };
+  signal?.addEventListener('abort', cancel, { once: true });
   const chunks: Uint8Array[] = [];
   let total = 0;
   try {
     while (true) {
-      const { value, done } = await reader.read();
+      throwIfAborted(signal);
+      const { value, done } = await raceAbort(reader.read(), signal);
+      throwIfAborted(signal);
       if (done) break;
       total += value.byteLength;
       if (total > maxBytes) {
-        try {
-          await reader.cancel('JWKS response exceeded size limit');
-        } catch {
-          // Preserve the stable validation error if upstream cancellation fails.
-        }
+        cancel();
         throw new JumpError('jwks_bad_gateway', 'issuer jwks response too large');
       }
       chunks.push(value);
     }
+  } catch (error) {
+    cancel();
+    throw error;
   } finally {
+    signal?.removeEventListener('abort', cancel);
     reader.releaseLock();
   }
   const merged = new Uint8Array(total);

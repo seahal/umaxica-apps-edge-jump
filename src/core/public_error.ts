@@ -1,9 +1,10 @@
-import { renderError } from './render_error';
+import { renderSplashPage, type SplashKind } from './page';
 import type { Locale } from './i18n';
 
 export type PublicErrorCode =
   | 'invalid_request'
   | 'service_unavailable'
+  | 'temporarily_unavailable'
   | 'deadline_exceeded'
   | 'internal_error'
   | 'method_not_allowed'
@@ -15,14 +16,12 @@ export type PublicErrorContract = {
 };
 
 /**
- * One public class for every rejection an untrusted `rt` can provoke.
+ * Client-denied rejections of an untrusted `rt`.
  *
- * The issuer JWKS failures belong here rather than with the 503s below: they
- * are only reachable for an `iss` that is in the registry, so keeping them at
- * `service_unavailable` let an unauthenticated caller tell a registered issuer
- * from an unregistered one whenever that issuer's JWKS endpoint was down. The
- * real code is still carried by the structured security log, which is where
- * operators read it.
+ * `jwks_bad_gateway` stays here: the issuer answered, but the document cannot
+ * be used to verify. That is not a retry signal. Fetch timeouts, network
+ * errors, and upstream 5xx/429 use `jwks_unavailable` instead so callers can
+ * retry without learning fetch details.
  */
 const CLIENT_DENIED = new Set<string>([
   'malformed',
@@ -33,17 +32,20 @@ const CLIENT_DENIED = new Set<string>([
   'invalid_dst',
   'invalid_url',
   'jwks_bad_gateway',
-  'jwks_unavailable',
 ]);
 
 /** Jump's own missing configuration — independent of any inbound token. */
 const UNAVAILABLE = new Set<string>(['signer_unavailable']);
+
+/** Registered-issuer JWKS dependency outage. Coarse: no issuer, URL, or cause. */
+const TEMPORARY = new Set<string>(['jwks_unavailable']);
 
 export function publicJumpError(internal: string): PublicErrorContract {
   if (internal === 'method_not_allowed') return { code: 'method_not_allowed', status: 405 };
   if (internal === 'rate_limited') return { code: 'rate_limited', status: 429 };
   if (internal === 'deadline_exceeded') return { code: 'deadline_exceeded', status: 504 };
   if (internal === 'internal_error') return { code: 'internal_error', status: 500 };
+  if (TEMPORARY.has(internal)) return { code: 'temporarily_unavailable', status: 503 };
   if (UNAVAILABLE.has(internal)) return { code: 'service_unavailable', status: 503 };
   if (CLIENT_DENIED.has(internal)) return { code: 'invalid_request', status: 400 };
   return { code: 'internal_error', status: 500 };
@@ -63,8 +65,21 @@ export function publicErrorHeaders(
 
 export function publicErrorResponse(internal: string, locale: Locale = 'ja'): Response {
   const pub = publicJumpError(internal);
-  return new Response(renderError(locale), {
+  return new Response(renderSplashPage(splashKind(pub.code), locale), {
     status: pub.status,
     headers: publicErrorHeaders(internal, locale),
   });
+}
+
+function splashKind(code: PublicErrorCode): SplashKind {
+  if (code === 'rate_limited') return 'rate';
+  if (
+    code === 'service_unavailable' ||
+    code === 'temporarily_unavailable' ||
+    code === 'deadline_exceeded' ||
+    code === 'internal_error'
+  ) {
+    return 'unavailable';
+  }
+  return 'invalid';
 }

@@ -1,123 +1,105 @@
-# Cloudflare Jump Signing-Key Rotation
+# Signing key bundle rotation, recovery and emergency revocation
 
-## Scope
+This change does not rotate existing production secrets, kid or JWK values.
+Tests generate isolated nonproduction keys. Runtime accepts only canonical
+UMAXICA_JUMP_PRIVATE_KEY_PEM/KID and UMAXICA_JUMP_PUBLIC_JWKS. The public key set must
+include active; no deriving active from private, kid dates or array order.
+Private PKCS#8 import is extractable:false, and active public verifies a probe.
+All public keys must import as EC/P-384/ES384 with valid coordinates/kid/use,
+verify-only key_ops when present, no duplicate kid or private fields. Importing
+other public keys does not prove they pair with active private.
 
-This runbook rotates the outbound ES384 key used by the Cloudflare Jump Worker.
-The private key is a Cloudflare Worker secret named
-`UMAXICA_JUMP_PRIVATE_KEY_PEM`. The matching public JWKS and active `kid` are
-non-secret variables in `wrangler.jsonc`.
+## Normal A→B rotation
 
-An operational key is one indivisible set:
+| Stage                         | Signing private/kid | Explicit public JWKS |
+| ----------------------------- | ------------------- | -------------------- |
+| Prepublish                    | A                   | A+B                  |
+| Activate                      | B                   | B+A                  |
+| Retire after approved overlap | B                   | B                    |
 
-- one PKCS#8 P-384 private key;
-- one unique `kid`;
-- one public P-384 JWK derived from that private key.
+B becomes verification trust when published; calling it future does not prevent
+receivers accepting a B signature. Active selection governs issuance separately.
+Do not replace material under an existing kid. Preserve A in an approved secret
+backend while returning to A issuance remains an authorized recovery option.
+Public verification distribution does not need A's private key.
 
-Never update only one member of this set. A matching `kid` does not prove that
-the private and public keys match.
+Prepare each stage as a consistent, tested Worker version with private/kid/public
+bundle and required security code. Record actual version ID and secret/config
+references. Individual sequential live changes to private key, active kid and JWKS are forbidden; require atomic deployment of the consistent immutable Worker version. Worker secrets uploaded
+with a version differ from external Secret Store bindings: an immutable binding
+reference alone does not prove an externally mutable secret value is versioned.
+Use approved backend/versioned references and verify deployment semantics first.
 
-## Generate And Verify A New Set
+For local nonproduction key generation use `pnpm run keys:generate` into a fresh
+private directory; inspect generator help/arguments before use. Never write real
+private material to repository, stdout, evidence or shell arguments.
 
-Create a new private directory outside the repository. The generator refuses an
-existing directory, writes secret files with mode `0600`, and performs a
-sign/verify self-check before reporting success.
+## Timing gates
 
-```sh
-rotation_dir="$(mktemp -d)"
-rmdir "$rotation_dir"
-pnpm run keys:generate -- "$rotation_dir"
-```
+Prepublication wait is chosen from measured receiver JWKS cache/refresh behavior
+and deployment propagation, with operational margin, before B begins signing.
+Old-key retention is a separate period starting at the LAST time A could sign,
+including delayed propagation or recovery deployments:
 
-The command prints paths and the generated `kid`, but never key material. It
-creates:
+`retire_A >= last_possible_A_sign + 30s TTL + 5s leeway + propagation bound + receiver cache/refresh bound + maximum CDN stale policy (if present) + operational margin`.
 
-- `private.pem`: the PKCS#8 private key;
-- `public-jwks.json`: the public JWKS safe to review and commit;
-- `wrangler-secrets.json`: a temporary upload file containing the private key.
+Fill propagation/cache/refresh/margin and the signing stop timestamp from actual
+measurements; they are UNVERIFIED here. Do not assume instantaneous worldwide
+deployment or invent a universal cache time. If bounds are unknown, do not retire.
 
-Copy the generated `kid` to `UMAXICA_JUMP_PRIVATE_KEY_KID` and the compact
-contents of `public-jwks.json` to `UMAXICA_JUMP_PUBLIC_JWKS` in
-`wrangler.jsonc`. Do not commit either secret file.
+## Commands for an authorized deployment owner only
 
-## Validate Before Upload
-
-Run all repository checks and a Worker dry run:
-
-```sh
-pnpm install --frozen-lockfile
-pnpm run format:check
-pnpm run lint:check
-pnpm run typecheck
-pnpm run test
-pnpm run cloudflare:check
-```
-
-Review the diff. It must contain the new public JWK and `kid`, and must not
-contain `PRIVATE KEY` or `wrangler-secrets.json`.
-
-## Atomic Upload And Deployment
-
-Authenticate Wrangler first. Upload the code, variables, and new Worker secret
-as one version. Do not use `wrangler secret put` for this rotation: it changes
-the secret separately and can create the exact private/public mismatch this
-runbook is intended to prevent.
+Installed Wrangler 4.143.0 help was checked locally for `versions upload`,
+`versions deploy`, and `deploy`; none of the following mutations was executed.
 
 ```sh
-pnpm exec wrangler whoami
-pnpm exec wrangler versions upload \
-  --strict \
-  --tag "$kid" \
-  --message "Rotate Jump signing key to $kid" \
-  --secrets-file "$rotation_dir/wrangler-secrets.json"
-pnpm exec wrangler versions deploy "<uploaded-version-id>@100%" --yes \
-  --message "Activate Jump signing key $kid"
+pnpm exec wrangler versions upload --strict --tag '<stage-tag>' \
+  --message '<reviewed-bundle>' --secrets-file '<approved-private-bundle-file>'
+pnpm exec wrangler versions deploy '<uploaded-version-id>@100%' \
+  --message '<reviewed-activation>'
 ```
 
-`versions upload --secrets-file` adds the Worker secret to the same immutable
-version as the checked-in public variables. Deploy only the version ID returned
-by that upload.
+Help describes secrets-file as additive: omitted previous secrets are not deleted.
+Do not interpret omission as removal/revocation. Confirm account/backend behavior,
+configuration references and exact uploaded ID before authorization. Official
+[secrets](https://developers.cloudflare.com/workers/configuration/secrets/) and
+[rollback](https://developers.cloudflare.com/workers/versions-and-deployments/rollbacks/)
+documentation complements CLI help; neither proves receiver compatibility.
 
-## Production Verification
+## Recovery
 
-After deployment:
+After B activation, recovery may use an A-signing prepublish version exposing A+B,
+provided it retains rpl reuse, security fixes, forbidden edges and revocations.
+Do not revert to A-only while valid B tokens may exist. Before retiring B trust,
+account for the last possible B issuance and the same measured timing bounds.
+A prior 0.1 version missing output rpl is not a safe target even after TTL expires.
+No safe actual artifact/version is verified: BLOCKED_FOR_ROLLOUT until prepared.
 
-1. `/.well-known/jwks.json` contains exactly the expected active `kid` and
-   public key.
-2. `/health.json` is healthy. This alone does not exercise signing.
-3. A fresh valid inbound `rt` redirects successfully.
-4. Logs for that request contain `jump_signer_configured` with the new `kid` and
-   do not contain `jump_signer_pair_check_failed` or `signer_unavailable`.
-5. The destination verifies the newly issued Jump JWT with the published JWK.
+## Emergency compromise
 
-If any check fails, redeploy the previous Worker version as a unit. Do not copy
-individual old secret or variable values into the new version.
+Separate emergency response from normal grace. Deploy revoked-kid checks in Jump
+for affected issuer keys; receiver-owned Jump-key revocation must be coordinated
+externally. Removal from public JWKS alone does not immediately stop warm cached
+verification. Stop affected issuance, preserve incident evidence without secrets,
+and never resurrect a revoked key via rollback. Compromised keys do not get a
+normal grace allowance. Rails changes and actual backend operations are outside
+this repository task.
 
-After successful verification, securely delete the generated directory. This
-removes the only local copy of the private key and cannot be undone.
+## Explicit lifecycle and emergency completion
 
-## Incident Meaning
+Exactly one active private key and exactly one active kid are configured. Public
+JWKS = active public key + zero or more grace keys + zero or more prepublished
+future keys. Phase A: private=A, active kid=A, JWKS=[A,B]. Phase B: private=B,
+active kid=B, JWKS=[B,A]. Phase C after the measured grace window: private=B,
+active kid=B, JWKS=[B]. No runtime derivation fallback exists or may be restored.
 
-- `jump_signer_pair_check_failed` / `JWSSignatureVerificationFailed`: the
-  configured private key and public JWK are different key pairs.
-- `kid_not_in_public_jwks`: the configured `kid` is absent from the public JWKS.
-- `pkcs8_import_failed`: the secret is missing, malformed, or not an ES384
-  PKCS#8 private key.
-- `jump_signer_configured`: import and cryptographic pair verification passed.
+If A is compromised, do not grant A grace. Coordinate receiver-side revocation
+before or simultaneously with replacement: generate B, activate B atomically,
+remove A from public JWKS, and ensure receivers reject A even if CDN/receiver
+caches retain it. If necessary purge the exact configured JWKS URL. Jump does not
+own receiver revocation state. **Jump JWKSから消しただけでは emergency revoke 完了ではない**.
+Never roll back to compromised A. Rails code and live secrets are unchanged here.
 
-## Issuer Keys Are Separate
-
-The keys fetched from issuer JWKS endpoints verify inbound `rt` tokens. They
-are not this Worker signing key and are not rotated by this procedure. Issuer
-rotation may retain old public keys for `maximum token TTL + leeway`; the Jump
-outbound key set above is switched atomically.
-
-Jump normally caches each issuer JWKS for 30 seconds. An unknown `kid` triggers
-one immediate refresh without waiting for that TTL; concurrent refreshes are
-coalesced, and repeated forced refreshes are rate-limited by a cooldown.
-
-## Secret-Handling Rules
-
-- Never commit, print, paste, screenshot, or attach private key material.
-- Never place the private key in `wrangler.jsonc` or a shell argument.
-- Public JWKs and `kid` values are intentionally public and may be committed.
-- Use pnpm scripts and `pnpm exec wrangler` only.
+See [recovery artifact requirements](rollback-recovery.md) and
+[origin cutover](origin-cutover.md). rollback-compatible immutable artifact:
+NOT YET VERIFIED. ROLLOUT_STATUS = BLOCKED_FOR_ROLLOUT.

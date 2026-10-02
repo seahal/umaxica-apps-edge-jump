@@ -1,9 +1,11 @@
-import { JumpError, PRODUCTION_SERVICE_ORIGIN, type RuntimeInfo } from './types';
+import { unicodeHostname } from './idna';
+import { JumpError, type RuntimeInfo } from './types';
 
 export type NormalizedUrl = {
   href: string;
   origin: string;
   hostname: string;
+  unicodeHostname: string;
   hasNonAsciiHostname: boolean;
 };
 
@@ -13,8 +15,21 @@ const METADATA_V4 = '169.254.169.254';
 export function normalizeUrl(
   input: string,
   runtime: RuntimeInfo,
-  serviceOrigin: string = PRODUCTION_SERVICE_ORIGIN,
+  serviceOrigin: string,
 ): NormalizedUrl {
+  if (
+    typeof input !== 'string' ||
+    !input ||
+    /[\x00-\x20\x7f\\]/.test(input) ||
+    /%(?![0-9a-fA-F]{2})/.test(input)
+  )
+    throw new JumpError('invalid_url');
+  try {
+    const decoded = decodeURI(input);
+    if (/[\x00-\x1f\x7f\\]/.test(decoded)) throw new Error();
+  } catch {
+    throw new JumpError('invalid_url');
+  }
   let parsed: URL;
   try {
     parsed = new URL(input);
@@ -25,40 +40,46 @@ export function normalizeUrl(
   if (FORBIDDEN_PROTOCOLS.has(parsed.protocol))
     throw new JumpError('invalid_url', 'forbidden protocol');
   if (parsed.username || parsed.password) throw new JumpError('invalid_url', 'userinfo rejected');
-  if (runtime.production && parsed.protocol === 'http:')
-    throw new JumpError('invalid_url', 'http rejected');
+  if (parsed.protocol === 'http:') throw new JumpError('invalid_url', 'http rejected');
   /* v8 ignore next -- URL only reaches this after explicit forbidden protocol checks */
   if (!['https:', 'http:'].includes(parsed.protocol))
     throw new JumpError('invalid_url', 'protocol rejected');
 
   const rawHost = parsed.hostname;
-  const hostname = rawHost.endsWith('.')
-    ? rawHost.slice(0, -1).toLowerCase()
-    : rawHost.toLowerCase();
+  if (rawHost.endsWith('.') || parsed.port) throw new JumpError('invalid_url');
+  const hostname = rawHost.toLowerCase();
   parsed.hostname = hostname;
 
   if (hostname === new URL(serviceOrigin).hostname)
     throw new JumpError('invalid_url', 'self link rejected');
   if (isForbiddenHost(hostname)) throw new JumpError('invalid_url', 'forbidden host');
 
+  const hasNonAsciiHostname = hostname.split('.').some((label) => label.startsWith('xn--'));
   return {
     href: parsed.href,
     origin: parsed.origin,
     hostname,
-    hasNonAsciiHostname: hostname.split('.').some((label) => label.startsWith('xn--')),
+    unicodeHostname: hasNonAsciiHostname ? unicodeHostname(hostname) : hostname,
+    hasNonAsciiHostname,
   };
 }
 
-export function normalizeOrigin(input: string, runtime: RuntimeInfo): string {
-  const parsed = normalizeUrl(input, runtime);
+export function normalizeOrigin(
+  input: string,
+  runtime: RuntimeInfo,
+  serviceOrigin: string,
+): string {
+  const parsed = normalizeUrl(input, runtime, serviceOrigin);
   const originPath = new URL(parsed.href);
   if (originPath.pathname !== '/' || originPath.search || originPath.hash) {
     throw new JumpError('invalid_dst', 'origin allowlist entries must be origins');
   }
+  if (input !== parsed.origin) throw new JumpError('invalid_dst');
   return parsed.origin;
 }
 
-function isForbiddenHost(hostname: string) {
+export function isForbiddenHost(hostname: string) {
+  if (!hostname.includes('.') && !hostname.startsWith('[')) return true;
   if (hostname === 'localhost' || hostname.endsWith('.localhost')) return true;
   if (hostname === METADATA_V4 || hostname === 'metadata.google.internal') return true;
   const ipv4 = parseIpv4(hostname);
@@ -197,4 +218,77 @@ function expandIpv6(address: string): number[] | null {
     numeric.push(Number.parseInt(group, 16));
   }
   return numeric;
+}
+
+/** Additional special-use identity restrictions; .example is allowed for test DI. */
+function isForbiddenServiceHost(hostname: string) {
+  if (isForbiddenHost(hostname)) return true;
+  if (
+    ['local', 'internal', 'home.arpa', 'onion', 'invalid', 'test'].some(
+      (suffix) => hostname === suffix || hostname.endsWith(`.${suffix}`),
+    )
+  )
+    return true;
+  const ipv4 = parseIpv4(hostname);
+  if (ipv4) {
+    const [a, b, c] = ipv4;
+    return (
+      (a === 192 && b === 0 && c === 2) ||
+      (a === 192 && b === 88 && c === 99) ||
+      (a === 198 && b === 51 && c === 100) ||
+      (a === 203 && b === 0 && c === 113)
+    );
+  }
+  if (hostname.startsWith('[')) {
+    const groups = expandIpv6(hostname.slice(1, -1));
+    if (!groups) return true;
+    const first = Number(groups[0]);
+    const second = Number(groups[1]);
+    return (
+      (first & 0xe000) !== 0x2000 ||
+      (first === 0x2001 && (second < 0x200 || second === 0xdb8)) ||
+      first === 0x2002 ||
+      (first === 0x3fff && second < 0x1000)
+    );
+  }
+  return false;
+}
+
+/** Protocol identity; never derived from request headers or defaulted. */
+export function validateServiceOrigin(input: unknown): string {
+  try {
+    if (typeof input !== 'string' || !input || /[\s\x00-\x1f\x7f\\]/.test(input)) throw new Error();
+    const url = new URL(input);
+    if (
+      input !== url.origin ||
+      url.protocol !== 'https:' ||
+      url.username ||
+      url.password ||
+      url.port ||
+      url.hostname.endsWith('.') ||
+      isForbiddenServiceHost(url.hostname)
+    )
+      throw new Error();
+    return url.origin;
+  } catch {
+    throw new JumpError('signer_unavailable');
+  }
+}
+
+export function isRtKey(name: string) {
+  return name === 'rt' || name.startsWith('rt[');
+}
+
+export function validateInternalTarget(target: NormalizedUrl): NormalizedUrl {
+  const url = new URL(target.href);
+  if (url.hash || target.href.includes('#')) throw new JumpError('invalid_url');
+  const single = new Set(['redirect_uri', 'state', 'nonce', 'code', 'next', 'return_to']);
+  const seen = new Set<string>();
+  for (const name of url.searchParams.keys()) {
+    if (isRtKey(name) || (single.has(name) && seen.has(name))) throw new JumpError('invalid_url');
+    seen.add(name);
+  }
+  // Canonical query serialization shared by claim and Location (not input bytes).
+  url.search = url.searchParams.toString();
+  return { ...target, href: url.href };
 }

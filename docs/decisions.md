@@ -1,57 +1,19 @@
-# Decisions
+# Current decisions
 
-## Why JWT In Query String?
+[ADR0005](../adr/0005-production-jump-0.2.md) defines production-only Cloudflare,
+portable explicit core, 13/20 graph, required reuse and explicit public bundle.
+No replay state or receiver emulator is added. JWT schema and service release
+versions are separate. Required service identity remains configurable.
 
-The redirect entry point must work across FQDNs without cookies or sessions. A URL token is portable and explicit. It is not confidential, so claims must not contain secrets.
+JWT query transport supports cross-FQDN instructions without cookies; it is not
+confidential storage. Issuer exact allowlists and external confirmation prevent
+arbitrary direct redirects. Production external capabilities stay disabled.
 
-## Why No Cookies?
+Limiter call exceptions are the sole approved fail-open exception. Configuration,
+crypto, URL, graph and key pair failures stay closed. A 503 issuer dependency
+outage is distinguished from unusable-document400, with coarse public errors.
 
-Cookies create session semantics and cross-site policy concerns. Jump is stateless and ignores cookies.
-
-## Why Stateless?
-
-Stateless validation works well across active-active edge runtimes and avoids database availability in the redirect path.
-
-## Why Fastly + Cloudflare Active-Active?
-
-Two edge providers reduce dependence on one runtime and allow traffic steering during incidents.
-
-## Why Hono Only?
-
-Hono provides small Web Standard routing primitives without requiring a frontend or build framework.
-
-## Why No Vite?
-
-Jump is an edge HTTP service, not a frontend app. The initial implementation should avoid deploy and bundler coupling.
-
-## Why P-384?
-
-P-384 keys are small, fast, and map cleanly to EC JWKs with `alg: ES384`.
-
-## Why Jump Does Not Detect Replay?
-
-Jump's schema-1 token communicates a redirect decision only and may be reused until expiry. It does not establish authentication, a session, authorization, CSRF approval, or permission for a side effect. Jump signs a `jti` that identifies each output JWT but does not copy the input `jti`, require receiver-side consumption storage, or log the identifier. A future consequential-action protocol requires a separately reviewed major schema change.
-
-## Why No Opaque Tokens?
-
-Opaque tokens require shared server-side storage or introspection. That would conflict with the stateless edge design.
-
-## Why No SDK Abstraction Initially?
-
-Copy-paste examples keep the protocol visible. Official libraries can come later after the claim model and operational practices stabilize.
-
-## Why Direct Redirects Are Forbidden?
-
-External direct redirects make phishing and OpenRedirect failures harder to see. Cushion pages make the cross-site transition explicit.
-
-## Why Jump Acts As A Trust Broker?
-
-Jump centralizes redirect policy at an FQDN boundary so each issuer does not reimplement URL validation and external redirect behavior differently.
-
-## Why Forbid A Redirect To The Same Origin?
-
-A destination equal to its source spends a signature verification and a round
-trip to leave the user where they already were, and it is the one-hop form of a
-redirect loop. Jump refuses it structurally — no issuer lists its own origin,
-and the service origin itself is rejected during URL normalization. See
-[ADR 0003](../adr/0003-no-self-referential-redirects.md).
+HSTS retains12 months. Static ASSETS remains behind Worker-first hygiene.
+Receiver authentication, CSRF, transaction uniqueness and downstream redirects
+remain independently owned. Historical decisions are retained in ADR/evidence;
+current release/recovery requirements are in [compatibility](compatibility.md).

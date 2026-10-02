@@ -1,5 +1,5 @@
 import { serve } from '@hono/node-server';
-import { createApp } from '../src';
+import { createApp } from '../test/app-fixture';
 
 const port = Number(process.env.E2E_PORT ?? 4173);
 
