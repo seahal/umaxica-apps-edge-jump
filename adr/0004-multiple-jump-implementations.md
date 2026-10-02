@@ -1,3 +1,5 @@
+> Historical decision: current runtime/static-assets contract superseded by [ADR0005](0005-production-jump-0.2.md). Original text below is retained.
+
 # ADR 0004: Jump Is One Protocol With Multiple Implementations
 
 ## Status

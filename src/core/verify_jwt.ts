@@ -1,12 +1,7 @@
 import { errors, jwtVerify, type JWTPayload } from 'jose';
 import { getIssuer } from './registry';
 import type { JwksCache } from './jwks_cache';
-import {
-  JumpError,
-  PRODUCTION_SERVICE_ORIGIN,
-  type InboundJumpClaim,
-  type IssuerRegistry,
-} from './types';
+import { JumpError, type InboundJumpClaim, type IssuerRegistry } from './types';
 const ALLOWED_ALGS = new Set(['ES384']);
 const MAX_TOKEN_LENGTH = 8192;
 const MAX_KID_LENGTH = 128;
@@ -17,8 +12,8 @@ export async function verifyJumpJwt(
   token: string,
   registry: IssuerRegistry,
   jwksCache: JwksCache,
-  now = Math.floor(Date.now() / 1000),
-  serviceOrigin: string = PRODUCTION_SERVICE_ORIGIN,
+  now: number,
+  serviceOrigin: string,
   signal?: AbortSignal,
 ) {
   throwIfAborted(signal);
@@ -39,6 +34,7 @@ export async function verifyJumpJwt(
   }
 
   const unsafePayload = decodeJsonObject(String(parts[1]), 'malformed');
+  if (unsafePayload.rpl !== 'reuse') throw new JumpError('invalid_claim');
   if (typeof unsafePayload.iss !== 'string') throw new JumpError('invalid_claim', 'iss required');
   const issuer = getIssuer(registry, unsafePayload.iss);
   if (!issuer) throw new JumpError('invalid_claim', 'issuer rejected');
@@ -155,6 +151,7 @@ function validateClaim(
     throw new JumpError('invalid_dst', 'dst rejected');
   if (typeof payload.url !== 'string' || !payload.url)
     throw new JumpError('invalid_url', 'url required');
+  if (payload.rpl !== 'reuse') throw new JumpError('invalid_claim');
   return payload as InboundJumpClaim;
 }
 

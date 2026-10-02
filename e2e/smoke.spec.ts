@@ -64,7 +64,7 @@ test.describe('jump gateway smoke', () => {
       expect.objectContaining({
         status: 'OK',
         service: 'jump',
-        edge: 'local',
+        edge: 'cloudflare',
       }),
     );
   });
@@ -78,7 +78,7 @@ test.describe('jump gateway smoke', () => {
       expect.objectContaining({
         status: 'OK',
         service: 'jump',
-        edge: 'local',
+        edge: 'cloudflare',
       }),
     );
   });
@@ -138,4 +138,20 @@ function expectSecurityHeaders(response: APIResponse) {
   expect(headers['x-robots-tag']).toBe('noindex, nofollow, noarchive');
   expect(headers['strict-transport-security']).toBe('max-age=31536000; includeSubDomains; preload');
   expect(headers['set-cookie']).toBeUndefined();
+}
+
+for (const path of ['/about', '/about/', '//', '/favicon.ico', '/.well-known/jwks.json']) {
+  test(`rt wrong-path ${path} has no navigation or reflection`, async ({ request }) => {
+    for (const method of ['GET', 'HEAD']) {
+      const response = await request.fetch(`${path}?rt%5Bx%5D=private-token`, {
+        method,
+        maxRedirects: 0,
+      });
+      expect(response.status()).toBe(400);
+      expect(response.headers()['location']).toBeUndefined();
+      expectSecurityHeaders(response);
+      expect(await response.text()).not.toContain('private-token');
+      if (method === 'HEAD') expect(await response.text()).toBe('');
+    }
+  });
 }

@@ -1,4 +1,4 @@
-import type { IssuerRegistry } from '../core/types';
+import type { IssuerRegistry } from '../../src/core/types';
 
 export const registry: IssuerRegistry = {
   'https://app.example.com': {

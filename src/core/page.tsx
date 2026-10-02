@@ -1,7 +1,6 @@
 import type { Child } from 'hono/jsx';
 import { raw } from 'hono/html';
 import { renderToString } from 'hono/jsx/dom/server';
-import { PRODUCTION_SERVICE_ORIGIN } from './types';
 import { messages, type Locale } from './i18n';
 import type { NormalizedUrl } from './normalize_url';
 import { CUSHION_INLINE_SCRIPT, PRODUCT_PAGE_CSS, SPLASH_PAGE_CSS } from './security_headers';
@@ -23,7 +22,7 @@ const BRAND_NAME = 'UMAXICA';
  * UMAXICA title contract brand, derived from the user-facing FQDN so it cannot
  * drift from the deployment: https://jump.umaxica.net -> "UMAXICA (NET)".
  */
-const BRAND = `${BRAND_NAME} (${brandTld(PRODUCTION_SERVICE_ORIGIN)})`;
+const BRAND = `${BRAND_NAME} (NET)`;
 
 /** Root: "UMAXICA (NET)". Page: "About — UMAXICA (NET)" (separator is EM DASH). */
 export function brandTitle(pageTitle?: string) {
@@ -31,16 +30,7 @@ export function brandTitle(pageTitle?: string) {
   return page ? `${page} — ${BRAND}` : BRAND;
 }
 
-function brandTld(origin: string) {
-  const labels = new URL(origin).hostname.split('.');
-  return String(labels[labels.length - 1]).toUpperCase();
-}
-
-export function renderAboutPage(
-  locale: Locale = 'ja',
-  serviceOrigin: string = PRODUCTION_SERVICE_ORIGIN,
-  now = new Date(),
-) {
+export function renderAboutPage(locale: Locale, serviceOrigin: string, now = new Date()) {
   const t = messages[locale];
   return renderDocument({
     pageTitle: t.aboutPageTitle,

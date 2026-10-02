@@ -1,3 +1,4 @@
+import { raceAbort, throwIfAborted } from './deadline';
 import { importJWK, type JWK } from 'jose';
 import { JumpError, type IssuerConfig } from './types';
 
@@ -101,7 +102,12 @@ export class JwksCache {
       this.observe?.({ issuer: issuer.iss, result: 'hit' });
       return cached;
     }
-    if (forceRefresh && cached && (this.nextForcedRefresh.get(issuer.iss) ?? 0) > now) {
+    if (
+      forceRefresh &&
+      cached &&
+      cached.expiresAt > now &&
+      (this.nextForcedRefresh.get(issuer.iss) ?? 0) > now
+    ) {
       this.observe?.({ issuer: issuer.iss, result: 'hit' });
       return cached;
     }
@@ -144,18 +150,4 @@ export class JwksCache {
       throw error;
     }
   }
-}
-
-function throwIfAborted(signal?: AbortSignal) {
-  if (signal?.aborted) throw new JumpError('deadline_exceeded', 'request deadline exceeded');
-}
-
-async function raceAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
-  if (!signal) return promise;
-  throwIfAborted(signal);
-  return new Promise<T>((resolve, reject) => {
-    const abort = () => reject(new JumpError('deadline_exceeded', 'request deadline exceeded'));
-    signal.addEventListener('abort', abort, { once: true });
-    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
-  });
 }

@@ -46,6 +46,16 @@ jobs:
       # `test:cov` runs the same suite as `test`, with coverage on top.
       - run: pnpm run test:cov
 
+  worker-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/pnpm-project
+      - run: pnpm run test:worker
+
   e2e:
     runs-on: ubuntu-slim
     timeout-minutes: 15

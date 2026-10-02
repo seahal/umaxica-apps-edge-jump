@@ -1,0 +1,31 @@
+{
+  "service_version": "0.2.0",
+  "schema": 1,
+  "header": { "typ": "JWT", "alg": "ES384", "kid_max_length": 128 },
+  "required_claims": [
+    "schema",
+    "rpl",
+    "iss",
+    "aud",
+    "sub",
+    "iat",
+    "nbf",
+    "exp",
+    "jti",
+    "src",
+    "dst",
+    "url"
+  ],
+  "rpl": "reuse",
+  "sub": "jump-redirect",
+  "dst": "internal",
+  "ttl_seconds": 30,
+  "clock_tolerance_seconds": 5,
+  "max_token_characters": 8192,
+  "url_comparison": "WHATWG URL, remove exactly one rt, serialize URLSearchParams, match signed url",
+  "transaction_owner": "receiver",
+  "downstream_redirect_owner": "receiver",
+  "authentication_granted": false,
+  "csrf_granted": false,
+  "one_time_execution_granted": false
+}

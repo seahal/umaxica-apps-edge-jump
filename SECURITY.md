@@ -27,8 +27,7 @@ Out of scope unless they are caused by Jump:
 
 - Issuer applications (`auth.*`, `www.*`, and other Umaxica apps)
 - Receiving-app replay, CSRF, and session handling
-- The experimental Fastly entrypoint, which is not a production path
-- The non-production Rails implementation at `leap.umaxica.net`, which is
+- External receiver implementations (historical Leap description superseded by ADR0005), which are
   handled in the Rails application's repository
 - Cloudflare account IAM, zone-wide rules on other hostnames, and
   `/cdn-cgi/` platform endpoints

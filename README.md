@@ -1,145 +1,35 @@
-# UMAXICA Jump Gateway
+# UMAXICA Jump Gateway 0.2
 
-Jump Gateway is a stateless redirect trust broker for `https://jump.example.net/?rt=<JWT>`. This repository holds the reference Hono implementation; production runs only Hono.
+Hono on Cloudflare Workers production verifies signed redirect instructions and
+allows only the approved source → destination origin graph. The current identity
+is `https://jump.umaxica.net`, supplied by required `UMAXICA_JUMP_ORIGIN`.
+No development authorities, receiver emulator or other provider implementation
+is provided. Web Standard core dependencies remain explicit.
 
-Issuer applications create an `rt` compact JWS. Jump validates the JWT, issuer registry, JWKS signature, destination policy, and normalized URL before crossing FQDN boundaries. Internal destinations may receive a redirect. External destinations always receive a cushion page first.
+Schema 1 intentionally requires `rpl: "reuse"` on both input and output. This is
+an acceptance change from 0.1, despite the unchanged JWT schema. Every reuse
+runs verification again and produces a fresh outbound `jti`. Jump does not grant
+authentication, authorization, CSRF approval or permission to execute a transaction.
 
-This project will introduce integration examples before official libraries. Issuer applications should fully understand the JWTs they generate.
-
-## Purpose
-
-Jump exists to make redirect decisions server-side at an edge boundary instead of letting applications pass arbitrary URLs across domains. It reduces OpenRedirect risk, makes issuer-specific allowlists explicit, and gives external redirects a visible pause.
-
-## NON-GOALS
-
-- This project is NOT an authentication provider.
-- This project is NOT a session manager.
-- This project is NOT a generic proxy.
-- This project is NOT a URL shortener.
-- This project is NOT a confidential transport.
-- This project does NOT hide redirect destinations.
-- This project does NOT replace OAuth/OIDC.
-- This project is ONLY a redirect trust broker across FQDN boundaries.
-
-## Quick Flow
-
-```mermaid
-flowchart LR
-  issuer[Issuer app] -->|GET /?rt=JWT| jump[Jump Gateway]
-  jump -->|validate JWT + URL policy| decision{dst}
-  jump -->|invalid rt| error[Error page]
-  decision -->|internal| dest[302 Destination]
-  decision -->|external| cushion[Cushion page]
-  cushion -->|user continues| ext[External site]
-```
-
-## Interfaces And Implementations
-
-Jump is one protocol with several implementations. This repository's Hono code is the reference, and production uses nothing else.
-
-| Implementation                         | Host                                   | Environment                       |
-| -------------------------------------- | -------------------------------------- | --------------------------------- |
-| Hono on Cloudflare Workers (reference) | `jump.umaxica.net`                     | production                        |
-| Hono on Fastly Compute                 | —                                      | experimental                      |
-| Hono local runtimes                    | `127.0.0.1:5209` / `127.0.0.1:7676`    | development of this repository    |
-| Rails-embedded implementation          | `leap.umaxica.net` (Cloudflare Tunnel) | Rails `development` / `test` only |
-
-Applications choose the Jump base URL through environment configuration. Production must always use `https://jump.umaxica.net`. See [Implementations](docs/implementations.md) and [ADR 0004](adr/0004-multiple-jump-implementations.md).
-
-## Local Runtime Checks
-
-Use these commands when you want to run the same Hono app through the target edge runtimes locally.
-
-Both local servers bind to `0.0.0.0` through package scripts. Use `127.0.0.1` on the same machine.
-
-Fastly Compute:
+Read [protocol](docs/protocol.md), [receiver obligations](docs/receiver-contract.md),
+[configuration](docs/operations/production-configuration.md),
+[rotation](docs/operations/key-rotation.md), and [compatibility](docs/compatibility.md).
+[Plan and traceability](plans/jump-0.2-security.md) record scope and acceptance.
+[ADR 0005](adr/0005-production-jump-0.2.md) supersedes historical provider/Leap contracts.
 
 ```sh
-pnpm run fastly:build
-pnpm run fastly:serve
-curl http://127.0.0.1:7676/health.json
-```
-
-Expected health response includes:
-
-```json
-{
-  "status": "OK",
-  "service": "jump",
-  "version": "0.1.0",
-  "edge": "fastly"
-}
-```
-
-Cloudflare Workers:
-
-```sh
+pnpm install --frozen-lockfile
+pnpm run format:check
+pnpm run lint:check
+pnpm run typecheck
+pnpm run test
+pnpm run test:cov
+pnpm run test:e2e
 pnpm run cloudflare:check
-pnpm run cloudflare:dev
-curl http://127.0.0.1:5209/health.json
 ```
 
-Expected health response includes:
-
-```json
-{
-  "status": "OK",
-  "service": "jump",
-  "version": "0.1.0",
-  "edge": "cloudflare"
-}
-```
-
-Useful local checks for either runtime:
-
-```sh
-curl http://127.0.0.1:<port>/about
-curl http://127.0.0.1:<port>/health.json
-curl http://127.0.0.1:<port>/.well-known/jwks.json
-curl http://127.0.0.1:<port>/robots.txt
-```
-
-Default ports:
-
-- Fastly Compute: `7676`
-- Cloudflare Workers: `5209`
-
-## Security Notes
-
-- `rt` JWTs are NOT confidential.
-- `rt` JWTs intentionally appear in URLs.
-- `jti` identifies each JWT; schema 1 does not treat it as a single-use credential.
-- `exp` guarantees time-based expiration.
-- Redirect decisions are verified server-side.
-- Jump acts as a trust broker between FQDN boundaries.
-
-## Versions
-
-- Service version: `0.1.0`
-- Initial JWT claim schema: `schema: 1`
-- Service version and JWT schema are separate. Patch and minor service releases must not change schema compatibility.
-
-## Detailed Docs
-
-- [Architecture](docs/architecture.md)
-- [Implementations](docs/implementations.md)
-- [Security](docs/security.md)
-- [Threat Model](docs/threat-model.md)
-- [Operations: Key Rotation](docs/operations/key-rotation.md)
-- [Operations: Schema Migration](docs/operations/schema-migration.md)
-- [Compatibility](docs/compatibility.md)
-- [Privacy](docs/privacy.md)
-- [Logging](docs/logging.md)
-- [Decisions](docs/decisions.md)
-- [Glossary](docs/glossary.md)
-- [FAQ](docs/faq.md)
-
-## Future Libraries
-
-Future helper libraries are planned for Ruby, TypeScript, and Rust. The current implementation remains framework-neutral and intentionally avoids SDK abstractions until the protocol and operational model are well understood.
-
-## Acknowledgement
-
-- Secrets must stay in Rails credentials; do not commit plaintext secrets.
-- WebAuthn origins are controlled by `TRUSTED_ORIGINS`.
-- Public availability of this repository is not guaranteed permanently.
+`cloudflare:check` is `wrangler deploy --dry-run`, with no upload. Local browser
+and Worker tests use nonproduction generated keys and the production validation
+rules. `/health*` reports responsiveness and service version, not signer readiness.
+Local evidence cannot prove production bindings, issuer reachability, receiver
+compatibility or a safe rollback artifact. Rollout remains gated separately.

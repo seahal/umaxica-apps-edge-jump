@@ -8,7 +8,7 @@ Logs should help operate Jump without storing redirect tokens or secrets.
 
 - The `rt` query parameter must NOT be stored in access logs.
 - Full JWTs must NOT appear in error logs.
-- Malformed JWTs must be truncated or redacted.
+- Malformed JWTs must not be logged, including fragments.
 - Complete request URLs and destination path, query, and fragment must not be logged.
 - Do not log `jti`, token hashes, URL hashes, IP addresses or their hashes, Referer, User-Agent, or Cookie.
 - Do not log private keys, secret binding values, JWT payloads, or token fragments.
@@ -19,7 +19,7 @@ Logs should help operate Jump without storing redirect tokens or secrets.
 - Runtime/service version, route class, method, status, internal result code, and latency.
 - After successful signature verification: issuer, verified kid, destination class, and allowlisted destination origin.
 - JWKS cache outcome and coarse upstream-failure category.
-- Rate-limit operational outcomes (`client_ip_unavailable`, `limiter_unavailable`) without IP addresses or tokens.
+- Rate-limit operational outcomes (including `limiter_call_exception`) without IP addresses or tokens.
 
 Public HTTP responses expose only coarse `X-Jump-Error` classes. Internal reason codes stay in structured security logs.
 
@@ -47,7 +47,7 @@ dst="https://example.org/account?email=user@example.com"
 
 ## Malformed Token Handling
 
-For malformed input, record only the request metadata and coarse category. Do not log the raw token, its length, or a hash. Raw audit logs are retained for 30 days and then automatically deleted; access must be least-privilege.
+For malformed input, record only the request metadata and coarse category. Do not log the raw token, its length, or a hash. A 30-day retention policy is an operational requirement, not a verified account setting; access must be least-privilege.
 
 ## Platform Log Settings (operational preconditions)
 
@@ -80,3 +80,7 @@ trace contents were not inspected from this repository.
 **The 30-day retention above is an account-level setting.** Workers Logs retention is configured per
 account, not in `wrangler.jsonc`, so the repository cannot assert it. Confirm the account is set to
 30 days before rollout and re-confirm after any change to the observability configuration.
+
+## Additional 0.2 hardening contract
+
+See [readiness and incident monitoring](operations/readiness.md): configuration/deployment reasons may warrant investigation after one occurrence; malformed/signature/destination failures use rate-based monitoring. No external alert configuration is changed.

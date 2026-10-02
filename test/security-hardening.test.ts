@@ -1,27 +1,40 @@
+import { PRODUCTION_SERVICE_ORIGIN } from './app-fixture';
 import { readFileSync } from 'node:fs';
 import { exportJWK, generateKeyPair } from 'jose';
 import { describe, expect, test, vi } from 'vitest';
-import { createApp } from '../src';
+import { createApp } from './app-fixture';
+import { createApp as productionApp } from '../src';
 import { registry as umaxicaRegistry } from '../src/config/registry.umaxica';
-import cloudflareWorker, { resetIsolateCachesForTest } from '../src/cloudflare';
+import actualWorker, { resetIsolateCachesForTest } from '../src/cloudflare';
 import { JwksCache } from '../src/core/jwks_cache';
-import { normalizeUrl } from '../src/core/normalize_url';
+import { normalizeUrl } from './app-fixture';
 import { publicJumpError } from '../src/core/public_error';
 import { sanitizeSecurityLog } from '../src/core/security_log';
 import { STANDALONE_HTML_SECURITY_HEADERS } from '../src/core/security_headers';
 import { JoseOutboundSigner } from '../src/core/sign_outbound';
-import {
-  JumpError,
-  PRODUCTION_SERVICE_ORIGIN,
-  type InboundJumpClaim,
-  type IssuerRegistry,
-} from '../src/core/types';
+import { JumpError, type InboundJumpClaim, type IssuerRegistry } from '../src/core/types';
 
+const cloudflareWorker = {
+  fetch(request: Request, env: Parameters<typeof actualWorker.fetch>[1], ctx: ExecutionContext) {
+    const headers = new Headers(request.headers);
+    if (!headers.has('CF-Connecting-IP')) headers.set('CF-Connecting-IP', '203.0.113.7');
+    return actualWorker.fetch(
+      new Request(request, { headers }),
+      {
+        UMAXICA_JUMP_ORIGIN: 'https://jump.example.net',
+        JUMP_RATE_LIMITER: { limit: async () => ({ success: true }) },
+        ...env,
+      },
+      ctx,
+    );
+  },
+};
 const NOW = 1_800_000_000;
 
 function baseClaim(): InboundJumpClaim {
   return {
     schema: 1,
+    rpl: 'reuse',
     iss: 'https://app.example.com',
     aud: PRODUCTION_SERVICE_ORIGIN,
     sub: 'jump-redirect',
@@ -30,7 +43,7 @@ function baseClaim(): InboundJumpClaim {
     exp: NOW + 60,
     jti: 'jti-1',
     dst: 'internal',
-    url: 'https://app.example.com/path',
+    url: 'https://docs.example.com/path',
   };
 }
 
@@ -90,7 +103,7 @@ describe('public error contract', () => {
       'https://app.example.com': {
         iss: 'https://app.example.com',
         jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-        allowed_dst_internal: ['https://app.example.com'],
+        allowed_dst_internal: ['https://docs.example.com'],
         allowed_dst_external: false,
       },
     };
@@ -99,7 +112,7 @@ describe('public error contract', () => {
       jwksCache: new JwksCache(async () => ({
         keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
       })),
-      runtime: { edge: 'local', production: true },
+      runtime: { edge: 'cloudflare', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       now: () => NOW,
     });
@@ -128,7 +141,7 @@ describe('public error contract', () => {
       'https://app.example.com': {
         iss: 'https://app.example.com',
         jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-        allowed_dst_internal: ['https://app.example.com'],
+        allowed_dst_internal: ['https://docs.example.com'],
         allowed_dst_external: false,
       },
     };
@@ -137,7 +150,7 @@ describe('public error contract', () => {
       jwksCache: new JwksCache(async () => {
         throw new JumpError('jwks_unavailable', 'issuer jwks temporarily unavailable');
       }),
-      runtime: { edge: 'local', production: true },
+      runtime: { edge: 'cloudflare', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       now: () => NOW,
     });
@@ -189,7 +202,7 @@ describe('structured security log allowlist', () => {
 });
 
 describe('stateless jump contract', () => {
-  test('cloudflare and fastly runtimes share the same jump decision for one token', async () => {
+  test('explicit independent production app instances agree for one token', async () => {
     const issuerKeys = await generateKeyPair('ES384');
     const jumpKeys = await generateKeyPair('ES384');
     const jwk = await exportJWK(issuerKeys.publicKey);
@@ -198,7 +211,7 @@ describe('stateless jump contract', () => {
         'https://app.example.com': {
           iss: 'https://app.example.com',
           jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-          allowed_dst_internal: ['https://app.example.com'],
+          allowed_dst_internal: ['https://docs.example.com'],
           allowed_dst_external: false as const,
         },
       },
@@ -210,7 +223,7 @@ describe('stateless jump contract', () => {
     };
     const token = await sign(issuerKeys.privateKey, baseClaim());
     const results = [];
-    for (const edge of ['cloudflare', 'fastly'] as const) {
+    for (const edge of ['cloudflare', 'cloudflare'] as const) {
       const app = createApp({ ...shared, runtime: { edge, production: true } });
       const res = await app.request(`https://jump.example.net/?rt=${token}`);
       results.push({
@@ -221,7 +234,7 @@ describe('stateless jump contract', () => {
       });
     }
     expect(results[0]?.status).toBe(302);
-    expect(results[1]).toEqual({ ...results[0], edge: 'fastly' });
+    expect(results[1]).toEqual({ ...results[0], edge: 'cloudflare' });
   });
 
   test('repeated evaluation of a valid token stays accepted', async () => {
@@ -233,7 +246,7 @@ describe('stateless jump contract', () => {
         'https://app.example.com': {
           iss: 'https://app.example.com',
           jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-          allowed_dst_internal: ['https://app.example.com'],
+          allowed_dst_internal: ['https://docs.example.com'],
           allowed_dst_external: false,
         },
       },
@@ -269,24 +282,19 @@ describe('stateless jump contract', () => {
 });
 
 describe('fail-closed configuration', () => {
-  test('a production runtime refuses the example registry and keyset', () => {
-    expect(() => createApp({ runtime: { edge: 'cloudflare', production: true } })).toThrow(
-      /explicit registry/,
-    );
+  test('production requires explicit registry, JWKS source and origin', () => {
+    expect(() => productionApp()).toThrow(/explicit registry/);
+    expect(() => productionApp({ registry: umaxicaRegistry })).toThrow(/explicit registry/);
     expect(() =>
-      createApp({ registry: umaxicaRegistry, runtime: { edge: 'cloudflare', production: true } }),
-    ).toThrow(/explicit registry/);
+      productionApp({ registry: umaxicaRegistry, fetchJwks: async () => ({ keys: [] }) }),
+    ).toThrow(JumpError);
     expect(() =>
-      createApp({
+      productionApp({
         registry: umaxicaRegistry,
         fetchJwks: async () => ({ keys: [] }),
-        runtime: { edge: 'cloudflare', production: true },
+        config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
       }),
     ).not.toThrow();
-  });
-
-  test('a non-production runtime still boots from the examples', () => {
-    expect(() => createApp({ runtime: { edge: 'local', production: false } })).not.toThrow();
   });
 });
 
@@ -322,7 +330,7 @@ describe('rate limiter remains fail-open', () => {
       expect(res.status).toBe(400);
       expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
       const lines = warn.mock.calls.map(([message]) => String(message)).join('\n');
-      expect(lines).toContain('limiter_unavailable');
+      expect(lines).toContain('limiter_call_exception');
       expect(lines).not.toContain('secret');
     } finally {
       warn.mockRestore();
@@ -331,7 +339,7 @@ describe('rate limiter remains fail-open', () => {
 });
 
 describe('special-use destinations', () => {
-  const runtime = { edge: 'local' as const, production: true };
+  const runtime = { edge: 'cloudflare', production: true } as const;
 
   test('IPv4 CGNAT, IETF protocol, benchmarking, multicast, and broadcast reject', () => {
     for (const url of [
@@ -369,7 +377,7 @@ describe('canonical origin is not request Host', () => {
     const app = createApp({
       registry: umaxicaRegistry,
       fetchJwks: async () => ({ keys: [] }),
-      runtime: { edge: 'local', production: true },
+      runtime: { edge: 'cloudflare', production: true },
       config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
     });
     const robots = await app.request('https://evil.example/robots.txt', {

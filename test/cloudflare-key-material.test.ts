@@ -30,8 +30,14 @@ async function jwksRequest(env: Record<string, unknown>) {
   const { default: worker, resetIsolateCachesForTest } = await import('../src/cloudflare');
   resetIsolateCachesForTest();
   return worker.fetch(
-    new Request('https://jump.example.net/.well-known/jwks.json'),
-    env as Parameters<typeof worker.fetch>[1],
+    new Request('https://jump.example.net/.well-known/jwks.json', {
+      headers: { 'CF-Connecting-IP': '203.0.113.7' },
+    }),
+    {
+      UMAXICA_JUMP_ORIGIN: 'https://jump.example.net',
+      JUMP_RATE_LIMITER: { limit: async () => ({ success: true }) },
+      ...env,
+    } as Parameters<typeof worker.fetch>[1],
     {} as ExecutionContext,
   );
 }
@@ -43,6 +49,7 @@ afterEach(() => {
 describe('outbound signing key extractability', () => {
   test('a configured public keyset imports the private key as non-extractable', async () => {
     const { pem, publicJwk } = await keyMaterial();
+    const exported = vi.spyOn(crypto.subtle, 'exportKey');
     const res = await jwksRequest({
       UMAXICA_JUMP_PRIVATE_KEY_PEM: pem,
       UMAXICA_JUMP_PRIVATE_KEY_KID: KID,
@@ -51,16 +58,18 @@ describe('outbound signing key extractability', () => {
 
     expect(res.status).toBe(200);
     expect(importPkcs8Calls).toEqual([{ extractable: false }]);
+    expect(exported).not.toHaveBeenCalled();
+    exported.mockRestore();
   });
 
-  test('deriving the keyset from the private key still needs an extractable import', async () => {
+  test('a private-only configuration fails closed before import', async () => {
     const { pem } = await keyMaterial();
     const res = await jwksRequest({
       UMAXICA_JUMP_PRIVATE_KEY_PEM: pem,
       UMAXICA_JUMP_PRIVATE_KEY_KID: KID,
     });
 
-    expect(res.status).toBe(200);
-    expect(importPkcs8Calls).toEqual([{ extractable: true }]);
+    expect(res.status).toBe(503);
+    expect(importPkcs8Calls).toEqual([]);
   });
 });

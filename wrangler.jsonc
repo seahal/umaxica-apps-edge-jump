@@ -3,7 +3,7 @@
   "name": "umaxica-apps-edge-jump",
   "main": "src/cloudflare.ts",
   // Cloudflare runs the Worker first so asset responses share the security,
-  // request-ID, no-cookie, and no-store contract. Fastly remains unchanged.
+  // request-ID, no-cookie, and no-store contract.
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
