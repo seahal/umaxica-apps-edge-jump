@@ -577,11 +577,11 @@ describe('jump gateway routes', () => {
     expect(html).toContain('<dt>edge</dt><dd>cloudflare</dd>');
   });
 
-  test('cloudflare worker uses configured production origin for about output', async () => {
+  test('cloudflare worker does not show the service origin on about', async () => {
     const res = await fetchCloudflareWorker('/about', {});
 
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain('https://jump.umaxica.net');
+    expect(await res.text()).not.toContain('https://jump.umaxica.net');
   });
 
   test('cloudflare worker serves configured Jump public jwks binding', async () => {
@@ -951,7 +951,7 @@ describe('jump gateway routes', () => {
 
     expect(about).toContain('<body class="product">');
     expect(about).toContain(`<style>${PRODUCT_PAGE_CSS}</style>`);
-    expect(about).toContain('class="origin"');
+    expect(about).not.toContain('class="origin"');
     expect(cushion).toContain('<body class="product">');
     expect(cushion).toContain(`<style>${PRODUCT_PAGE_CSS}</style>`);
     expect(cushion).toContain('class="continue"');

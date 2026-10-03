@@ -145,9 +145,7 @@ export function createApp(options: AppOptions = {}) {
   );
   /* v8 ignore stop */
 
-  app.get('/about', (c) =>
-    html(c, renderAbout(requestLocale(c), config.serviceOrigin), requestLocale(c)),
-  );
+  app.get('/about', (c) => html(c, renderAbout(requestLocale(c)), requestLocale(c)));
   app.get('/health', (c) => {
     if (wantsJson(c.req.header('Accept') ?? null)) return json(c, healthJson(runtime));
     const locale = requestLocale(c);

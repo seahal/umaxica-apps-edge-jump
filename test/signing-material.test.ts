@@ -188,7 +188,7 @@ test('alternate origin follows discovery and self-link rejection', async () => {
     const response = await request(path);
     expect(response.status).toBe(200);
     const text = await response.text();
-    expect(text).toContain(origin);
+    if (path !== '/about') expect(text).toContain(origin);
     expect(text).not.toContain('https://jump.umaxica.net');
     expect(text).not.toContain('/ready');
   }

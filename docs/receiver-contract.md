@@ -51,4 +51,4 @@ rollout. Fixture evaluation in this repository is not Rails acceptance or Rails
 runtime E2E. The read-only review inspected Rails feature
 `7c308e49831c2a906781ddd875a8cb78a6780ddd`; this local follow-up changes no Rails
 code. Pre-deployment acceptance is USER_REPORTED complete, separately from these
-specific contract gaps. See the [Rails handoff](operations/rails-receiver-followup.md).
+specific contract gaps. See [release closure](operations/release-closure.md).

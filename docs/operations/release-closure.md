@@ -116,7 +116,7 @@ CLOSED: Rails revision, fixture hash, complete case results and actual receiver
 integration results attached and approved by receiver owner. Hono fixture passes
 alone do not close this gate. The read-only review inspected Rails feature
 `7c308e49831c2a906781ddd875a8cb78a6780ddd`; this local follow-up changes no Rails
-code. Use the [Rails handoff](rails-receiver-followup.md) for the exact gaps.
+code. The exact gaps are listed in the sections below.
 
 ## Rails TTL contract — Rails receiver owner
 

@@ -30,7 +30,7 @@ export function brandTitle(pageTitle?: string) {
   return page ? `${page} — ${BRAND}` : BRAND;
 }
 
-export function renderAboutPage(locale: Locale, serviceOrigin: string, now = new Date()) {
+export function renderAboutPage(locale: Locale, now = new Date()) {
   const t = messages[locale];
   return renderDocument({
     pageTitle: t.aboutPageTitle,
@@ -41,7 +41,6 @@ export function renderAboutPage(locale: Locale, serviceOrigin: string, now = new
       <main>
         <h1>{t.aboutTitle}</h1>
         <p>{t.aboutDescription}</p>
-        <p class="origin">{serviceOrigin}</p>
       </main>
     ),
   });

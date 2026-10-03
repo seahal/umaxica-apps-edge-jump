@@ -56,4 +56,4 @@ must accept Jump's 30-second output; a configured 10-second limit is incompatibl
 `ROLLBACK_ARTIFACT = NOT_VERIFIED`.
 `ROLLOUT_STATUS = BLOCKED_FOR_ROLLOUT`.
 Production bindings/traffic, the specific Rails contract gaps and immutable
-recovery remain external gates. See the [Rails handoff](operations/rails-receiver-followup.md).
+recovery remain external gates. See [release closure](operations/release-closure.md).
