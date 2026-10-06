@@ -1,4 +1,5 @@
 import { errors, jwtVerify, type JWTPayload } from 'jose';
+import { throwIfAborted } from './deadline';
 import { getIssuer } from './registry';
 import type { JwksCache } from './jwks_cache';
 import { JumpError, type InboundJumpClaim, type IssuerRegistry } from './types';
@@ -39,34 +40,30 @@ export async function verifyJumpJwt(
   const issuer = getIssuer(registry, unsafePayload.iss);
   if (!issuer) throw new JumpError('invalid_claim', 'issuer rejected');
 
-  let payload: JWTPayload;
-  try {
-    const key = await jwksCache.getKey(issuer, header.kid, header.alg, false, signal);
+  const { kid, alg } = header;
+  const verify = async (forceRefresh: boolean) => {
+    const key = await jwksCache.getKey(issuer, kid, alg, forceRefresh, signal);
     throwIfAborted(signal);
     const verified = await jwtVerify(token, key, {
       issuer: issuer.iss,
       audience: serviceOrigin,
-      algorithms: [header.alg],
+      algorithms: [alg],
       typ: 'JWT',
       clockTolerance: CLOCK_SKEW_SECONDS,
       currentDate: new Date(now * 1000),
     });
-    payload = verified.payload;
+    return verified.payload;
+  };
+
+  let payload: JWTPayload;
+  try {
+    payload = await verify(false);
   } catch (error) {
     if (error instanceof JumpError) throw error;
     if (!(error instanceof errors.JWSSignatureVerificationFailed)) throw mapJoseVerifyError(error);
     try {
-      const key = await jwksCache.getKey(issuer, header.kid, header.alg, true, signal);
-      throwIfAborted(signal);
-      const verified = await jwtVerify(token, key, {
-        issuer: issuer.iss,
-        audience: serviceOrigin,
-        algorithms: [header.alg],
-        typ: 'JWT',
-        clockTolerance: CLOCK_SKEW_SECONDS,
-        currentDate: new Date(now * 1000),
-      });
-      payload = verified.payload;
+      // A failed signature may mean a rotated key; retry once against a fresh keyset.
+      payload = await verify(true);
     } catch (retryError) {
       /* v8 ignore next -- defensive for JWKS cache failures after a signature retry */
       if (retryError instanceof JumpError) throw retryError;
@@ -158,8 +155,4 @@ function validateClaim(
 
 function isNumericDate(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
-}
-
-function throwIfAborted(signal?: AbortSignal) {
-  if (signal?.aborted) throw new JumpError('deadline_exceeded', 'request deadline exceeded');
 }

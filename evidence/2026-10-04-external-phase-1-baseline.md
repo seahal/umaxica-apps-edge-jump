@@ -99,21 +99,21 @@ Commands were taken from package.json and `.github/workflows/integration.yaml`.
 The default executable was pnpm 12.4.2; the repository requires 12.0.0 with
 `pmOnFail: error`.
 
-| Command | Actual result |
-| --- | --- |
-| `pnpm run format:check` | Default pnpm rejected version, exit 1, before tool startup. Retried with installed pnpm 12.0.0; dependency tarball retrieval hit registry DNS failure before oxfmt startup; interrupted, exit 130. |
-| `pnpm run lint:check` | Default pnpm rejected version, exit 1; oxlint did not start. |
-| `pnpm run typecheck` | Default pnpm rejected version, exit 1; tsc did not start. |
-| `pnpm run test` | Not attempted after dependency side effect; no unit result. |
-| `pnpm run test -- test/production-contract.test.ts` | Not attempted; existing production contracts not executed. |
-| `pnpm run test:cov` | CI command reviewed; not attempted. |
-| `pnpm run test:worker` | Not attempted; no workerd result. |
-| `pnpm run test:e2e` | Not attempted; no E2E result. |
-| `KNIP_DISABLE_RAW_TRANSFER=1 pnpm exec knip --include unlisted,unresolved,binaries` | CI command reviewed; not attempted. |
-| `pnpm audit --audit-level=high` | CI command reviewed; not attempted; no current dependency audit result. |
-| `pnpm outdated` | CI informational command reviewed; not attempted. |
-| `pnpm run cloudflare:check` | Not attempted; no dry-run result. |
-| CI secret-scan | Workflow reviewed; remote result not established. |
+| Command                                                                             | Actual result                                                                                                                                                                                      |
+| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm run format:check`                                                             | Default pnpm rejected version, exit 1, before tool startup. Retried with installed pnpm 12.0.0; dependency tarball retrieval hit registry DNS failure before oxfmt startup; interrupted, exit 130. |
+| `pnpm run lint:check`                                                               | Default pnpm rejected version, exit 1; oxlint did not start.                                                                                                                                       |
+| `pnpm run typecheck`                                                                | Default pnpm rejected version, exit 1; tsc did not start.                                                                                                                                          |
+| `pnpm run test`                                                                     | Not attempted after dependency side effect; no unit result.                                                                                                                                        |
+| `pnpm run test -- test/production-contract.test.ts`                                 | Not attempted; existing production contracts not executed.                                                                                                                                         |
+| `pnpm run test:cov`                                                                 | CI command reviewed; not attempted.                                                                                                                                                                |
+| `pnpm run test:worker`                                                              | Not attempted; no workerd result.                                                                                                                                                                  |
+| `pnpm run test:e2e`                                                                 | Not attempted; no E2E result.                                                                                                                                                                      |
+| `KNIP_DISABLE_RAW_TRANSFER=1 pnpm exec knip --include unlisted,unresolved,binaries` | CI command reviewed; not attempted.                                                                                                                                                                |
+| `pnpm audit --audit-level=high`                                                     | CI command reviewed; not attempted; no current dependency audit result.                                                                                                                            |
+| `pnpm outdated`                                                                     | CI informational command reviewed; not attempted.                                                                                                                                                  |
+| `pnpm run cloudflare:check`                                                         | Not attempted; no dry-run result.                                                                                                                                                                  |
+| CI secret-scan                                                                      | Workflow reviewed; remote result not established.                                                                                                                                                  |
 
 The retry used `/home/mslo/.local/share/mise/installs/pnpm/12.0.0/pnpm` without
 changing version policy. It attempted dependency retrieval from npm.flatt.tech

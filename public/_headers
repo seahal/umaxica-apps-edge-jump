@@ -5,7 +5,7 @@
 # through it. Keep the two in sync; test/jump.test.ts asserts they match.
 # This file is configuration: Cloudflare consumes it and does not serve it.
 /*
-  Content-Security-Policy: default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; img-src 'self'; script-src 'sha256-8A+3er73YJf04rRHGhbZwZQACPiiipi9EPduIeAAIDk='; style-src 'sha256-SvrTGxSKg0ooQsAfgydWs3RKKlGc1l964SIfl9aKeM4=' 'sha256-v7OwFXQ1I8RBcCTMhVyVUFkNv8TJNN4mVet7ebJIzmo='
+  Content-Security-Policy: default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; img-src 'self'; script-src 'sha256-8A+3er73YJf04rRHGhbZwZQACPiiipi9EPduIeAAIDk=' 'sha256-vPJn6crxETojP3AC1Ba4gei79O4BWnDhKxdJbH8WF/4='; style-src 'sha256-SvrTGxSKg0ooQsAfgydWs3RKKlGc1l964SIfl9aKeM4=' 'sha256-cVUKrEkyFCRMl3H8XSMy4ikGbaGhA4Oa4cAbB2xGeQA='
   Cross-Origin-Embedder-Policy: require-corp
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Resource-Policy: same-origin

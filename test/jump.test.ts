@@ -29,6 +29,8 @@ import { brandTitle, renderHealthPage } from '../src/core/page';
 import { assertDestinationPolicy } from '../src/core/policy';
 import {
   CUSHION_INLINE_SCRIPT,
+  SPLASH_INLINE_SCRIPT,
+  SPLASH_INLINE_SCRIPT_SHA256,
   PRODUCT_PAGE_CSS,
   PRODUCT_PAGE_CSS_SHA256,
   SPLASH_PAGE_CSS,
@@ -963,8 +965,12 @@ describe('jump gateway routes', () => {
     expect(error).toContain('<body class="splash">');
     expect(error).toContain(`<style>${SPLASH_PAGE_CSS}</style>`);
     expect(error).toContain('href="/about"');
-    expect(error).toContain('reload');
-    expect(error).toContain('再読み込みでは直りません');
+    expect(error).toContain('元のページからもう一度お試しください');
+    expect(error).toContain(
+      '<button class="back" type="button" aria-label="戻る" title="戻る" hidden="">',
+    );
+    expect(error).toContain(`<script>${SPLASH_INLINE_SCRIPT}</script>`);
+    expect(error).not.toContain('reload');
     expect(error).not.toContain('class="product"');
     expect(error).not.toContain('<header>');
   });
@@ -993,6 +999,9 @@ describe('jump gateway routes', () => {
     );
     expect(createHash('sha256').update(CUSHION_INLINE_SCRIPT).digest('base64')).toBe(
       '8A+3er73YJf04rRHGhbZwZQACPiiipi9EPduIeAAIDk=',
+    );
+    expect(createHash('sha256').update(SPLASH_INLINE_SCRIPT).digest('base64')).toBe(
+      SPLASH_INLINE_SCRIPT_SHA256,
     );
   });
 
@@ -1056,7 +1065,7 @@ describe('jump gateway routes', () => {
     const invalidHtml = await invalid.text();
     expect(invalidHtml).toContain('<body class="splash">');
     expect(invalidHtml).toContain('href="/about"');
-    expect(invalidHtml).toContain('secondary reload');
+    expect(invalidHtml).not.toContain('reload');
     expect(invalidHtml).not.toContain('<header>');
     const cushion = await jump(
       app,
@@ -2355,6 +2364,9 @@ function expectSecurityHeaders(res: Response) {
     "'sha256-8A+3er73YJf04rRHGhbZwZQACPiiipi9EPduIeAAIDk='",
   );
   expect(res.headers.get('Content-Security-Policy')).toContain(
+    `'sha256-${SPLASH_INLINE_SCRIPT_SHA256}'`,
+  );
+  expect(res.headers.get('Content-Security-Policy')).toContain(
     `'sha256-${PRODUCT_PAGE_CSS_SHA256}'`,
   );
   expect(res.headers.get('Content-Security-Policy')).toContain(
@@ -3355,11 +3367,16 @@ describe('UMAXICA title contract', () => {
         .filter((line) => line.includes('"signer_configured":true'));
       expect(signerConfigured).toHaveLength(1);
 
-      // A fresh `env` object stands in for a new isolate handing over a new
-      // reference: separate binding bundles have separate caches.
+      // A fresh `env` reference in the same isolate: the issuer JWKS is still
+      // shared, while the secret-derived signer stays bound to its own `env`.
       const third = await fetchCloudflareWorker(`/?rt=${setup.inboundToken}`, { ...env });
       expect(third.status).toBe(302);
-      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      expect(
+        info.mock.calls
+          .map(([message]) => String(message))
+          .filter((line) => line.includes('"signer_configured":true')),
+      ).toHaveLength(2);
     } finally {
       setup.restore();
       info.mockRestore();

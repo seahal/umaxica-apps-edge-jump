@@ -307,6 +307,18 @@ export function isRtKey(name: string) {
   return name === 'rt' || name.startsWith('rt[');
 }
 
+/** `rt` is accepted only on `/`, exactly once, non-empty, with no other parameter. */
+export function hasMalformedRtQuery(url: URL) {
+  const keys = [...url.searchParams.keys()];
+  if (url.pathname !== '/') return keys.some(isRtKey);
+  if (!url.search) return false;
+  return (
+    keys.some((key) => key !== 'rt') ||
+    url.searchParams.getAll('rt').length !== 1 ||
+    !url.searchParams.get('rt')
+  );
+}
+
 export function validateInternalTarget(target: NormalizedUrl): NormalizedUrl {
   const url = new URL(target.href);
   if (url.hash || target.href.includes('#')) throw new JumpError('invalid_url');

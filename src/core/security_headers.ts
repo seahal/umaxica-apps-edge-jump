@@ -3,6 +3,10 @@ import { secureHeaders } from 'hono/secure-headers';
 
 export const CUSHION_INLINE_SCRIPT = 'history.replaceState(null,"",location.pathname)';
 const CUSHION_INLINE_SCRIPT_SHA256 = '8A+3er73YJf04rRHGhbZwZQACPiiipi9EPduIeAAIDk=';
+/** Reveals the splash back button only when there is history to go back to. */
+export const SPLASH_INLINE_SCRIPT =
+  'if(history.length>1){var b=document.querySelector(".back");b.hidden=false;b.onclick=function(){history.back()}}';
+export const SPLASH_INLINE_SCRIPT_SHA256 = 'vPJn6crxETojP3AC1Ba4gei79O4BWnDhKxdJbH8WF/4=';
 const STRICT_TRANSPORT_SECURITY = 'max-age=31536000; includeSubDomains; preload';
 
 /** About and external-cushion pages only. Health HTML stays unstyled. */
@@ -13,9 +17,9 @@ export const PRODUCT_PAGE_CSS_SHA256 = 'SvrTGxSKg0ooQsAfgydWs3RKKlGc1l964SIfl9aK
 
 /** 400/405/429/5xx splash cards. Distinct from the product reading layout. */
 export const SPLASH_PAGE_CSS =
-  'html{color-scheme:dark}body.splash{margin:0;min-height:100dvh;display:grid;place-items:center;background:#1c1917;color:#1c1917;font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI","Yu Gothic",YuGothic,system-ui,sans-serif;padding:1.25rem}body.splash main{width:min(26rem,100%);padding:1.75rem 1.5rem;background:#f6f4ef}body.splash .brand{margin:0 0 1.15rem;font-size:.75rem;letter-spacing:.14em;font-weight:700;color:#78716c}body.splash h1{font-size:1.25rem;line-height:1.3;margin:0 0 .75rem}body.splash p{margin:0 0 1.25rem;color:#44403c;line-height:1.65}body.splash .actions{display:flex;flex-wrap:wrap;gap:.75rem 1rem;align-items:center;margin:0}body.splash .primary{display:inline-block;padding:.7rem 1.1rem;background:#1c1917;color:#f6f4ef;text-decoration:none;font-weight:600}body.splash .primary:hover{background:#44403c}body.splash .primary:focus{outline:2px solid #1c1917;outline-offset:3px}body.splash .secondary{color:#44403c}';
+  'html{color-scheme:dark}body.splash{margin:0;min-height:100dvh;display:grid;place-items:center;background:#1c1917;color:#1c1917;font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic UI","Yu Gothic",YuGothic,system-ui,sans-serif;padding:1.25rem}body.splash main{width:min(26rem,100%);box-sizing:border-box;padding:1.25rem 1.5rem 1.75rem;background:#f6f4ef}body.splash .bar{display:grid;grid-template-columns:2.75rem 1fr 2.75rem;align-items:center;margin:0 0 1.25rem}body.splash .brand{grid-column:2;text-align:center;font-size:.75rem;letter-spacing:.14em;font-weight:700;color:#78716c}body.splash .back,body.splash .about{display:grid;place-items:center;box-sizing:border-box;width:2.75rem;height:2.75rem;padding:0;border:1px solid #d6d3d1;border-radius:50%;background:none;color:#44403c;cursor:pointer}body.splash .back{grid-column:1}body.splash .about{grid-column:3}body.splash .back[hidden]{display:none}body.splash .back:hover,body.splash .about:hover{background:#e7e5e4}body.splash .back:focus-visible,body.splash .about:focus-visible{outline:2px solid #1c1917;outline-offset:3px}body.splash h1{font-size:1.25rem;line-height:1.3;margin:0 0 .75rem}body.splash p{margin:0 0 1.25rem;color:#44403c;line-height:1.65}body.splash p:last-child{margin-bottom:0}body.splash .actions{display:flex;justify-content:center}body.splash .primary{display:inline-block;padding:.7rem 1.1rem;background:#1c1917;color:#f6f4ef;text-decoration:none;font-weight:600}body.splash .primary:hover{background:#44403c}body.splash .primary:focus{outline:2px solid #1c1917;outline-offset:3px}';
 
-export const SPLASH_PAGE_CSS_SHA256 = 'v7OwFXQ1I8RBcCTMhVyVUFkNv8TJNN4mVet7ebJIzmo=';
+export const SPLASH_PAGE_CSS_SHA256 = 'cVUKrEkyFCRMl3H8XSMy4ikGbaGhA4Oa4cAbB2xGeQA=';
 
 const CONTENT_SECURITY_POLICY = {
   defaultSrc: ["'none'"],
@@ -23,7 +27,10 @@ const CONTENT_SECURITY_POLICY = {
   formAction: ["'none'"],
   frameAncestors: ["'none'"],
   imgSrc: ["'self'"],
-  scriptSrc: [`'sha256-${CUSHION_INLINE_SCRIPT_SHA256}'`],
+  scriptSrc: [
+    `'sha256-${CUSHION_INLINE_SCRIPT_SHA256}'`,
+    `'sha256-${SPLASH_INLINE_SCRIPT_SHA256}'`,
+  ],
   styleSrc: [`'sha256-${PRODUCT_PAGE_CSS_SHA256}'`, `'sha256-${SPLASH_PAGE_CSS_SHA256}'`],
 };
 

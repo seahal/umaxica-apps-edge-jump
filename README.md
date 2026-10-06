@@ -80,15 +80,15 @@ Read [protocol](docs/protocol.md), [receiver obligations](docs/receiver-contract
 
 ## Endpoints
 
-| Path | Purpose |
-| --- | --- |
-| `/?rt=<JWT>` | Verify the instruction and redirect (`GET`/`HEAD` only) |
-| `/` | Without a query, redirects to `/about` |
-| `/about` | Human-readable description of the service |
+| Path                                      | Purpose                                                        |
+| ----------------------------------------- | -------------------------------------------------------------- |
+| `/?rt=<JWT>`                              | Verify the instruction and redirect (`GET`/`HEAD` only)        |
+| `/`                                       | Without a query, redirects to `/about`                         |
+| `/about`                                  | Human-readable description of the service                      |
 | `/health`, `/health.json`, `/health.html` | Responsiveness and service version; `/health` follows `Accept` |
-| `/.well-known/jwks.json` | Jump's public signing keys for receivers |
-| `/robots.txt`, `/sitemap.xml` | Crawler metadata |
-| `/favicon.ico` | Static asset |
+| `/.well-known/jwks.json`                  | Jump's public signing keys for receivers                       |
+| `/robots.txt`, `/sitemap.xml`             | Crawler metadata                                               |
+| `/favicon.ico`                            | Static asset                                                   |
 
 ## Requirements
 
@@ -185,7 +185,7 @@ an approved edge. Nothing in the request can widen that decision.
   `X-Forwarded-Host` never choose the protocol identity.
 - Every response is `no-store`, `no-referrer`, cookie-free and carries a strict
   CSP (`default-src 'none'`, hash-pinned script and style), `frame-ancestors
-  'none'`, `nosniff` and HSTS with `preload`.
+'none'`, `nosniff` and HSTS with `preload`.
 - The whole request has a 1000 ms deadline. Late work cannot turn an error into
   a redirect or log a success.
 

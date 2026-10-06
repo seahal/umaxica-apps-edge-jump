@@ -27,14 +27,14 @@ matching cannot be replaced by suffix, prefix, wildcard or regex matching.
 
 ## Request partitions and acceptance criteria
 
-| Case | Discriminator and destination | Required outcome |
-| --- | --- | --- |
-| A | `internal` + permitted internal URL | Existing 302 and outbound RT semantic contract |
-| B | `internal` + external/unlisted URL | Reject without signing or navigation |
-| C | `external` + externally allowlisted URL | Reject even when issuer configuration permits external |
-| D | `external` + permitted internal URL | Reject; never infer internal from the URL |
-| E | Unknown or case variant + permitted internal URL | Reject; never normalize or default dst |
-| F | Missing, null, empty or malformed dst + permitted internal URL | Reject; never infer dst |
+| Case | Discriminator and destination                                  | Required outcome                                       |
+| ---- | -------------------------------------------------------------- | ------------------------------------------------------ |
+| A    | `internal` + permitted internal URL                            | Existing 302 and outbound RT semantic contract         |
+| B    | `internal` + external/unlisted URL                             | Reject without signing or navigation                   |
+| C    | `external` + externally allowlisted URL                        | Reject even when issuer configuration permits external |
+| D    | `external` + permitted internal URL                            | Reject; never infer internal from the URL              |
+| E    | Unknown or case variant + permitted internal URL               | Reject; never normalize or default dst                 |
+| F    | Missing, null, empty or malformed dst + permitted internal URL | Reject; never infer dst                                |
 
 For C and D, deliberately enable external policy in the test fixture. Include
 both an external destination and an internal-eligible origin in its external
@@ -86,18 +86,18 @@ rate limit must be preserved until individually reviewed.
 Re-read package.json and CI when work resumes; these are the commands defined at
 the documented baseline. This table is not a record of successful execution.
 
-| Check | Existing command |
-| --- | --- |
-| Format | `pnpm run format:check` |
-| Lint | `pnpm run lint:check` |
-| Typecheck | `pnpm run typecheck` |
-| Unit / CI coverage | `pnpm run test` / `pnpm run test:cov` |
-| Production contract | `pnpm run test -- test/production-contract.test.ts` |
-| Worker runtime | `pnpm run test:worker` |
-| E2E | `pnpm run test:e2e` |
-| Knip | `KNIP_DISABLE_RAW_TRANSFER=1 pnpm exec knip --include unlisted,unresolved,binaries` |
-| Dependencies | `pnpm audit --audit-level=high`; `pnpm outdated` is informational |
-| Cloudflare dry-run | `pnpm run cloudflare:check` |
+| Check               | Existing command                                                                    |
+| ------------------- | ----------------------------------------------------------------------------------- |
+| Format              | `pnpm run format:check`                                                             |
+| Lint                | `pnpm run lint:check`                                                               |
+| Typecheck           | `pnpm run typecheck`                                                                |
+| Unit / CI coverage  | `pnpm run test` / `pnpm run test:cov`                                               |
+| Production contract | `pnpm run test -- test/production-contract.test.ts`                                 |
+| Worker runtime      | `pnpm run test:worker`                                                              |
+| E2E                 | `pnpm run test:e2e`                                                                 |
+| Knip                | `KNIP_DISABLE_RAW_TRANSFER=1 pnpm exec knip --include unlisted,unresolved,binaries` |
+| Dependencies        | `pnpm audit --audit-level=high`; `pnpm outdated` is informational                   |
+| Cloudflare dry-run  | `pnpm run cloudflare:check`                                                         |
 
 CI also includes secret scanning. Match all results to the tested revision;
 historical CI or a dry-run alone does not prove a changed production service.

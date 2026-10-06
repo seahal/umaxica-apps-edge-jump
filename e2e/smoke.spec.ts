@@ -98,18 +98,32 @@ test.describe('jump gateway smoke', () => {
     expect(new URL(response.url()).pathname).toBe('/about');
   });
 
-  test('invalid rt shows a splash card with reload', async ({ page }) => {
+  test('invalid rt shows a splash card with about and no reload', async ({ page }) => {
     const response = await page.goto('/?rt=not-a-jwt');
 
     expect(response?.status()).toBe(400);
     await expect(page.locator('body')).toHaveClass('splash');
-    await expect(page.locator('.reload')).toBeVisible();
-    await expect(page.locator('a.primary[href="/about"]')).toBeVisible();
+    await expect(page.locator('.reload')).toHaveCount(0);
+    await expect(page.locator('a.about[href="/about"]')).toBeVisible();
     const background = await page
       .locator('body')
       .evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(background).toBe('rgb(28, 25, 23)');
-    await page.locator('a.primary[href="/about"]').click();
+    await page.locator('a.about[href="/about"]').click();
+    await expect(page).toHaveURL('/about');
+  });
+
+  test('splash back button appears only with history and goes back', async ({ page }) => {
+    await page.goto('/about');
+    const [popup] = await Promise.all([
+      page.waitForEvent('popup'),
+      page.evaluate(() => window.open('/?rt=not-a-jwt')),
+    ]);
+    await expect(popup.locator('.about')).toBeVisible();
+    await expect(popup.locator('.back')).toBeHidden();
+
+    await page.goto('/?rt=not-a-jwt');
+    await page.locator('.back').click();
     await expect(page).toHaveURL('/about');
   });
 

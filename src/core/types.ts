@@ -63,6 +63,7 @@ export type JumpErrorCode =
   | 'expired'
   | 'invalid_dst'
   | 'invalid_url'
+  | 'non_navigation_request'
   | 'signer_unavailable'
   | 'jwks_bad_gateway'
   | 'jwks_unavailable'

@@ -6,12 +6,12 @@ or a claim of deployed behavior.
 
 ## Document map
 
-| Document | Responsibility |
-| --- | --- |
-| [ADR 0007](../adr/0007-remove-external-destinations.md) | Ownership, rationale and proposal boundaries; remains proposed |
-| [Target contract](../docs/internal-only-gateway.md) | Redirect/rejection rules, test partitions and validation reference |
-| [Dated memo](../memo/2026-10-04-jump-internal-only.md) | Findings, blockers, caller uncertainty and current stopping point |
-| This plan | Execution order, phase gates and cleanup boundaries |
+| Document                                                | Responsibility                                                     |
+| ------------------------------------------------------- | ------------------------------------------------------------------ |
+| [ADR 0007](../adr/0007-remove-external-destinations.md) | Ownership, rationale and proposal boundaries; remains proposed     |
+| [Target contract](../docs/internal-only-gateway.md)     | Redirect/rejection rules, test partitions and validation reference |
+| [Dated memo](../memo/2026-10-04-jump-internal-only.md)  | Findings, blockers, caller uncertainty and current stopping point  |
+| This plan                                               | Execution order, phase gates and cleanup boundaries                |
 
 Primary repository: `umaxica-apps-edge-jump`. Rails cleanup, Away implementation
 and `/about` fallback removal are separate work. Current observations belong to

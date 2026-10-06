@@ -31,6 +31,8 @@ const CLIENT_DENIED = new Set<string>([
   'expired',
   'invalid_dst',
   'invalid_url',
+  // Fetch Metadata context rejection; public output stays the coarse class.
+  'non_navigation_request',
   'jwks_bad_gateway',
 ]);
 

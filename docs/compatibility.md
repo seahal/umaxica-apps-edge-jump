@@ -37,6 +37,32 @@ and a tested immutable rollback artifact. The
 
 See [explicit recovery artifact conditions](operations/rollback-recovery.md). rollback-compatible immutable artifact: NOT YET VERIFIED. Identity migration requires issuer/receiver coordination; [origin cutover](operations/origin-cutover.md) describes future migration windows without implementing multi-origin trust.
 
+## Coordinated blockers (not changeable from Jump alone)
+
+- **Explicit typing.** `typ: JWT` is not effective explicit typing under the JWT
+  BCP (RFC 8725 §3.11, draft-ietf-oauth-rfc8725bis-10). Schema 1 fixes
+  `typ: JWT` inbound and outbound and receivers verify it, so a Jump-only change
+  breaks interoperability. A dedicated media type needs a schema migration
+  coordinated across issuers, Jump and Rails receivers. Until then the profile
+  is separated by the mutually exclusive `sub`/`schema`/`rpl`/`dst`/`url` rules.
+- **URL parser differential.** Jump compares with WHATWG URL/URLSearchParams;
+  the Rails receiver reportedly uses Rack nested-query semantics. Jump cannot
+  declare this safe on its own and does not blanket-reject characters such as
+  `;` that are legal in OAuth `state`. The cases below must be run in the Rails
+  runtime against Jump-produced URLs before any change on either side.
+
+| Case                 | Input to compare in both parsers                                      |
+| -------------------- | --------------------------------------------------------------------- |
+| Semicolon            | `?a=1;b=2`, `?state=x;y`, `?rt=<jwt>;rt=<jwt>`                        |
+| Duplicate parameters | `?state=a&state=b`, `?rt=<jwt>&rt=<jwt>` (first/last/array)           |
+| `rt` forms           | `rt`, `rt[]`, `rt[x]`, `rt[][x]`, `rt%5B%5D`, `RT`                    |
+| Nested query         | `a[b]=1&a[c]=2`, `a[]=1&a[]=2`, `a[b][c]=1`, conflicting `a=1&a[b]=2` |
+| Space                | `%20` vs `+` in keys and values                                       |
+| Literal plus         | `%2B` in keys and values                                              |
+| Encoded key          | `%72t=<jwt>`, `r%74=<jwt>`, `stat%65=x`                               |
+| Slash and backslash  | `%2F`, `%5C`, raw `\` in path and query                               |
+| Ordering             | `a=1&b=2` vs `b=2&a=1`, position of `rt` (first, middle, last)        |
+
 ## Schema-1 acceptance tightening in 0.3
 
 Inbound structural `exp - iat` must be at most 30 seconds, reduced from 300.

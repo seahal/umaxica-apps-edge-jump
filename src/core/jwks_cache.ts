@@ -14,11 +14,25 @@ export type JwksCacheEvent = {
   result: 'hit' | 'miss' | 'negative_hit' | 'refresh' | 'in_flight';
 };
 
-const MAX_NEGATIVE_ENTRIES = 1024;
+const MAX_KID_NEGATIVE_ENTRIES = 1024;
 
+/**
+ * Isolate-local optimization only. Every decision made from a warm entry is the
+ * one a cold cache reaches after a successful fetch, so eviction, a cold
+ * isolate or routing to another instance changes cost, never the outcome.
+ */
 export class JwksCache {
   private readonly cache = new Map<string, CachedSet>();
-  private readonly negative = new Map<string, number>();
+  /**
+   * Issuer keyset fetch outages (`jwks_unavailable`), keyed by issuer. Issuers
+   * come only from the registry, so this map is bounded by it and never evicts.
+   */
+  private readonly issuerFetchNegative = new Map<string, number>();
+  /**
+   * Unknown `iss:kid` pairs. `kid` is attacker-chosen, so this map is bounded
+   * and evicts; it is kept apart so a flood cannot evict an outage entry.
+   */
+  private readonly kidNegative = new Map<string, number>();
   private readonly inFlight = new Map<string, Promise<CachedSet>>();
   private readonly nextForcedRefresh = new Map<string, number>();
 
@@ -50,19 +64,19 @@ export class JwksCache {
     const negKey = `${issuer.iss}:${kid}`;
     const now = Date.now();
     if (!forceRefresh) {
-      const negativeExpiry = this.negative.get(negKey);
+      const negativeExpiry = this.kidNegative.get(negKey);
       if (negativeExpiry && negativeExpiry > now) {
         this.observe?.({ issuer: issuer.iss, result: 'negative_hit' });
         throw new JumpError('invalid_signature', 'kid negative cached');
       }
-      if (negativeExpiry) this.negative.delete(negKey);
+      if (negativeExpiry) this.kidNegative.delete(negKey);
     }
 
     const jwks = await this.getJwks(issuer, forceRefresh, signal);
     const jwk = jwks.keys.find((key) => key.kid === kid && key.alg === alg);
     if (!jwk) {
       if (!forceRefresh) return this.getKey(issuer, kid, alg, true, signal);
-      this.rememberNegative(negKey, now);
+      this.rememberKidNegative(negKey, now);
       throw new JumpError('invalid_signature', 'kid not found');
     }
     throwIfAborted(signal);
@@ -75,35 +89,43 @@ export class JwksCache {
     }
   }
 
-  private rememberNegative(key: string, now: number) {
-    if (this.negative.size >= MAX_NEGATIVE_ENTRIES) {
-      for (const [cachedKey, expiry] of this.negative) {
-        if (expiry <= now) this.negative.delete(cachedKey);
+  private rememberKidNegative(key: string, now: number) {
+    if (this.kidNegative.size >= MAX_KID_NEGATIVE_ENTRIES) {
+      for (const [cachedKey, expiry] of this.kidNegative) {
+        if (expiry <= now) this.kidNegative.delete(cachedKey);
       }
     }
-    while (this.negative.size >= MAX_NEGATIVE_ENTRIES) {
-      const oldest = this.negative.keys().next().value;
+    while (this.kidNegative.size >= MAX_KID_NEGATIVE_ENTRIES) {
+      const oldest = this.kidNegative.keys().next().value;
       /* v8 ignore next -- the loop condition guarantees a key */
       if (oldest === undefined) break;
-      this.negative.delete(oldest);
+      this.kidNegative.delete(oldest);
     }
-    this.negative.set(key, now + this.negativeTtlMs);
+    this.kidNegative.set(key, now + this.negativeTtlMs);
   }
 
   private async getJwks(issuer: IssuerConfig, forceRefresh: boolean, signal?: AbortSignal) {
     throwIfAborted(signal);
     const now = Date.now();
-    const fetchNegative = this.negative.get(issuer.iss);
-    if (fetchNegative && fetchNegative > now) {
-      this.observe?.({ issuer: issuer.iss, result: 'negative_hit' });
-      throw new JumpError('jwks_unavailable', 'issuer jwks negative cached');
-    }
-    if (fetchNegative) this.negative.delete(issuer.iss);
     const cached = this.cache.get(issuer.iss);
+    // A keyset inside its TTL answers a request that needs no refresh, even
+    // while the issuer is negative cached: a failed refresh says nothing about
+    // keys already fetched. This is not a stale-key fallback; past the TTL the
+    // entry is ignored and the outage below decides.
     if (!forceRefresh && cached && cached.expiresAt > now) {
       this.observe?.({ issuer: issuer.iss, result: 'hit' });
       return cached;
     }
+    // From here the caller depends on a refresh (no usable keyset, unknown
+    // kid, or a failed signature). During an outage that is a dependency
+    // failure, checked before the cooldown so a warm key is never used to
+    // answer it as an invalid signature.
+    const fetchNegative = this.issuerFetchNegative.get(issuer.iss);
+    if (fetchNegative && fetchNegative > now) {
+      this.observe?.({ issuer: issuer.iss, result: 'negative_hit' });
+      throw new JumpError('jwks_unavailable', 'issuer jwks negative cached');
+    }
+    if (fetchNegative) this.issuerFetchNegative.delete(issuer.iss);
     if (
       forceRefresh &&
       cached &&
@@ -141,13 +163,13 @@ export class JwksCache {
     try {
       const next = await this.fetchJwks(issuer, signal);
       throwIfAborted(signal);
-      this.negative.delete(issuer.iss);
+      this.issuerFetchNegative.delete(issuer.iss);
       const cachedSet = { keys: next.keys, expiresAt: now + this.ttlMs };
       this.cache.set(issuer.iss, cachedSet);
       return cachedSet;
     } catch (error) {
       if (error instanceof JumpError && error.code === 'jwks_unavailable') {
-        this.rememberNegative(issuer.iss, now);
+        this.issuerFetchNegative.set(issuer.iss, now + this.negativeTtlMs);
       }
       throw error;
     }

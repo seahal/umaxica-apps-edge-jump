@@ -3,14 +3,14 @@ import { registry as umaxicaRegistry } from './config/registry.umaxica';
 import { fetchRegistryJwks } from './core/fetch_jwks';
 import { createApp } from './index';
 import { JwksCache } from './core/jwks_cache';
-import { asLocale } from './core/i18n';
+import type { Locale } from './core/i18n';
 import { renderRateLimitPage } from './core/page';
 import { emitSecurityLog } from './core/security_log';
 import { publicErrorHeaders, publicErrorResponse } from './core/public_error';
 import { STANDALONE_HTML_SECURITY_HEADERS } from './core/security_headers';
 import { JoseOutboundSigner, type OutboundSigner } from './core/sign_outbound';
 import { JumpError, type OutboundJumpClaim } from './core/types';
-import { validateServiceOrigin, isRtKey } from './core/normalize_url';
+import { validateServiceOrigin, hasMalformedRtQuery } from './core/normalize_url';
 import { raceAbort, throwIfAborted } from './core/deadline';
 import { parseJumpJwks, type JumpJwks } from './core/jump_jwks';
 
@@ -36,11 +36,23 @@ export type CloudflareEnv = {
   'UMAXICA-APPS-EDGE-JUMP-VERSION'?: VersionMetadata;
 };
 
-/** Bounded by live binding bundle objects. Distinct bundles never share issuer caches. */
-let apps = new WeakMap<
-  object,
-  { identity: string; revision: string | null; app: ReturnType<typeof createApp> }
->();
+/**
+ * One app, and with it one issuer `JwksCache`, per isolate.
+ *
+ * Not keyed on `env`: Workers may reuse module state across requests but does
+ * not promise the same `env` reference, so an `env`-keyed app could refetch
+ * every issuer keyset on every request. The app holds nothing derived from
+ * `env` beyond the canonical service origin — the registry is static, issuer
+ * keysets are public and fetched from registry-pinned URLs, and signing
+ * material is read from each request's own `env` (see `keyMaterialCaches`).
+ *
+ * A single entry bounds it. It is an optimization only: a cold isolate, or a
+ * request whose origin or Worker version differs, builds a fresh app and
+ * reaches the same decision at the cost of a JWKS fetch.
+ */
+let cachedApp:
+  | { serviceOrigin: string; revision: string | null; app: ReturnType<typeof createApp> }
+  | undefined;
 
 /**
  * Imported signing key material, kept separate from the app cache above.
@@ -50,7 +62,7 @@ let apps = new WeakMap<
  * Sharing it across differing `env`s would hand out a signer built from one
  * secret to a request carrying another. In production `kid` and private key are
  * 1:1, so this only costs a re-import on isolates where `env` identity is not
- * stable — CPU-only work, unlike the JWKS fetch the app cache now shares.
+ * stable — CPU-only work, unlike the JWKS fetch the isolate-scope app shares.
  */
 let keyMaterialCaches = new WeakMap<object, CloudflareKeyMaterialCache>();
 
@@ -60,7 +72,7 @@ let keyMaterialCaches = new WeakMap<object, CloudflareKeyMaterialCache>();
  * state a warm isolate is supposed to keep. Production never calls this.
  */
 export function resetIsolateCachesForTest() {
-  apps = new WeakMap();
+  cachedApp = undefined;
   keyMaterialCaches = new WeakMap();
 }
 
@@ -77,7 +89,7 @@ export default {
     const requestId = crypto.randomUUID();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 1000);
-    const locale = asLocale(request.headers.get('Accept-Language')?.startsWith('en') ? 'en' : 'ja');
+    const locale = requestLocale(request);
     let response: Response;
     try {
       response = await raceAbort(
@@ -91,17 +103,25 @@ export default {
     } finally {
       clearTimeout(timer);
     }
-    const headers = new Headers(response.headers);
-    for (const [name, value] of Object.entries(STANDALONE_HTML_SECURITY_HEADERS))
-      headers.set(name, value);
-    headers.delete('Set-Cookie');
-    headers.set('X-Request-ID', requestId);
     return new Response(request.method === 'HEAD' ? null : response.body, {
       status: response.status,
-      headers,
+      headers: hardenedHeaders(response, requestId),
     });
   },
 };
+
+function requestLocale(request: Request): Locale {
+  return request.headers.get('Accept-Language')?.startsWith('en') ? 'en' : 'ja';
+}
+
+function hardenedHeaders(response: Response, requestId: string) {
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(STANDALONE_HTML_SECURITY_HEADERS))
+    headers.set(name, value);
+  headers.delete('Set-Cookie');
+  headers.set('X-Request-ID', requestId);
+  return headers;
+}
 
 async function dispatch(
   request: Request,
@@ -144,16 +164,7 @@ async function dispatch(
     response.headers.set('Allow', 'GET, HEAD');
     return response;
   }
-  const keys = [...url.searchParams.keys()];
-  if (
-    (url.pathname !== '/' && keys.some(isRtKey)) ||
-    (url.pathname === '/' &&
-      url.search &&
-      (keys.some((key) => key !== 'rt') ||
-        url.searchParams.getAll('rt').length !== 1 ||
-        !url.searchParams.get('rt')))
-  )
-    throw new JumpError('malformed');
+  if (hasMalformedRtQuery(url)) throw new JumpError('malformed');
   const limited = await checkRateLimit(request, env, requestId, signal);
   throwIfAborted(signal);
   if (limited) return limited;
@@ -172,28 +183,27 @@ function assertLimiterBinding(env: CloudflareEnv) {
 }
 
 function getApp(env: CloudflareEnv, serviceOrigin: string) {
-  const existing = apps.get(env);
   const revision = cloudflareRevision(env);
-  if (existing?.identity === serviceOrigin && existing.revision === revision) return existing.app;
+  if (cachedApp?.serviceOrigin === serviceOrigin && cachedApp.revision === revision)
+    return cachedApp.app;
   const app = createApp({
     registry: umaxicaRegistry,
     jwksCache: new JwksCache(fetchRegistryJwks),
     config: { serviceOrigin },
     runtime: { edge: 'cloudflare', production: true },
-    signerForRequest: (requestEnv, signal) =>
-      new LazyCloudflareSigner(
-        requestEnv as CloudflareEnv,
-        keyMaterialCacheFor(requestEnv as CloudflareEnv),
-        signal,
-      ),
-    jumpJwksForRequest: (requestEnv, signal) =>
-      readJumpJwks(
-        requestEnv as CloudflareEnv,
-        keyMaterialCacheFor(requestEnv as CloudflareEnv),
-        signal,
-      ),
+    signerForRequest: (requestEnv, signal) => {
+      const cfEnv = requestEnv as CloudflareEnv;
+      return new LazyCloudflareSigner(cfEnv, keyMaterialCacheFor(cfEnv), signal);
+    },
+    // Publish only the same keyset that has passed the private/public pair check
+    // used by outbound signing. This also avoids reparsing the configured JWKS on
+    // every discovery request.
+    jumpJwksForRequest: (requestEnv, signal) => {
+      const cfEnv = requestEnv as CloudflareEnv;
+      return keyMaterialCacheFor(cfEnv).getJwks(cfEnv, signal);
+    },
   });
-  apps.set(env, { identity: serviceOrigin, revision, app });
+  cachedApp = { serviceOrigin, revision, app };
   return app;
 }
 
@@ -234,12 +244,10 @@ async function checkRateLimit(
   )
     throw new JumpError('signer_unavailable');
   if (result.success === true) return null;
-  return new Response(
-    renderRateLimitPage(
-      asLocale(request.headers.get('Accept-Language')?.startsWith('en') ? 'en' : 'ja'),
-    ),
-    { status: 429, headers: publicErrorHeaders('rate_limited') },
-  );
+  return new Response(renderRateLimitPage(requestLocale(request)), {
+    status: 429,
+    headers: publicErrorHeaders('rate_limited'),
+  });
 }
 
 function validClientIp(value: string | null): value is string {
@@ -265,16 +273,10 @@ async function serveStaticAsset(request: Request, env: CloudflareEnv, requestId:
   const response = env.ASSETS
     ? await env.ASSETS.fetch(request)
     : new Response(null, { status: 204 });
-  const headers = new Headers(response.headers);
-  for (const [name, value] of Object.entries(STANDALONE_HTML_SECURITY_HEADERS)) {
-    headers.set(name, value);
-  }
-  headers.delete('Set-Cookie');
-  headers.set('X-Request-ID', requestId);
   return new Response(request.method === 'HEAD' ? null : response.body, {
     status: response.status,
     statusText: response.statusText,
-    headers,
+    headers: hardenedHeaders(response, requestId),
   });
 }
 
@@ -353,7 +355,7 @@ async function loadKeyMaterial(
   signal: AbortSignal,
   ttlMs: number,
 ): Promise<KeyMaterial> {
-  const [pem, configuredJwks] = await Promise.all([
+  const [pem, jwks] = await Promise.all([
     readPrivateKeyPem(env, signal),
     readConfiguredJumpJwks(env, signal),
   ]);
@@ -361,7 +363,7 @@ async function loadKeyMaterial(
     private_key_present: Boolean(pem),
     kid_present: true,
     kid,
-    jwks_present: Boolean(configuredJwks),
+    jwks_present: Boolean(jwks),
   };
   logSignerConfig(context);
   if (!pem) {
@@ -369,7 +371,7 @@ async function loadKeyMaterial(
     throw new JumpError('signer_unavailable', 'outbound signer not configured');
   }
 
-  if (!configuredJwks) {
+  if (!jwks) {
     logSignerUnavailable({ ...context, reason: 'missing_public_jwks' });
     throw new JumpError('signer_unavailable');
   }
@@ -377,13 +379,12 @@ async function loadKeyMaterial(
   try {
     privateKey = await raceAbort(importPKCS8(pem, 'ES384', { extractable: false }), signal);
     // Every public key must import; only the active one is pair checked.
-    await raceAbort(Promise.all(configuredJwks.keys.map((key) => importJWK(key, 'ES384'))), signal);
+    await raceAbort(Promise.all(jwks.keys.map((key) => importJWK(key, 'ES384'))), signal);
   } catch {
     throwIfAborted(signal);
     logSignerUnavailable({ ...context, reason: 'key_import_failed' });
     throw new JumpError('signer_unavailable');
   }
-  const jwks = configuredJwks;
   const publicJwk = jwks.keys.find((key) => key.kid === kid);
   if (!publicJwk) {
     logSignerUnavailable({ ...context, reason: 'kid_not_in_public_jwks' });
@@ -392,8 +393,8 @@ async function loadKeyMaterial(
 
   try {
     await raceAbort(assertPrivateKeyMatchesPublicJwk(privateKey, publicJwk, kid), signal);
-  } catch (error) {
-    logSignerPairCheckFailed(context, error);
+  } catch {
+    logSignerPairCheckFailed(context);
     logSignerUnavailable({ ...context, import_pkcs8_ok: true, reason: 'key_pair_mismatch' });
     throw new JumpError('signer_unavailable', 'outbound signer public key mismatch');
   }
@@ -439,17 +440,6 @@ async function readConfiguredJumpJwks(env: CloudflareEnv, signal?: AbortSignal) 
   }
 }
 
-async function readJumpJwks(
-  env: CloudflareEnv,
-  cache: CloudflareKeyMaterialCache,
-  signal: AbortSignal,
-) {
-  // Publish only the same keyset that has passed the private/public pair check
-  // used by outbound signing. This also avoids reparsing the configured JWKS on
-  // every discovery request.
-  return cache.getJwks(env, signal);
-}
-
 async function readBinding(binding: SecretBinding | undefined, name: string, signal?: AbortSignal) {
   throwIfAborted(signal);
   if (!binding) return null;
@@ -466,7 +456,7 @@ async function readBinding(binding: SecretBinding | undefined, name: string, sig
     // 500s, including /about and /health, which need no key at all. Degrade to
     // "not configured" instead: the signer then reports signer_unavailable and
     // only the redirect path is affected.
-    logSecretUnavailable(name, error);
+    logSecretUnavailable(name);
     return null;
   }
 }
@@ -487,7 +477,7 @@ async function assertPrivateKeyMatchesPublicJwk(
   });
 }
 
-function logSecretUnavailable(name: string, _error: unknown) {
+function logSecretUnavailable(name: string) {
   // eslint-disable-next-line no-console -- binding name and error class only; never provider messages or values.
   console.warn(
     JSON.stringify({
@@ -498,37 +488,26 @@ function logSecretUnavailable(name: string, _error: unknown) {
   );
 }
 
-function logSignerConfig(entry: {
+type SignerDiagnostics = {
   private_key_present: boolean;
   kid_present: boolean;
   kid?: string | undefined;
   jwks_present: boolean;
-}) {
+};
+
+function logSignerConfig(entry: SignerDiagnostics) {
   // eslint-disable-next-line no-console -- safe signer diagnostics omit tokens and secret material.
   console.warn(JSON.stringify({ event: 'jump_signer_config', ...entry }));
 }
 
-function logSignerUnavailable(entry: {
-  reason: string;
-  private_key_present: boolean;
-  kid_present: boolean;
-  kid?: string | undefined;
-  jwks_present: boolean;
-  import_pkcs8_ok?: boolean | undefined;
-}) {
+function logSignerUnavailable(
+  entry: SignerDiagnostics & { reason: string; import_pkcs8_ok?: boolean | undefined },
+) {
   // eslint-disable-next-line no-console -- safe signer diagnostics omit tokens and secret material.
   console.warn(JSON.stringify({ event: 'jump_signer_unavailable', ...entry }));
 }
 
-function logSignerPairCheckFailed(
-  entry: {
-    private_key_present: boolean;
-    kid_present: boolean;
-    kid?: string | undefined;
-    jwks_present: boolean;
-  },
-  _error: unknown,
-) {
+function logSignerPairCheckFailed(entry: SignerDiagnostics) {
   // eslint-disable-next-line no-console -- safe signer diagnostics omit tokens and secret material.
   console.error(
     JSON.stringify({
@@ -557,21 +536,18 @@ function normalizePem(value: string | null) {
   let normalized = value?.trim();
   if (!normalized) return null;
 
-  if (
-    (normalized.startsWith('"') && normalized.endsWith('"')) ||
-    (normalized.startsWith("'") && normalized.endsWith("'"))
-  ) {
-    const quote = normalized[0];
+  const quote = normalized[0];
+  if ((quote === '"' || quote === "'") && normalized.endsWith(quote)) {
+    let unquoted = normalized.slice(1, -1);
     if (quote === '"') {
       try {
         // A double-quoted JSON literal always parses to a string.
-        normalized = (JSON.parse(normalized) as string).trim();
+        unquoted = JSON.parse(normalized) as string;
       } catch {
-        normalized = normalized.slice(1, -1).trim();
+        // Not valid JSON: fall back to stripping the quotes.
       }
-    } else {
-      normalized = normalized.slice(1, -1).trim();
     }
+    normalized = unquoted.trim();
   }
 
   return normalized.replaceAll('\\r\\n', '\n').replaceAll('\\n', '\n').replaceAll('\r\n', '\n');

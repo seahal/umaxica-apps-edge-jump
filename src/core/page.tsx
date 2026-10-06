@@ -3,7 +3,12 @@ import { raw } from 'hono/html';
 import { renderToString } from 'hono/jsx/dom/server';
 import { messages, type Locale } from './i18n';
 import type { NormalizedUrl } from './normalize_url';
-import { CUSHION_INLINE_SCRIPT, PRODUCT_PAGE_CSS, SPLASH_PAGE_CSS } from './security_headers';
+import {
+  CUSHION_INLINE_SCRIPT,
+  PRODUCT_PAGE_CSS,
+  SPLASH_INLINE_SCRIPT,
+  SPLASH_PAGE_CSS,
+} from './security_headers';
 
 type PageProps = {
   pageTitle?: string;
@@ -98,32 +103,52 @@ export function renderSplashPage(kind: SplashKind, locale: Locale = 'ja', now = 
     now,
     splash: true,
     children: (
-      <main>
-        <p class="brand">UMAXICA</p>
-        <h1>{copy.heading}</h1>
-        <p>{copy.body}</p>
-        <p class="actions">
-          {kind === 'invalid' ? (
-            <>
-              <a class="primary" href="/about">
-                {t.aboutCta}
-              </a>
-              <a class="secondary reload" href="">
-                {t.reload}
-              </a>
-            </>
-          ) : (
-            <>
+      <>
+        <main>
+          <div class="bar">
+            <button class="back" type="button" aria-label={t.back} title={t.back} hidden>
+              <svg
+                viewBox="0 0 24 24"
+                width="20"
+                height="20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M19 12H5M11 6l-6 6 6 6" />
+              </svg>
+            </button>
+            <span class="brand">UMAXICA</span>
+            <a class="about" href="/about" aria-label={t.aboutCta} title={t.aboutCta}>
+              <svg
+                viewBox="0 0 24 24"
+                width="20"
+                height="20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                aria-hidden="true"
+              >
+                <path d="M12 11v6M12 7h.01" />
+              </svg>
+            </a>
+          </div>
+          <h1>{copy.heading}</h1>
+          <p>{copy.body}</p>
+          {kind === 'invalid' ? null : (
+            <p class="actions">
               <a class="primary reload" href="">
                 {t.reload}
               </a>
-              <a class="secondary" href="/about">
-                {t.aboutCta}
-              </a>
-            </>
+            </p>
           )}
-        </p>
-      </main>
+        </main>
+        <script>{raw(SPLASH_INLINE_SCRIPT)}</script>
+      </>
     ),
   });
 }
