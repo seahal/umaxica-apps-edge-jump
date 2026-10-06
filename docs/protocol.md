@@ -42,14 +42,17 @@ This is 20 allowed edges out of 169 ordered pairs; all other 149 are denied.
 Auth↔RP, RP↔RP, self, cross-TLD, Edit and old www.jp/jpx/palm/palm.jp hosts are
 not aliases. zzzz/zzz/zz is an unregistered sentinel only.
 
-Inbound: object claims schema1, required string rpl reuse, registered origin iss,
-exact string aud equal to configured Jump identity, sub jump-redirect, finite
-iat/nbf/exp, nonempty string jti, dst internal/external, nonempty string url.
-Header typJWT, algES384, kid1–128; compact token≤8192 characters. Exp follows iat,
-nbf≤exp, TTL≤30s; clock tolerance5s affects now comparisons only. NumericDate
-fractions remain accepted where jose accepts them. No arbitrary claims are copied.
+Inbound: exactly the claims schema 1 (number), rpl `reuse`, registered origin
+iss, aud string equal to the configured Jump identity, sub `jump-redirect`,
+iat/nbf/exp positive integers ≤ 4102444800, jti 1–128 printable ASCII, dst
+`internal`, url 1–2048 characters without control characters. Any other claim is
+refused. Protected header exactly {alg, kid, typ}: alg ES384, kid 1–128 without
+control characters, typ `JWT` (production) or `jump-request+jwt` (staging).
+Compact token ≤4096 characters with a 128-character signature. Exp follows iat,
+nbf≤exp, TTL≤30s; clock tolerance 5s affects now comparisons only.
 
-Internal output302: schema1, rpl reuse, iss Jump identity, aud target origin,
+Internal output302: header {alg ES384, kid, typ `JWT` in production or
+`jump-return+jwt` in staging}; schema1, rpl reuse, iss Jump identity, aud target origin,
 sub jump-redirect, src issuer origin, dst internal, url canonical validated target,
 iat=nbf=now, exp=now+30, fresh jti. One new rt is appended. Remove this rt then
 WHATWG/URLSearchParams serialize to compare against output url; %20/+ can change
@@ -57,19 +60,18 @@ bytes without changing values. Existing rt/rt[...], fragments, ambiguous
 URLs and duplicate single-valued protocol query parameters are rejected, not repaired.
 No destination fetch. Output token size is also≤8192.
 
-Entry GET/HEAD exact `/`, exactly one nonempty parsed rt and no other query.
-No-query `/` retains About guidance. rt or rt[...] at any nonroot path is400,
-including assets/JWKS, before trailing-slash normalization. Unsupported methods
-are405 with Allow GET, HEAD. Request URL origin must match required configuration;
-Host/Forwarded/X-Forwarded-Host never selects protocol identity. HEAD validates fully
-and has the same status/headers without a body.
+Entry GET exact `/` with the raw query exactly `?rt=` followed by three
+Base64URL segments; nothing is percent-decoded. HEAD on the entry is 405 with
+Allow GET. No-query `/` retains About guidance (GET/HEAD). rt or rt[...] at any
+nonroot path is400, including assets/JWKS, before trailing-slash normalization.
+Other unsupported methods are405 with Allow GET, HEAD. Request URL origin must
+match required configuration; Host/Forwarded/X-Forwarded-Host never selects
+protocol identity.
 
-External capability remains available through explicit DI policy: exact issuer
-allowlist, signed reuse and safe URL produce200 cushion, no Location, no automatic
-navigation and no Jump RT forwarding. Escaping, punycode warnings,
-noopener/noreferrer and CSP stay required. All13 production issuers have
-allowed_dst_external=false and no allowed external origins. Future policy addition
-requires separate approval; external cannot bypass internal prohibited edges.
+External destinations are refused: `dst` other than `internal` is400 without
+signing, Location or cushion, for every issuer, and the registry has no external
+allowlist (ADR 0007 runtime phase). The cushion page renderer remains as dormant
+code until its removal phase.
 
 Transport `rt` only as a query parameter. JWTs and protocol values must not be
 placed in pathnames; native invocation logs and traces may persist arbitrary

@@ -307,16 +307,20 @@ export function isRtKey(name: string) {
   return name === 'rt' || name.startsWith('rt[');
 }
 
-/** `rt` is accepted only on `/`, exactly once, non-empty, with no other parameter. */
+/**
+ * The only accepted entry query, matched on the raw serialized query rather
+ * than decoded parameters: exactly one literal `rt` key whose value is three
+ * Base64URL segments. Percent-encoded keys or values, `+`, `;`, `rt[]`, empty
+ * or repeated `rt` and any other parameter therefore never reach a parser that
+ * could disagree with another one about what `rt` is.
+ */
+export const ENTRY_QUERY = /^\?rt=[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+
+/** `rt` is accepted only on `/`, in exactly the `ENTRY_QUERY` form. */
 export function hasMalformedRtQuery(url: URL) {
-  const keys = [...url.searchParams.keys()];
-  if (url.pathname !== '/') return keys.some(isRtKey);
+  if (url.pathname !== '/') return [...url.searchParams.keys()].some(isRtKey);
   if (!url.search) return false;
-  return (
-    keys.some((key) => key !== 'rt') ||
-    url.searchParams.getAll('rt').length !== 1 ||
-    !url.searchParams.get('rt')
-  );
+  return !ENTRY_QUERY.test(url.search);
 }
 
 export function validateInternalTarget(target: NormalizedUrl): NormalizedUrl {

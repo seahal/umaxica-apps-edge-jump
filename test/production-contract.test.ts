@@ -81,6 +81,7 @@ beforeAll(async () => {
   jumpKeys = await generateKeyPair('ES384', { extractable: true });
   env = {
     UMAXICA_JUMP_ORIGIN: jump,
+    UMAXICA_JUMP_ENVIRONMENT: 'production',
     UMAXICA_JUMP_PRIVATE_KEY_KID: 'opaque-active',
     UMAXICA_JUMP_PRIVATE_KEY_PEM: await exportPKCS8(jumpKeys.privateKey),
     UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({
@@ -153,7 +154,6 @@ describe('A: exact production graph', () => {
     for (const [src, origin] of Object.entries(nodes)) {
       const issuer = assertDefined(registry[origin]);
       expect(issuer.jwks_uri).toBe(`${origin}/.well-known/jwks.json`);
-      expect(issuer.allowed_dst_external).toBe(false);
       expect(issuer.allowed_dst_internal.slice().sort()).toEqual(
         edges
           .filter(([a]) => a === src)
@@ -501,24 +501,30 @@ describe('D/F/G/J/K: crypto, URL and configuration boundaries', () => {
       expect(fetch).not.toHaveBeenCalled();
     }
   });
-  test.each([8191, 8192, 8193])('compact token size BVA %i', async (length) => {
+  test('largest token the claim bounds allow fits the compact size bound', async () => {
+    mockJwks();
+    const url = `https://www.umaxica.app/receive?q=${'a'.repeat(2048 - 34)}`;
+    expect(url).toHaveLength(2048);
+    const rt = await token({ ...claim(), url, jti: 'j'.repeat(128) });
+    expect(rt.length).toBeLessThan(4096);
+    expect((await request(`/?rt=${rt}`)).status).toBe(302);
+  });
+  test.each([4095, 4096, 4097])('compact token size BVA %i', async (length) => {
     const fetch = mockJwks();
-    const data = { ...claim(), padding: '' };
+    const data = { ...claim(), url: `https://www.umaxica.app/receive?q=` };
     let rt = await token(data);
     let n = Math.floor(((length - rt.length) * 3) / 4);
     for (let i = 0; i < 8; i++) {
-      data.padding = 'a'.repeat(n);
+      data.url = `https://www.umaxica.app/receive?q=${'a'.repeat(n)}`;
       rt = await token(data);
       if (rt.length === length) break;
       n += rt.length < length ? 1 : -1;
     }
     expect(rt.length).toBe(length);
-    const res = await request(`/?rt=${rt}`);
-    if (length <= 8192) expect(res.status).toBe(302);
-    else {
-      await denied(res);
-      expect(fetch).not.toHaveBeenCalled();
-    }
+    // Within the size bound the token is verified (one JWKS fetch) and then
+    // refused for its oversized url claim; past it, nothing is decoded.
+    await denied(await request(`/?rt=${rt}`));
+    expect(fetch).toHaveBeenCalledTimes(length <= 4096 ? 1 : 0);
   });
   test.each([null, false, 0, 'scalar', []].map((root) => ({ root })))(
     'header/payload JSON root $root is 400 before fetch',
@@ -696,12 +702,10 @@ describe('construction and runtime defensive policy', () => {
       iss: data.iss,
       jwks_uri: `${data.iss}/.well-known/jwks.json`,
       allowed_dst_internal: [data.iss],
-      allowed_dst_external: [data.iss],
     };
-    for (const dst of ['internal', 'external'] as const)
-      expect(() =>
-        assertDestinationPolicy({ ...data, dst }, issuer, normalizeUrl(data.url, runtime, jump)),
-      ).toThrow();
+    expect(() =>
+      assertDestinationPolicy(data, issuer, normalizeUrl(data.url, runtime, jump)),
+    ).toThrow();
   });
   test('prototype names are never registered issuers', async () => {
     const fetch = mockJwks();
@@ -724,17 +728,12 @@ describe('F/K: remaining validation partitions', () => {
   });
   test('oversized outbound RT is refused although input fits', async () => {
     mockJwks();
-    let input = '';
-    let n = 5500;
-    for (; n < 6050; n++) {
-      input = await token({
-        ...claim(),
-        url: `${nodes['base-app-ww']}/receive?q=${'a'.repeat(n)}`,
-      });
-      if (input.length >= 8150) break;
-    }
-    expect(input.length).toBeGreaterThanOrEqual(8150);
-    expect(input.length).toBeLessThanOrEqual(8192);
+    // Canonical query serialization percent-encodes `!`, tripling the URL that
+    // the outbound token carries while the inbound claim stays within bounds.
+    const url = `${nodes['base-app-ww']}/receive?q=${'!'.repeat(2000)}`;
+    expect(url.length).toBeLessThanOrEqual(2048);
+    const input = await token({ ...claim(), url });
+    expect(input.length).toBeLessThanOrEqual(4096);
     await denied(await request(`/?rt=${input}`));
   });
   test.each(

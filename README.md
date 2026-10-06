@@ -11,8 +11,8 @@ dependencies remain explicit.
 Issuer applications create an `rt` compact JWS. Jump validates the JWT, issuer
 registry, JWKS signature, destination policy and normalized URL before crossing
 FQDN boundaries. Allowed internal destinations receive a 302 with a freshly
-signed `rt`. External destinations, when a policy explicitly allows them, always
-receive a cushion page first; no production issuer currently allows them.
+signed `rt`. Jump is internal-only: `dst: external` is always refused
+([ADR 0007](adr/0007-remove-external-destinations.md)).
 
 Issuer applications should fully understand the JWTs they generate.
 
@@ -20,8 +20,7 @@ Issuer applications should fully understand the JWTs they generate.
 
 Jump exists to make redirect decisions server-side at an edge boundary instead
 of letting applications pass arbitrary URLs across domains. It reduces
-OpenRedirect risk, makes the allowed source → destination graph explicit, and
-gives external redirects a visible pause.
+OpenRedirect risk and makes the allowed source → destination graph explicit.
 
 ## EDGE Family
 
@@ -58,8 +57,7 @@ flowchart LR
   jump -->|valid| decision{dst}
   jump -->|invalid| error[Error page]
   decision -->|internal| dest[Destination with fresh rt]
-  decision -->|external, disabled in production| cushion[Cushion page]
-  cushion -->|user clicks| ext[External site]
+  decision -->|external| error
 ```
 
 ## Protocol Summary
@@ -82,7 +80,7 @@ Read [protocol](docs/protocol.md), [receiver obligations](docs/receiver-contract
 
 | Path                                      | Purpose                                                        |
 | ----------------------------------------- | -------------------------------------------------------------- |
-| `/?rt=<JWT>`                              | Verify the instruction and redirect (`GET`/`HEAD` only)        |
+| `/?rt=<JWT>`                              | Verify the instruction and redirect (`GET` only)               |
 | `/`                                       | Without a query, redirects to `/about`                         |
 | `/about`                                  | Human-readable description of the service                      |
 | `/health`, `/health.json`, `/health.html` | Responsiveness and service version; `/health` follows `Accept` |
@@ -152,16 +150,21 @@ an approved edge. Nothing in the request can widen that decision.
 - The registry refuses duplicates, unknown references, self loops, TLD crossings
   and noncanonical origins when it is built. At runtime, self links and links
   back to Jump are refused even if the registry were too permissive.
-- External destinations are disabled for every production issuer. If a policy
-  ever allows one, Jump answers a cushion page, never an automatic redirect.
+- `dst` must be `internal`. External destinations are refused for every issuer;
+  the cushion page is dormant code awaiting removal (ADR 0007 phase 3).
 
 ### Signature and key handling
 
-- Only `ES384` with header `typ: JWT` and a registered `kid` of at most 128
-  characters is accepted. Compact tokens are limited to 8192 characters.
-- Each issuer's JWKS URL is fixed at `<origin>/.well-known/jwks.json`. Token
-  hints `jku`, `jwk`, `x5u` and `crit` are refused before any fetch, and JWKS
-  fetches do not follow redirects.
+- Only `ES384`, a `kid` of 1–128 characters without control characters, and
+  the deployment's exact `typ` are accepted: `JWT` in production,
+  `jump-request+jwt` in staging (outbound `jump-return+jwt`). The protected
+  header may contain only `alg`, `kid` and `typ`; the claim set is closed.
+  Compact tokens are limited to 4096 characters.
+- Each issuer's JWKS URL is fixed at `<origin>/.well-known/jwks.json`. No token
+  value ever selects a network destination. JWKS fetches bypass caches, refuse
+  redirects and non-200 answers, accept only JWK Set or JSON media types, and
+  stop reading at 64 KiB. A set must hold 1–4 ES384/P-384 `use: sig` keys or it
+  is refused whole.
 - Unverified decoding is used only for shape checks and key lookup. No
   authorization decision precedes signature verification.
 - The Jump signing key is one active ES384 private key with an explicit public
@@ -179,8 +182,12 @@ an approved edge. Nothing in the request can widen that decision.
 
 ### Request and response hardening
 
-- Entry is `GET`/`HEAD` on exact `/` with exactly one `rt` and no other query.
-  `rt` on any other path is `400`; other methods are `405`.
+- Entry is `GET` on exact `/` with the raw query exactly `?rt=<compact JWS>`.
+  `HEAD` there and other methods are `405`; `rt` on any other path is `400`.
+- Browser requests must be coherent top-level navigations: once any
+  `Sec-Fetch-*` header is present, `navigate`/`document` and a defined
+  `Sec-Fetch-Site` are required. Any `Sec-Purpose`/`X-Sec-Purpose` (prefetch,
+  prerender) is refused. Requests with no Fetch Metadata are still accepted.
 - The request origin must equal `UMAXICA_JUMP_ORIGIN`. `Host`, `Forwarded` and
   `X-Forwarded-Host` never choose the protocol identity.
 - Every response is `no-store`, `no-referrer`, cookie-free and carries a strict
@@ -217,10 +224,10 @@ The `notFound` handler in `src/index.ts` will drop its `/about` redirect and ret
 
 Intentions, not commitments; each needs its own plan and ADR first.
 
-- **External destinations**: not to be enabled in Jump; 0.4.0 removes the external path and cushion page ([ADR 0007](adr/0007-remove-external-destinations.md), proposed).
+- **External destinations**: runtime rejection is implemented; removing the dormant cushion page is ADR 0007 phase 3 ([ADR 0007](adr/0007-remove-external-destinations.md)).
 - **Local Jump environment**: run Jump, a development issuer and a receiver on one machine with production validation rules.
 - **Workerd-fidelity tests**: prove isolate cache and `env` behavior under `@cloudflare/vitest-pool-workers`.
-- **Signing and JWKS failure handling**: add the signer-failure cache, malformed-JWKS negative cache and retry policy deferred in 0.3.
+- **Signing failure handling**: add the signer-failure cache and retry policy deferred in 0.3.
 - **Log export and retention**: export and keep logs beyond Cloudflare's native retention.
 - **Multi-origin trust**: let receivers trust old and new Jump origins during an identity cutover.
 - **Toolchain alignment**: resolve Node 24 versus `@types/node` 26 and drop prerelease Miniflare.

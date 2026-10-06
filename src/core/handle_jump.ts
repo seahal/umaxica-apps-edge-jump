@@ -1,7 +1,7 @@
-import { normalizeUrl, validateInternalTarget } from './normalize_url';
+import { ENTRY_QUERY, normalizeUrl, validateInternalTarget } from './normalize_url';
 import { assertDestinationPolicy } from './policy';
 import { publicErrorResponse } from './public_error';
-import { renderCushion } from './render_cushion';
+import { tokenTypes } from './token_profile';
 import { verifyJumpJwt } from './verify_jwt';
 import {
   JumpError,
@@ -41,7 +41,7 @@ export type JumpAuditLogEntry = {
   reason?: string;
   iss?: string;
   kid?: string;
-  dst?: 'internal' | 'external';
+  dst?: 'internal';
   dst_origin?: string;
   request_id?: string;
   cf_ray?: string;
@@ -52,41 +52,22 @@ export type JumpAuditLogEntry = {
 export async function handleJump(request: Request, deps: JumpDeps): Promise<Response> {
   let audit: Partial<JumpAuditLogEntry> = {};
   try {
-    const url = new URL(request.url);
-    for (const name of url.searchParams.keys()) {
-      if (name !== 'rt') throw new JumpError('malformed', 'unknown query parameter rejected');
-    }
-    const tokens = url.searchParams.getAll('rt');
-    if (tokens.length !== 1) throw new JumpError('malformed', 'rt count rejected');
-    if (!tokens[0]) throw new JumpError('malformed', 'empty rt rejected');
+    const token = readEntryToken(new URL(request.url));
     const now = deps.now?.() ?? Math.floor(Date.now() / 1000);
-    const { claim, issuer } = await verifyJumpJwt(
-      String(tokens[0]),
-      deps.registry,
-      deps.jwksCache,
+    const { claim, issuer, kid } = await verifyJumpJwt(token, {
+      registry: deps.registry,
+      jwksCache: deps.jwksCache,
       now,
-      serviceOrigin(deps),
-      deps.signal,
+      serviceOrigin: serviceOrigin(deps),
+      typ: tokenTypes(deps.config.environment).inbound,
+      signal: deps.signal,
+    });
+    audit = { iss: claim.iss, kid, dst: claim.dst };
+    const target = validateInternalTarget(
+      normalizeUrl(claim.url, deps.runtime, serviceOrigin(deps)),
     );
-    audit = {
-      iss: claim.iss,
-      dst: claim.dst,
-    };
-    const kid = readProtectedKid(String(tokens[0]));
-    /* v8 ignore next -- verified tokens always carry a kid */
-    if (kid) audit.kid = kid;
-    const normalized = normalizeUrl(claim.url, deps.runtime, serviceOrigin(deps));
-    const target = claim.dst === 'internal' ? validateInternalTarget(normalized) : normalized;
     audit.dst_origin = target.origin;
     assertDestinationPolicy(claim, issuer, target);
-
-    if (claim.dst === 'external') {
-      deps.auditLog?.({ level: 'info', event: 'jump_accept', result: 'accepted', ...audit });
-      return new Response(renderCushion(target, deps.locale), {
-        status: 200,
-        headers: htmlHeaders(deps.locale),
-      });
-    }
 
     const location = await buildInternalLocation(target, issuer, deps, now);
     /* v8 ignore next -- buildInternalLocation already checks after signing */
@@ -109,11 +90,10 @@ export async function handleJump(request: Request, deps: JumpDeps): Promise<Resp
   }
 }
 
-function htmlHeaders(locale: Locale = 'ja') {
-  return {
-    'Content-Language': locale,
-    'Content-Type': 'text/html; charset=utf-8',
-  };
+/** The entry query is exactly `?rt=<compact JWS>`; see `ENTRY_QUERY`. */
+function readEntryToken(url: URL) {
+  if (!ENTRY_QUERY.test(url.search)) throw new JumpError('malformed', 'entry query rejected');
+  return url.search.slice('?rt='.length);
 }
 
 async function buildInternalLocation(
@@ -137,7 +117,7 @@ async function buildInternalLocation(
     dst: 'internal',
     url: target.href,
   };
-  const token = await deps.signer.sign(outbound);
+  const token = await deps.signer.sign(outbound, tokenTypes(deps.config.environment).outbound);
   if (deps.signal?.aborted) throw new JumpError('deadline_exceeded');
   if (token.length > 8192) throw new JumpError('invalid_claim');
   const destination = new URL(target.href);
@@ -148,24 +128,3 @@ async function buildInternalLocation(
 function serviceOrigin(deps: JumpDeps) {
   return deps.config.serviceOrigin;
 }
-
-// verifyJumpJwt has already required a well-formed header with a string kid.
-/* v8 ignore start */
-function readProtectedKid(token: string) {
-  const [encodedHeader] = token.split('.');
-  const header = decodeUntrustedJson<Record<string, unknown>>(encodedHeader);
-  return typeof header?.kid === 'string' && header.kid ? header.kid : undefined;
-}
-
-function decodeUntrustedJson<T>(value: string | undefined): T | null {
-  if (!value) return null;
-  try {
-    const padded = value.replaceAll('-', '+').replaceAll('_', '/');
-    const base64 = padded + '='.repeat((4 - (padded.length % 4)) % 4);
-    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
-    return JSON.parse(new TextDecoder().decode(bytes)) as T;
-  } catch {
-    return null;
-  }
-}
-/* v8 ignore stop */

@@ -40,11 +40,13 @@ See [explicit recovery artifact conditions](operations/rollback-recovery.md). ro
 ## Coordinated blockers (not changeable from Jump alone)
 
 - **Explicit typing.** `typ: JWT` is not effective explicit typing under the JWT
-  BCP (RFC 8725 §3.11, draft-ietf-oauth-rfc8725bis-10). Schema 1 fixes
-  `typ: JWT` inbound and outbound and receivers verify it, so a Jump-only change
-  breaks interoperability. A dedicated media type needs a schema migration
-  coordinated across issuers, Jump and Rails receivers. Until then the profile
-  is separated by the mutually exclusive `sub`/`schema`/`rpl`/`dst`/`url` rules.
+  BCP (RFC 8725 §3.11, draft-ietf-oauth-rfc8725bis-10). The staging deployment
+  (`UMAXICA_JUMP_ENVIRONMENT=staging`) now enforces `jump-request+jwt` inbound
+  and signs `jump-return+jwt` outbound, compared exactly. Production keeps
+  schema-1 `typ: JWT` until issuers and receivers migrate; each deployment
+  accepts exactly one value, so there is no dual-acceptance fallback. The
+  production cutover is a separate, coordinated change after the Rails work in
+  [the handoff](rails-handoff.md).
 - **URL parser differential.** Jump compares with WHATWG URL/URLSearchParams;
   the Rails receiver reportedly uses Rack nested-query semantics. Jump cannot
   declare this safe on its own and does not blanket-reject characters such as
@@ -83,3 +85,22 @@ must accept Jump's 30-second output; a configured 10-second limit is incompatibl
 `ROLLOUT_STATUS = BLOCKED_FOR_ROLLOUT`.
 Production bindings/traffic, the specific Rails contract gaps and immutable
 recovery remain external gates. See [release closure](operations/release-closure.md).
+
+## Strict stateless profile (2026-10-07, not deployed)
+
+Changes that apply to every deployment of this code, production included, and
+must be accepted by issuers and receivers before production is redeployed (see
+[the Rails handoff](rails-handoff.md)):
+
+- Entry: `GET` only; `HEAD /?rt=` is 405. Raw query exactly `?rt=<JWS>`.
+- Fetch Metadata: partial, unknown or non-navigation metadata, any
+  `Sec-Purpose`/`X-Sec-Purpose` and legacy prefetch headers are refused.
+- JWT: compact ≤4096 characters; header exactly `alg`/`kid`/`typ`; closed claim
+  set; integer NumericDates (fractions are no longer accepted); `jti` ≤128
+  printable ASCII; `url` ≤2048 characters.
+- Issuer JWKS: status 200 only; `application/jwk-set+json` or `application/json`
+  with at most `charset=utf-8`; 1–4 keys, every key ES384/P-384 with `use: sig`
+  (absent `use` is no longer accepted) or the whole set is refused.
+- `dst: external` is refused for every issuer (ADR 0007 runtime phase).
+- Production `wrangler.jsonc` gains `UMAXICA_JUMP_ENVIRONMENT=production`; a
+  Worker without it answers 503.

@@ -1,75 +1,45 @@
 /**
- * Request-context check for `/?rt=`, which is only ever a top-level navigation.
+ * Request-context check for `/?rt=`, which is only ever a top-level document
+ * navigation.
  *
- * Defense in depth, not authentication or authorization: only browsers send
- * these headers, so absence is accepted, and per the Fetch Metadata
- * specification a value that is not currently defined is ignored rather than
- * repaired or guessed at. `Sec-Fetch-Site` and `Sec-Fetch-User` are
- * deliberately not consulted — cross-site and script- or redirect-initiated
+ * Defense in depth, not authentication or authorization. A request that sends
+ * no Fetch Metadata at all (a non-browser client, or a browser without support)
+ * is accepted, so absence proves nothing. Once any `Sec-Fetch-*` header is
+ * present the request must be a coherent top-level navigation: `Site`, `Mode`
+ * and `Dest` all present, `Mode: navigate`, `Dest: document`, a defined `Site`
+ * value, and `User` absent or `?1`. Anything partial, unknown or malformed fails
+ * closed. `Sec-Fetch-User` is not required: redirect- and script-initiated
  * navigations are the normal way to reach Jump.
  */
 
-// Fetch Standard request modes other than `navigate`.
-const NON_NAVIGATION_MODES = new Set([
-  'cors',
-  'no-cors',
-  'same-origin',
-  'websocket',
-  'webtransport',
-]);
+const FETCH_METADATA_HEADERS = [
+  'Sec-Fetch-Site',
+  'Sec-Fetch-Mode',
+  'Sec-Fetch-Dest',
+  'Sec-Fetch-User',
+] as const;
 
-// Fetch Standard request destinations other than `document`; the empty
-// destination is serialized as `empty`.
-const NON_DOCUMENT_DESTINATIONS = new Set([
-  'empty',
-  'audio',
-  'audioworklet',
-  'embed',
-  'font',
-  'frame',
-  'iframe',
-  'image',
-  'json',
-  'manifest',
-  'object',
-  'paintworklet',
-  'report',
-  'script',
-  'serviceworker',
-  'sharedworker',
-  'style',
-  'text',
-  'track',
-  'video',
-  'webidentity',
-  'worker',
-  'xslt',
-]);
-
-// RFC 8941 structured field syntax, limited to what a list of tokens needs.
-const TOKEN = "[A-Za-z*][A-Za-z0-9!#$%&'*+.^_`|~:/-]*";
-const BARE_ITEM = `(?:${TOKEN}|-?[0-9]{1,15}(?:\\.[0-9]{1,3})?|\\?[01]|"(?:[\\x20-\\x21\\x23-\\x5b\\x5d-\\x7e]|\\\\["\\\\])*")`;
-const PARAMETERS = `(?:; *[a-z*][a-z0-9_.*-]*(?:=${BARE_ITEM})?)*`;
-const MEMBER = `(${TOKEN})${PARAMETERS}`;
-const TOKEN_LIST = new RegExp(`^${MEMBER}(?:[ \\t]*,[ \\t]*${MEMBER})*$`);
-const LIST_MEMBER = new RegExp(`(?:^|,)[ \\t]*${MEMBER}`, 'g');
+const SITE_VALUES = new Set(['cross-site', 'same-origin', 'same-site', 'none']);
 
 /**
- * `Sec-Purpose: prefetch` marks speculative loads; prerendering sends the same
- * token with a `prerender` parameter, so the token alone covers both. Fetch
- * mode and destination cannot tell a prerender from a real navigation.
+ * Headers sent only with speculative loads: `Sec-Purpose` (prefetch, and
+ * prerender as `prefetch;prerender`), Turbo's `X-Sec-Purpose: prefetch`, and
+ * the legacy `Purpose`/`X-Purpose`/`X-Moz` prefetch markers. None of them is
+ * defined for a real navigation, so any value — including an unknown or
+ * malformed one — is rejected rather than interpreted.
  */
-function isSpeculative(purpose: string) {
-  if (!TOKEN_LIST.test(purpose)) return false;
-  for (const member of purpose.matchAll(LIST_MEMBER)) if (member[1] === 'prefetch') return true;
-  return false;
-}
+const SPECULATIVE_HEADERS = ['Sec-Purpose', 'X-Sec-Purpose', 'Purpose', 'X-Purpose', 'X-Moz'];
 
 export function isNonNavigationRequest(headers: Headers): boolean {
-  const mode = headers.get('Sec-Fetch-Mode');
-  if (mode !== null && NON_NAVIGATION_MODES.has(mode)) return true;
-  const destination = headers.get('Sec-Fetch-Dest');
-  if (destination !== null && NON_DOCUMENT_DESTINATIONS.has(destination)) return true;
-  const purpose = headers.get('Sec-Purpose');
-  return purpose !== null && isSpeculative(purpose);
+  if (SPECULATIVE_HEADERS.some((name) => headers.has(name))) return true;
+  if (!FETCH_METADATA_HEADERS.some((name) => headers.has(name))) return false;
+  const site = headers.get('Sec-Fetch-Site');
+  const user = headers.get('Sec-Fetch-User');
+  return (
+    site === null ||
+    !SITE_VALUES.has(site) ||
+    headers.get('Sec-Fetch-Mode') !== 'navigate' ||
+    headers.get('Sec-Fetch-Dest') !== 'document' ||
+    (user !== null && user !== '?1')
+  );
 }

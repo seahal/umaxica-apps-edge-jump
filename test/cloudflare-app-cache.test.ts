@@ -25,6 +25,7 @@ async function fixture() {
   const env = (origin: string, extra: Partial<CloudflareEnv> = {}): CloudflareEnv => ({
     ...bindings,
     UMAXICA_JUMP_ORIGIN: origin,
+    UMAXICA_JUMP_ENVIRONMENT: 'production',
     JUMP_RATE_LIMITER: { limit: async () => ({ success: true }) },
     ...extra,
   });

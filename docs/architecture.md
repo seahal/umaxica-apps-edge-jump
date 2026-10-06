@@ -28,15 +28,19 @@ otherwise a fresh app replaces it. The entry holds the static registry and
 public issuer keysets only. Nothing request-scoped and no signing secret is
 captured: the signer and published JWKS are resolved from each request's `env`.
 
-Issuer keysets are limited by the explicit 13-issuer registry. JWKS TTL is 30
-seconds, forced refresh cooldown 10 seconds, and concurrent fetches for an
-issuer are coalesced. Revoked kids are rejected before any cache or fetch. Two
-negative states are kept in separate maps:
-
-- issuer fetch outage (`jwks_unavailable`: network failure, 5xx, 429), keyed by
-  issuer and so bounded by the registry, 30 seconds;
-- unknown `iss:kid`, capped at 1024 with eviction, 30 seconds. `kid` is
-  attacker-chosen, so a flood must not be able to evict an outage entry.
+Issuer JWKS state is one entry per registry issuer (at most 13), created only
+for an issuer taken from the static registry; no request value, in particular no
+`kid`, is ever used as a key. Each entry holds the imported keyset and its
+expiry (30 seconds), an outage deadline (`jwks_unavailable`: network failure,
+5xx, 429; 30 seconds), an unusable-document deadline (`jwks_bad_gateway`; 10
+seconds), the next permitted forced refresh (10-second cooldown) and at most one
+in-flight fetch shared by concurrent requests. There is no unknown-`kid`
+negative cache: an unknown `kid` triggers at most one forced refresh per issuer
+per cooldown, and inside the cooldown it is answered from the current keyset.
+Per issuer, fetches are therefore bounded by one per TTL plus one per cooldown,
+whatever the number of distinct `kid` values. Revoked kids are rejected before
+any cache or fetch. Normal rotation does not rely on forced refresh: a key
+prepublished more than 30 seconds before signing starts is already cached.
 
 A keyset inside its TTL keeps verifying requests that need no refresh while an
 outage is negative cached. A request that depends on a refresh — unknown kid, or
@@ -44,8 +48,10 @@ a signature that failed against the warm key — is a dependency failure during
 the outage (503 `temporarily_unavailable`); the warm key is never used to turn
 it into a 400. There is no stale-key fallback: past the TTL the keyset is
 ignored and the outage answers 503 until the negative entry expires and the
-issuer is asked again. One aborted shared load can fail its waiters closed; it
-is cleared so a later request can retry.
+issuer is asked again. An invalid 200 document is not an outage and is never
+cached; a refresh-dependent request answers 400 and a warm keyset keeps serving
+requests that need no refresh. One aborted shared load can fail its waiters
+closed; it is cleared so a later request can retry.
 
 Signing material is cached per binding bundle (`env` reference), deployment
 revision and active kid for 300 seconds. It stays `env`-keyed on purpose: it is

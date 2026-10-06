@@ -45,11 +45,10 @@ async function fixture() {
       allowed_dst_internal: [internal],
       // Deliberately permits both URL classes as external: dst must never be
       // inferred from the URL or rescued by an accidental configuration change.
-      allowed_dst_external: [external, internal],
     },
   };
   const outboundSigner = new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test');
-  const sign = vi.fn((payload: OutboundJumpClaim) => outboundSigner.sign(payload));
+  const sign = vi.fn((payload: OutboundJumpClaim) => outboundSigner.sign(payload, 'JWT'));
   const auditLog = vi.fn();
   const app = createApp({
     registry,

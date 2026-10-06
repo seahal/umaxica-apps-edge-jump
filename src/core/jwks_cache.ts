@@ -1,20 +1,32 @@
 import { raceAbort, throwIfAborted } from './deadline';
-import { importJWK, type JWK } from 'jose';
+import { importIssuerJwks, type IssuerKeys } from './issuer_jwks';
 import { JumpError, type IssuerConfig } from './types';
 
-type CachedSet = {
-  keys: JWK[];
-  expiresAt: number;
-};
-
-export type FetchJwks = (issuer: IssuerConfig, signal?: AbortSignal) => Promise<{ keys: JWK[] }>;
+/** Returns the issuer's JWK Set document; `JwksCache` validates it before use. */
+export type FetchJwks = (issuer: IssuerConfig, signal?: AbortSignal) => Promise<unknown>;
 
 export type JwksCacheEvent = {
   issuer: string;
   result: 'hit' | 'miss' | 'negative_hit' | 'refresh' | 'in_flight';
 };
 
-const MAX_KID_NEGATIVE_ENTRIES = 1024;
+type CachedSet = { keys: IssuerKeys; expiresAt: number };
+
+/**
+ * Everything kept for one registry issuer. Entries are created only for
+ * issuers taken from the static registry, so the number of entries is bounded
+ * by the registry and never by request input; no `kid` is ever used as a key.
+ */
+type IssuerState = {
+  set?: CachedSet;
+  /** Until then a refresh-dependent request answers `jwks_unavailable` without a fetch. */
+  outageUntil: number;
+  /** Until then a refresh-dependent request answers `jwks_bad_gateway` without a fetch. */
+  badDocumentUntil: number;
+  /** Earliest time a forced refresh (unknown kid, failed signature) may fetch again. */
+  nextForcedRefreshAt: number;
+  inFlight?: Promise<CachedSet>;
+};
 
 /**
  * Isolate-local optimization only. Every decision made from a warm entry is the
@@ -22,19 +34,7 @@ const MAX_KID_NEGATIVE_ENTRIES = 1024;
  * isolate or routing to another instance changes cost, never the outcome.
  */
 export class JwksCache {
-  private readonly cache = new Map<string, CachedSet>();
-  /**
-   * Issuer keyset fetch outages (`jwks_unavailable`), keyed by issuer. Issuers
-   * come only from the registry, so this map is bounded by it and never evicts.
-   */
-  private readonly issuerFetchNegative = new Map<string, number>();
-  /**
-   * Unknown `iss:kid` pairs. `kid` is attacker-chosen, so this map is bounded
-   * and evicts; it is kept apart so a flood cannot evict an outage entry.
-   */
-  private readonly kidNegative = new Map<string, number>();
-  private readonly inFlight = new Map<string, Promise<CachedSet>>();
-  private readonly nextForcedRefresh = new Map<string, number>();
+  private readonly issuers = new Map<string, IssuerState>();
 
   constructor(
     private readonly fetchJwks: FetchJwks,
@@ -44,132 +44,109 @@ export class JwksCache {
     private readonly observe?: (event: JwksCacheEvent) => void,
   ) {}
 
+  /** Number of issuers with state; exposed so tests can pin the bound. */
+  get stateSize() {
+    return this.issuers.size;
+  }
+
   async getKey(
     issuer: IssuerConfig,
     kid: string,
-    alg: string,
     forceRefresh = false,
     signal?: AbortSignal,
-  ): ReturnType<typeof importJWK> {
+  ): Promise<CryptoKey> {
     throwIfAborted(signal);
     if (issuer.revoked_kids?.includes(kid)) {
       // Emergency denylist, evaluated before any cache or fetch so a warm entry
-      // cannot outlive a revocation. Logged because a hit means either an
-      // attacker replaying a retired key or a rotation that shipped wrong —
-      // both need to be visible. `iss` and `kid` are already permitted fields.
+      // cannot outlive a revocation. `kid` here equals a configured value.
       // eslint-disable-next-line no-console -- issuer and kid only; no token material.
       console.warn(JSON.stringify({ event: 'jump_revoked_kid_rejected', iss: issuer.iss, kid }));
       throw new JumpError('invalid_signature', 'revoked kid');
     }
-    const negKey = `${issuer.iss}:${kid}`;
-    const now = Date.now();
-    if (!forceRefresh) {
-      const negativeExpiry = this.kidNegative.get(negKey);
-      if (negativeExpiry && negativeExpiry > now) {
-        this.observe?.({ issuer: issuer.iss, result: 'negative_hit' });
-        throw new JumpError('invalid_signature', 'kid negative cached');
-      }
-      if (negativeExpiry) this.kidNegative.delete(negKey);
-    }
-
-    const jwks = await this.getJwks(issuer, forceRefresh, signal);
-    const jwk = jwks.keys.find((key) => key.kid === kid && key.alg === alg);
-    if (!jwk) {
-      if (!forceRefresh) return this.getKey(issuer, kid, alg, true, signal);
-      this.rememberKidNegative(negKey, now);
-      throw new JumpError('invalid_signature', 'kid not found');
-    }
-    throwIfAborted(signal);
-    try {
-      return await raceAbort(importJWK(jwk, alg), signal);
-    } catch (error) {
-      /* v8 ignore next -- deadline abort racing the import */
-      if (error instanceof JumpError) throw error;
-      throw new JumpError('jwks_bad_gateway', 'issuer jwk rejected');
-    }
+    const set = await this.getJwks(issuer, forceRefresh, signal);
+    const key = set.keys.get(kid);
+    if (key) return key;
+    if (!forceRefresh) return this.getKey(issuer, kid, true, signal);
+    throw new JumpError('invalid_signature', 'kid not found');
   }
 
-  private rememberKidNegative(key: string, now: number) {
-    if (this.kidNegative.size >= MAX_KID_NEGATIVE_ENTRIES) {
-      for (const [cachedKey, expiry] of this.kidNegative) {
-        if (expiry <= now) this.kidNegative.delete(cachedKey);
-      }
+  private stateFor(issuer: IssuerConfig) {
+    let state = this.issuers.get(issuer.iss);
+    if (!state) {
+      state = { outageUntil: 0, badDocumentUntil: 0, nextForcedRefreshAt: 0 };
+      this.issuers.set(issuer.iss, state);
     }
-    while (this.kidNegative.size >= MAX_KID_NEGATIVE_ENTRIES) {
-      const oldest = this.kidNegative.keys().next().value;
-      /* v8 ignore next -- the loop condition guarantees a key */
-      if (oldest === undefined) break;
-      this.kidNegative.delete(oldest);
-    }
-    this.kidNegative.set(key, now + this.negativeTtlMs);
+    return state;
   }
 
   private async getJwks(issuer: IssuerConfig, forceRefresh: boolean, signal?: AbortSignal) {
     throwIfAborted(signal);
     const now = Date.now();
-    const cached = this.cache.get(issuer.iss);
+    const state = this.stateFor(issuer);
+    const cached = state.set && state.set.expiresAt > now ? state.set : undefined;
     // A keyset inside its TTL answers a request that needs no refresh, even
-    // while the issuer is negative cached: a failed refresh says nothing about
-    // keys already fetched. This is not a stale-key fallback; past the TTL the
-    // entry is ignored and the outage below decides.
-    if (!forceRefresh && cached && cached.expiresAt > now) {
+    // during an outage. Past the TTL it is never used: there is no stale-key
+    // fallback.
+    if (!forceRefresh && cached) {
       this.observe?.({ issuer: issuer.iss, result: 'hit' });
       return cached;
     }
-    // From here the caller depends on a refresh (no usable keyset, unknown
-    // kid, or a failed signature). During an outage that is a dependency
-    // failure, checked before the cooldown so a warm key is never used to
-    // answer it as an invalid signature.
-    const fetchNegative = this.issuerFetchNegative.get(issuer.iss);
-    if (fetchNegative && fetchNegative > now) {
+    // From here the caller depends on a refresh. An outage is checked before
+    // the cooldown so a warm key is never used to answer it as a 400.
+    if (state.outageUntil > now) {
       this.observe?.({ issuer: issuer.iss, result: 'negative_hit' });
       throw new JumpError('jwks_unavailable', 'issuer jwks negative cached');
     }
-    if (fetchNegative) this.issuerFetchNegative.delete(issuer.iss);
-    if (
-      forceRefresh &&
-      cached &&
-      cached.expiresAt > now &&
-      (this.nextForcedRefresh.get(issuer.iss) ?? 0) > now
-    ) {
+    if (state.badDocumentUntil > now) {
+      this.observe?.({ issuer: issuer.iss, result: 'negative_hit' });
+      throw new JumpError('jwks_bad_gateway', 'issuer jwks rejected recently');
+    }
+    if (forceRefresh && cached && state.nextForcedRefreshAt > now) {
       this.observe?.({ issuer: issuer.iss, result: 'hit' });
       return cached;
     }
-
-    const existing = this.inFlight.get(issuer.iss);
-    if (existing) {
+    if (state.inFlight) {
       this.observe?.({ issuer: issuer.iss, result: 'in_flight' });
-      return raceAbort(existing, signal);
+      return raceAbort(state.inFlight, signal);
     }
-
     if (forceRefresh) {
-      // Start the cooldown before fetching so a failed issuer response cannot
-      // turn every invalid signature into another immediate upstream request.
-      this.nextForcedRefresh.set(issuer.iss, now + this.forcedRefreshCooldownMs);
+      // Start the cooldown before fetching so a failing issuer cannot turn
+      // every unknown kid or bad signature into another upstream request.
+      state.nextForcedRefreshAt = now + this.forcedRefreshCooldownMs;
       this.observe?.({ issuer: issuer.iss, result: 'refresh' });
     } else {
       this.observe?.({ issuer: issuer.iss, result: 'miss' });
     }
-    const loading = this.fetchAndCache(issuer, now, signal);
-    this.inFlight.set(issuer.iss, loading);
+    const loading = this.fetchAndCache(issuer, state, now, signal);
+    state.inFlight = loading;
     try {
       return await raceAbort(loading, signal);
     } finally {
-      this.inFlight.delete(issuer.iss);
+      delete state.inFlight;
     }
   }
 
-  private async fetchAndCache(issuer: IssuerConfig, now: number, signal?: AbortSignal) {
+  private async fetchAndCache(
+    issuer: IssuerConfig,
+    state: IssuerState,
+    now: number,
+    signal?: AbortSignal,
+  ): Promise<CachedSet> {
     try {
-      const next = await this.fetchJwks(issuer, signal);
+      const document = await this.fetchJwks(issuer, signal);
       throwIfAborted(signal);
-      this.issuerFetchNegative.delete(issuer.iss);
-      const cachedSet = { keys: next.keys, expiresAt: now + this.ttlMs };
-      this.cache.set(issuer.iss, cachedSet);
-      return cachedSet;
+      const keys = await importIssuerJwks(document);
+      throwIfAborted(signal);
+      state.outageUntil = 0;
+      state.badDocumentUntil = 0;
+      const set = { keys, expiresAt: now + this.ttlMs };
+      state.set = set;
+      return set;
     } catch (error) {
       if (error instanceof JumpError && error.code === 'jwks_unavailable') {
-        this.issuerFetchNegative.set(issuer.iss, now + this.negativeTtlMs);
+        state.outageUntil = now + this.negativeTtlMs;
+      } else if (error instanceof JumpError && error.code === 'jwks_bad_gateway') {
+        state.badDocumentUntil = now + this.forcedRefreshCooldownMs;
       }
       throw error;
     }

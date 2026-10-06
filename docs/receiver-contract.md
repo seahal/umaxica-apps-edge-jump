@@ -5,6 +5,9 @@ trusted issuer within token lifetime. It does not authorize authentication
 completion, identity, authorization, CSRF approval, state mutation or one-time
 transaction execution. Origin policy does not certify every endpoint at an origin.
 
+The receiver MUST verify the protected header `typ` exactly — `JWT` from the
+production Jump, `jump-return+jwt` from the staging Jump — and MUST NOT accept a
+Jump request type (`jump-request+jwt`) or any other token type in its place.
 The receiver MUST verify the Jump ES384 signature against its trusted Jump JWKS,
 exact configured iss, string aud equal to its origin, schema 1, sub jump-redirect,
 rpl reuse, finite NumericDates, expiry/5-second tolerance, src and the signed URL.

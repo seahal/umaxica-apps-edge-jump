@@ -62,7 +62,6 @@ export function buildRegistry(
       iss: origin,
       jwks_uri: `${origin}/.well-known/jwks.json`,
       allowed_dst_internal: [],
-      allowed_dst_external: false,
       revoked_kids: [],
     };
   const seen = new Set<string>();

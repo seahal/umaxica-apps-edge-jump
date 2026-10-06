@@ -4,14 +4,32 @@ The exact [protocol graph](protocol.md) is the authorization boundary. Registry
 construction rejects duplicate node/origin/edge, unknown references, self loops,
 TLD crossings and noncanonical origins. Runtime still refuses self and Jump
 links even with an incorrectly permissive fixture. Prototype keys do not register
-issuers. Production external policy is false for every issuer.
+issuers. Jump is internal-only: `dst` must be `internal` (ADR 0007).
 
-Every compact JWT is limited to 8192 characters; typ JWT, ES384, kid ≤128,
-object header/payload, Base64URL, registered issuer, signature, exact string aud,
-sub, schema/rpl, finite NumericDates, ordering and lifetime are required. Input
-TTL ≤30s, skew 5s, output TTL30s. Structural TTL has no skew allowance. jku,
-jwk, x5u and crit are refused before fetch. Unverified decode is used only for
-shape checks and registered key lookup; no authorization precedes signature.
+Every compact JWT is limited to 4096 characters, checked before decoding, with
+three Base64URL segments and a 128-character ES384 signature. The protected
+header holds exactly `alg`, `kid` and `typ`: `alg` is fixed to ES384 and never
+read from the token, `kid` is 1–128 characters with no C0/DEL/C1 control
+character and is compared exactly, and `typ` must equal the deployment's value
+(`JWT` in production, `jump-request+jwt` in staging). Any other member — `crit`,
+`jku`, `jwk`, `x5u`, `x5c`, `cty`, `b64`, `zip` or an unknown name — is refused
+before any fetch. The claim set is closed (schema, rpl, iss, aud, sub, iat, nbf,
+exp, jti, dst, url); NumericDates are positive integers no later than 2100,
+`jti` is 1–128 printable ASCII characters, `url` 1–2048 characters without
+control characters. Input TTL ≤30s, skew 5s, output TTL 30s; structural TTL has
+no skew allowance. Unverified decode only selects a registered issuer; no token
+value builds a network destination and no authorization precedes signature.
+
+Issuer JWKS come only from the registry URL, fetched with `cache: no-store`,
+`redirect: manual` and no credentials, inside the 1000 ms request deadline.
+Only status 200 with `application/jwk-set+json` or `application/json` (optional
+`charset=utf-8`) is usable; 5xx/429 and network errors are temporary outages,
+everything else is an unusable document. The body is streamed and abandoned at
+64 KiB of decoded bytes regardless of `Content-Length`. A set holds 1–4 keys,
+each `kty: EC`, `crv: P-384`, `alg: ES384`, `use: sig`, a valid unique `kid` and
+coordinates that import as a P-384 point; private or symmetric members, a
+duplicate `kid` or any nonconforming key refuse the whole set. Only `kty`, `crv`,
+`x` and `y` reach the importer, so URL-bearing members are never dereferenced.
 
 HTTPS URLs use WHATWG parsing. Userinfo, private/loopback/link-local/metadata
 hosts, ambiguous control/backslash/percent encodings, trailing-dot hosts and
@@ -29,25 +47,26 @@ suppresses the body. Final adapter errors cover initialization, limiter, assets,
 secrets and handler failures, with one entry ID and 1000ms deadline. Late work
 cannot change the returned error into a redirect or log success.
 
-`/?rt=` is a top-level navigation endpoint and applies a Fetch Metadata check as
-defense in depth. It is not authentication or authorization: missing headers
-(non-browser clients) and values that the current standards do not define are
-accepted unchanged, with no case folding or repair. A request is refused when
-`Sec-Fetch-Mode` is a defined mode other than `navigate` (`cors`, `no-cors`,
-`same-origin`, `websocket`, `webtransport`), when `Sec-Fetch-Dest` is a defined
-destination other than `document` (`empty`, `iframe`, `frame`, `image`,
-`script`, `style`, workers and the rest of the Fetch destination list), or when
-`Sec-Purpose`, parsed as a structured-field list, carries the token `prefetch` —
-which covers prerendering (`prefetch;prerender`), since mode and destination
-cannot identify it. `Sec-Fetch-Site` and `Sec-Fetch-User` are never consulted:
-cross-site and redirect- or script-initiated navigations are the normal path.
-Legacy `Purpose`/`X-Purpose`/`X-Moz` are not consulted. The check runs after
+`/?rt=` is a top-level document navigation endpoint: `GET` only (`HEAD` and
+other methods are 405) and the raw query exactly `?rt=<compact JWS>`, so
+percent-encoded keys, `+`, `;`, `rt[]`, repeated or additional parameters never
+reach a query parser. It applies a Fetch Metadata check as defense in depth, not
+authentication or authorization. A request with no `Sec-Fetch-*` header at all
+(non-browser clients, older browsers) is accepted for compatibility and proves
+nothing. Once any `Sec-Fetch-*` header is present, `Sec-Fetch-Site` must be
+`cross-site`, `same-site`, `same-origin` or `none`, `Sec-Fetch-Mode` exactly
+`navigate`, `Sec-Fetch-Dest` exactly `document`, and `Sec-Fetch-User` absent or
+`?1`; partial, unknown, case-variant or malformed metadata fails closed.
+`Sec-Fetch-User` is not required: redirect- and script-initiated navigations are
+the normal path. Any `Sec-Purpose` value (prefetch, `prefetch;prerender`, or an
+unknown value), Turbo's `X-Sec-Purpose`, and legacy `Purpose`/`X-Purpose`/`X-Moz`
+are refused, because none is sent for a real navigation. The check runs after
 method/query/origin validation and the rate limiter and before any token
 decoding, JWKS fetch or signing. The response is the coarse 400
 `invalid_request` with no Location; the log carries only the internal reason
 `non_navigation_request`. Other routes are outside the policy. Node's built-in
-`fetch` always sends `Sec-Fetch-Mode: cors` and is therefore refused on `/?rt=`
-like a browser `fetch()`.
+`fetch` always sends `Sec-Fetch-Mode: cors` (and nothing else), which is partial
+metadata and is therefore refused on `/?rt=` like a browser `fetch()`.
 
 Rate limiting uses only the Cloudflare Workers native binding
 (`wrangler.jsonc` `ratelimits`, keyed on CF-Connecting-IP). It is coarse abuse

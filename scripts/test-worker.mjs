@@ -65,6 +65,7 @@ const options = {
   compatibilityFlags: ['nodejs_compat'],
   bindings: {
     UMAXICA_JUMP_ORIGIN: origin,
+    UMAXICA_JUMP_ENVIRONMENT: 'production',
     UMAXICA_JUMP_PRIVATE_KEY_KID: 'nonproduction-active',
     UMAXICA_JUMP_PRIVATE_KEY_PEM: await exportPKCS8(jumpPair.privateKey),
     UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({
@@ -88,7 +89,7 @@ const options = {
     return Response.json(publicSets.get(request.url));
   },
 };
-const signInput = (src, dst) => {
+const signInput = (src, dst, typ = 'JWT') => {
   const now = Math.floor(Date.now() / 1000);
   return new SignJWT({
     schema: 1,
@@ -103,7 +104,7 @@ const signInput = (src, dst) => {
     dst: 'internal',
     url: `${nodes[dst]}/receive?state=keep&q=a%20b`,
   })
-    .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'issuer' })
+    .setProtectedHeader({ typ, alg: 'ES384', kid: 'issuer' })
     .sign(pairs.get(nodes[src]).privateKey);
 };
 let runtime;
@@ -178,11 +179,13 @@ try {
   const tokens = [await signInput(src, dst)];
   for (const [label, metadata] of [
     ['fetch()', { 'X-Test-Sec-Fetch-Mode': 'cors', 'X-Test-Sec-Fetch-Dest': 'empty' }],
-    ['iframe', { 'X-Test-Sec-Fetch-Mode': 'navigate', 'X-Test-Sec-Fetch-Dest': 'iframe' }],
+    ['iframe', { ...navigation, 'X-Test-Sec-Fetch-Dest': 'iframe' }],
+    ['partial metadata', { 'X-Test-Sec-Fetch-Mode': 'navigate' }],
     ['prefetch', { ...navigation, 'X-Test-Sec-Purpose': 'prefetch' }],
     ['prerender', { ...navigation, 'X-Test-Sec-Purpose': 'prefetch;prerender' }],
+    ['turbo prefetch', { ...navigation, 'X-Sec-Purpose': 'prefetch' }],
   ]) {
-    for (const method of ['GET', 'HEAD']) {
+    for (const method of ['GET']) {
       const response = await runtime.dispatchFetch(`${origin}/?rt=${tokens[0]}`, {
         method,
         redirect: 'manual',
@@ -194,9 +197,18 @@ try {
       assert.equal(response.headers.get('set-cookie'), null, label);
       assert.equal(response.headers.get('cache-control'), 'no-store', label);
       const text = await response.text();
-      if (method === 'HEAD') assert.equal(text, '', label);
-      else assert(!text.includes(tokens[0]), label);
+      assert(!text.includes(tokens[0]), label);
     }
+  }
+  {
+    const response = await runtime.dispatchFetch(`${origin}/?rt=${tokens[0]}`, {
+      method: 'HEAD',
+      redirect: 'manual',
+      headers: navigation,
+    });
+    assert.equal(response.status, 405, 'HEAD on the token entry');
+    assert.equal(response.headers.get('allow'), 'GET', 'HEAD on the token entry');
+    assert.equal(await response.text(), '', 'HEAD on the token entry');
   }
   assert.equal(jwksFetches.length, 0, 'metadata rejection precedes any JWKS fetch');
   assert(!logs.some((message) => message.includes('jump_signer_config')), 'no signing work');
@@ -206,7 +218,7 @@ try {
   );
 
   const latencies = [];
-  for (const method of ['GET', 'GET', 'HEAD']) {
+  for (const method of ['GET', 'GET', 'GET']) {
     const input = await signInput(src, dst);
     tokens.push(input);
     const started = performance.now();
@@ -250,7 +262,7 @@ try {
   const [slowSrc, slowDst] = edges.find(([source]) => source !== src);
   slowJwksUrl = `${nodes[slowSrc]}/.well-known/jwks.json`;
   logs.length = 0;
-  for (const method of ['GET', 'HEAD']) {
+  for (const method of ['GET', 'GET']) {
     const started = performance.now();
     const response = await runtime.dispatchFetch(
       `${origin}/?rt=${await signInput(slowSrc, slowDst)}`,
@@ -380,6 +392,39 @@ try {
     await runtime.dispose();
     runtime = undefined;
   }
+  // Staging deployment: explicit typing in and out, same runtime and checks.
+  runtime = new Miniflare(
+    convertV4MiniflareOptions({
+      ...options,
+      bindings: { ...options.bindings, UMAXICA_JUMP_ENVIRONMENT: 'staging' },
+    }),
+  );
+  {
+    const [stagingSrc, stagingDst] = edges[1];
+    const legacy = await runtime.dispatchFetch(
+      `${origin}/?rt=${await signInput(stagingSrc, stagingDst)}`,
+      {
+        redirect: 'manual',
+        headers: navigation,
+      },
+    );
+    assert.equal(legacy.status, 400, 'staging refuses typ JWT');
+    await legacy.text();
+    const strict = await runtime.dispatchFetch(
+      `${origin}/?rt=${await signInput(stagingSrc, stagingDst, 'jump-request+jwt')}`,
+      { redirect: 'manual', headers: navigation },
+    );
+    assert.equal(strict.status, 302, 'staging accepts jump-request+jwt');
+    const output = new URL(strict.headers.get('location')).searchParams.get('rt');
+    await jwtVerify(output, jumpPair.publicKey, {
+      issuer: origin,
+      audience: nodes[stagingDst],
+      typ: 'jump-return+jwt',
+      algorithms: ['ES384'],
+    });
+  }
+  await runtime.dispose();
+  runtime = undefined;
   // `/ready` is not a production interface: it must fall through to notFound.
   runtime = new Miniflare(convertV4MiniflareOptions(options));
   for (const method of ['GET', 'HEAD']) {

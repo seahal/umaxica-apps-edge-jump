@@ -23,7 +23,6 @@ function issuerConfig(iss: string): IssuerConfig {
     iss,
     jwks_uri: `${iss}/.well-known/jwks.json`,
     allowed_dst_internal: ['https://docs.example.com'],
-    allowed_dst_external: false,
     revoked_kids: [],
   };
 }
@@ -53,7 +52,7 @@ async function harness() {
   });
   const cache = new JwksCache(fetchJwks);
   const sign = vi.fn((claim: Parameters<JoseOutboundSigner['sign']>[0]) =>
-    new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test').sign(claim),
+    new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test').sign(claim, 'JWT'),
   );
   const app = createApp({
     registry,
@@ -243,7 +242,7 @@ describe('issuer JWKS availability semantics', () => {
   test('a revoked kid is rejected on a cold cache without a fetch', async () => {
     const h = await harness();
     await expect(
-      h.cache.getKey({ ...issuerConfig(ISS_A), revoked_kids: ['kid-1'] }, 'kid-1', 'ES384'),
+      h.cache.getKey({ ...issuerConfig(ISS_A), revoked_kids: ['kid-1'] }, 'kid-1'),
     ).rejects.toMatchObject({ code: 'invalid_signature' });
     expect(h.fetchJwks).not.toHaveBeenCalled();
   });
@@ -284,9 +283,9 @@ describe('issuer JWKS availability semantics', () => {
     const cache = new JwksCache(fetchJwks);
     const issuer = issuerConfig(ISS_A);
     const pending = [
-      cache.getKey(issuer, 'kid-1', 'ES384'),
-      cache.getKey(issuer, 'kid-1', 'ES384'),
-      cache.getKey(issuer, 'kid-1', 'ES384', true),
+      cache.getKey(issuer, 'kid-1'),
+      cache.getKey(issuer, 'kid-1'),
+      cache.getKey(issuer, 'kid-1', true),
     ];
     release({ keys });
     await expect(Promise.all(pending)).resolves.toHaveLength(3);
@@ -300,15 +299,12 @@ describe('issuer JWKS availability semantics', () => {
     );
     const cache = new JwksCache(fetchJwks);
     const issuer = issuerConfig(ISS_A);
-    const pending = [
-      cache.getKey(issuer, 'kid-1', 'ES384'),
-      cache.getKey(issuer, 'kid-1', 'ES384'),
-    ];
+    const pending = [cache.getKey(issuer, 'kid-1'), cache.getKey(issuer, 'kid-1')];
     const settled = Promise.allSettled(pending);
     fail(new JumpError('jwks_unavailable'));
     for (const result of await settled)
       expect(result).toMatchObject({ status: 'rejected', reason: { code: 'jwks_unavailable' } });
-    await expect(cache.getKey(issuer, 'kid-1', 'ES384')).rejects.toMatchObject({
+    await expect(cache.getKey(issuer, 'kid-1')).rejects.toMatchObject({
       code: 'jwks_unavailable',
     });
     expect(fetchJwks).toHaveBeenCalledTimes(1);
@@ -324,14 +320,14 @@ describe('issuer JWKS availability semantics', () => {
     const cache = new JwksCache(fetchJwks);
     const issuer = issuerConfig(ISS_A);
     const controller = new AbortController();
-    const pending = cache.getKey(issuer, 'kid-1', 'ES384', false, controller.signal);
+    const pending = cache.getKey(issuer, 'kid-1', false, controller.signal);
     controller.abort();
     await expect(pending).rejects.toMatchObject({ code: 'deadline_exceeded' });
     release({ keys });
     await Promise.resolve();
 
     fetchJwks.mockResolvedValueOnce({ keys });
-    await expect(cache.getKey(issuer, 'kid-1', 'ES384')).resolves.toBeDefined();
+    await expect(cache.getKey(issuer, 'kid-1')).resolves.toBeDefined();
     expect(fetchJwks).toHaveBeenCalledTimes(2);
   });
 
@@ -365,18 +361,18 @@ describe('issuer JWKS availability semantics', () => {
   test('an unknown-kid flood on one issuer cannot evict another issuer outage negative', async () => {
     const h = await harness();
     h.upstream[ISS_A] = 'unavailable';
-    await expect(h.cache.getKey(issuerConfig(ISS_A), 'kid-1', 'ES384')).rejects.toMatchObject({
+    await expect(h.cache.getKey(issuerConfig(ISS_A), 'kid-1')).rejects.toMatchObject({
       code: 'jwks_unavailable',
     });
     expect(h.fetchesFor(ISS_A)).toBe(1);
 
     // 1024 is the unknown-kid bound; exceed it so the oldest entries are evicted.
     for (let index = 0; index < 1100; index++)
-      await expect(
-        h.cache.getKey(issuerConfig(ISS_B), `flood-${index}`, 'ES384'),
-      ).rejects.toMatchObject({ code: 'invalid_signature' });
+      await expect(h.cache.getKey(issuerConfig(ISS_B), `flood-${index}`)).rejects.toMatchObject({
+        code: 'invalid_signature',
+      });
 
-    await expect(h.cache.getKey(issuerConfig(ISS_A), 'kid-1', 'ES384')).rejects.toMatchObject({
+    await expect(h.cache.getKey(issuerConfig(ISS_A), 'kid-1')).rejects.toMatchObject({
       code: 'jwks_unavailable',
     });
     expect(h.fetchesFor(ISS_A)).toBe(1);

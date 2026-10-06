@@ -18,6 +18,7 @@ function request(env: CloudflareEnv, path = '/.well-known/jwks.json', method = '
     new Request(`${ORIGIN}${path}`, { method, headers: { 'CF-Connecting-IP': '203.0.113.7' } }),
     {
       UMAXICA_JUMP_ORIGIN: ORIGIN,
+      UMAXICA_JUMP_ENVIRONMENT: 'production',
       JUMP_RATE_LIMITER: { limit: async () => ({ success: true }) },
       ...env,
     },
@@ -53,6 +54,7 @@ describe('cloudflare adapter edges', () => {
     };
     const fullEnv = {
       UMAXICA_JUMP_ORIGIN: ORIGIN,
+      UMAXICA_JUMP_ENVIRONMENT: 'production',
       JUMP_RATE_LIMITER: { limit: async () => ({ success: true }) },
       ...env,
     };

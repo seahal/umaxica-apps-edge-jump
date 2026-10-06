@@ -39,82 +39,77 @@ const NON_DOCUMENT_DESTINATIONS = [
   'xslt',
 ];
 
-const NAVIGATION = { 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document' };
+/** What a browser sends for a cross-site top-level navigation (link, form, 302/303 chain). */
+const NAVIGATION = {
+  'Sec-Fetch-Site': 'cross-site',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Dest': 'document',
+};
 
 /** [label, headers] partitions that must not change a valid navigation. */
 const ACCEPTED: Array<[string, Record<string, string>]> = [
-  ['no metadata (non-browser client)', {}],
-  ['top-level navigation', NAVIGATION],
-  ['cross-site navigation', { ...NAVIGATION, 'Sec-Fetch-Site': 'cross-site' }],
+  ['no metadata (non-browser client): compatibility, not proof', {}],
+  ['cross-site navigation', NAVIGATION],
+  ['same-site navigation', { ...NAVIGATION, 'Sec-Fetch-Site': 'same-site' }],
   ['same-origin navigation', { ...NAVIGATION, 'Sec-Fetch-Site': 'same-origin' }],
-  ['navigation without user activation', { ...NAVIGATION, 'Sec-Fetch-Site': 'none' }],
+  ['user-typed navigation', { ...NAVIGATION, 'Sec-Fetch-Site': 'none' }],
   ['user-activated navigation', { ...NAVIGATION, 'Sec-Fetch-User': '?1' }],
-  ['Sec-Fetch-User ?0', { ...NAVIGATION, 'Sec-Fetch-User': '?0' }],
-  ['mode only', { 'Sec-Fetch-Mode': 'navigate' }],
-  ['dest only', { 'Sec-Fetch-Dest': 'document' }],
-  ['unknown mode', { 'Sec-Fetch-Mode': 'teleport', 'Sec-Fetch-Dest': 'document' }],
-  ['unknown destination', { 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'hologram' }],
-  ['case variant mode is not a defined value', { 'Sec-Fetch-Mode': 'CORS' }],
-  ['case variant destination is not a defined value', { 'Sec-Fetch-Dest': 'Iframe' }],
-  ['case variant purpose is not a defined value', { 'Sec-Purpose': 'Prefetch' }],
-  ['empty mode', { 'Sec-Fetch-Mode': '' }],
-  ['empty destination', { 'Sec-Fetch-Dest': '' }],
-  ['empty purpose', { 'Sec-Purpose': '' }],
-  ['mode with parameter', { 'Sec-Fetch-Mode': 'cors;q=1' }],
-  ['duplicated mode header', { 'Sec-Fetch-Mode': 'cors, cors' }],
-  ['mode substring', { 'Sec-Fetch-Mode': 'xcors' }],
-  ['destination substring', { 'Sec-Fetch-Dest': 'iframes' }],
-  ['purpose substring', { 'Sec-Purpose': 'noprefetch' }],
-  ['purpose prefix', { 'Sec-Purpose': 'prefetching' }],
-  ['purpose as quoted string, not a token', { 'Sec-Purpose': '"prefetch"' }],
-  ['purpose only as a parameter', { 'Sec-Purpose': 'other;prefetch' }],
-  ['unknown purpose', { 'Sec-Purpose': 'preview' }],
-  ['malformed purpose list', { 'Sec-Purpose': 'prefetch,' }],
-  ['malformed purpose parameter', { 'Sec-Purpose': 'prefetch;' }],
-  ['malformed purpose garbage', { 'Sec-Purpose': 'prefetch prerender' }],
-  ['legacy Purpose header is not consulted', { Purpose: 'prefetch' }],
-  ['legacy X-Purpose header is not consulted', { 'X-Purpose': 'preview' }],
-  ['legacy X-Moz header is not consulted', { 'X-Moz': 'prefetch' }],
 ];
 
 const REJECTED: Array<[string, Record<string, string>]> = [
   ...NON_NAVIGATION_MODES.map((mode): [string, Record<string, string>] => [
     `mode ${mode}`,
-    { 'Sec-Fetch-Mode': mode },
+    { ...NAVIGATION, 'Sec-Fetch-Mode': mode },
   ]),
   ...NON_DOCUMENT_DESTINATIONS.map((dest): [string, Record<string, string>] => [
     `destination ${dest}`,
-    { 'Sec-Fetch-Dest': dest },
+    { ...NAVIGATION, 'Sec-Fetch-Dest': dest },
   ]),
   [
-    'fetch()',
+    'fetch()/XHR',
     { 'Sec-Fetch-Mode': 'cors', 'Sec-Fetch-Dest': 'empty', 'Sec-Fetch-Site': 'same-origin' },
   ],
-  ['iframe navigation', { 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'iframe' }],
-  [
-    'non-navigation mode with document destination',
-    { 'Sec-Fetch-Mode': 'cors', 'Sec-Fetch-Dest': 'document' },
-  ],
-  [
-    'known bad mode with unknown destination',
-    { 'Sec-Fetch-Mode': 'no-cors', 'Sec-Fetch-Dest': 'hologram' },
-  ],
-  [
-    'unknown mode with known bad destination',
-    { 'Sec-Fetch-Mode': 'teleport', 'Sec-Fetch-Dest': 'image' },
-  ],
-  [
-    'user-activated iframe',
-    { 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'iframe', 'Sec-Fetch-User': '?1' },
-  ],
+  ['Node/undici fetch (mode only)', { 'Sec-Fetch-Mode': 'cors' }],
+  ['iframe navigation', { ...NAVIGATION, 'Sec-Fetch-Dest': 'iframe' }],
+  ['user-activated iframe', { ...NAVIGATION, 'Sec-Fetch-Dest': 'iframe', 'Sec-Fetch-User': '?1' }],
+  // Partial or incoherent metadata fails closed.
+  ['mode only', { 'Sec-Fetch-Mode': 'navigate' }],
+  ['dest only', { 'Sec-Fetch-Dest': 'document' }],
+  ['site only', { 'Sec-Fetch-Site': 'cross-site' }],
+  ['user only', { 'Sec-Fetch-User': '?1' }],
+  ['missing site', { 'Sec-Fetch-Mode': 'navigate', 'Sec-Fetch-Dest': 'document' }],
+  ['missing mode', { 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Dest': 'document' }],
+  ['missing dest', { 'Sec-Fetch-Site': 'cross-site', 'Sec-Fetch-Mode': 'navigate' }],
+  ['unknown mode', { ...NAVIGATION, 'Sec-Fetch-Mode': 'teleport' }],
+  ['unknown destination', { ...NAVIGATION, 'Sec-Fetch-Dest': 'hologram' }],
+  ['unknown site', { ...NAVIGATION, 'Sec-Fetch-Site': 'elsewhere' }],
+  ['case variant mode', { ...NAVIGATION, 'Sec-Fetch-Mode': 'Navigate' }],
+  ['case variant destination', { ...NAVIGATION, 'Sec-Fetch-Dest': 'Document' }],
+  ['case variant site', { ...NAVIGATION, 'Sec-Fetch-Site': 'Cross-Site' }],
+  ['empty mode', { ...NAVIGATION, 'Sec-Fetch-Mode': '' }],
+  ['empty destination', { ...NAVIGATION, 'Sec-Fetch-Dest': '' }],
+  ['empty site', { ...NAVIGATION, 'Sec-Fetch-Site': '' }],
+  ['mode with parameter', { ...NAVIGATION, 'Sec-Fetch-Mode': 'navigate;q=1' }],
+  ['duplicated mode header', { ...NAVIGATION, 'Sec-Fetch-Mode': 'navigate, navigate' }],
+  ['destination substring', { ...NAVIGATION, 'Sec-Fetch-Dest': 'documents' }],
+  ['Sec-Fetch-User ?0 (never sent by browsers)', { ...NAVIGATION, 'Sec-Fetch-User': '?0' }],
+  ['Sec-Fetch-User garbage', { ...NAVIGATION, 'Sec-Fetch-User': 'yes' }],
+  // Speculative loads: any Sec-Purpose value, known or not, is refused.
   ['prefetch', { ...NAVIGATION, 'Sec-Purpose': 'prefetch' }],
   ['prerender', { ...NAVIGATION, 'Sec-Purpose': 'prefetch;prerender' }],
   ['prerender with explicit boolean', { ...NAVIGATION, 'Sec-Purpose': 'prefetch;prerender=?1' }],
-  ['prerender with optional whitespace', { ...NAVIGATION, 'Sec-Purpose': 'prefetch; prerender' }],
   ['private prefetch proxy', { ...NAVIGATION, 'Sec-Purpose': 'prefetch;anonymous-client-ip' }],
-  ['prefetch with string parameter', { ...NAVIGATION, 'Sec-Purpose': 'prefetch;tag="a,b;c"' }],
   ['prefetch as a later list member', { ...NAVIGATION, 'Sec-Purpose': 'other, prefetch' }],
   ['prefetch without fetch metadata', { 'Sec-Purpose': 'prefetch' }],
+  ['unknown purpose', { ...NAVIGATION, 'Sec-Purpose': 'preview' }],
+  ['case variant purpose', { ...NAVIGATION, 'Sec-Purpose': 'Prefetch' }],
+  ['empty purpose', { ...NAVIGATION, 'Sec-Purpose': '' }],
+  ['malformed purpose', { ...NAVIGATION, 'Sec-Purpose': 'prefetch prerender' }],
+  ['Turbo X-Sec-Purpose prefetch', { ...NAVIGATION, 'X-Sec-Purpose': 'prefetch' }],
+  ['Turbo X-Sec-Purpose without metadata', { 'X-Sec-Purpose': 'prefetch' }],
+  ['legacy Purpose prefetch', { Purpose: 'prefetch' }],
+  ['legacy X-Purpose preview', { 'X-Purpose': 'preview' }],
+  ['legacy X-Moz prefetch', { 'X-Moz': 'prefetch' }],
 ];
 
 describe('Fetch Metadata classification', () => {
@@ -124,8 +119,8 @@ describe('Fetch Metadata classification', () => {
   test.each(REJECTED)('%s is classified as non-navigation', (_label, headers) => {
     expect(isNonNavigationRequest(new Headers(headers))).toBe(true);
   });
-  test('repeated Sec-Purpose header lines are read as one list', () => {
-    const headers = new Headers();
+  test('repeated Sec-Purpose header lines are refused', () => {
+    const headers = new Headers(NAVIGATION);
     headers.append('Sec-Purpose', 'other');
     headers.append('Sec-Purpose', 'prefetch;prerender');
     expect(isNonNavigationRequest(headers)).toBe(true);
@@ -140,14 +135,13 @@ async function harness() {
       iss: ISSUER,
       jwks_uri: `${ISSUER}/.well-known/jwks.json`,
       allowed_dst_internal: ['https://docs.example.com'],
-      allowed_dst_external: false,
     },
   };
   const fetchJwks = vi.fn(async () => ({
     keys: [{ ...(await exportJWK(issuerKeys.publicKey)), kid: 'kid-1', alg: 'ES384', use: 'sig' }],
   }));
   const sign = vi.fn((claim: Parameters<JoseOutboundSigner['sign']>[0]) =>
-    new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test').sign(claim),
+    new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test').sign(claim, 'JWT'),
   );
   const audit = vi.fn();
   const app = createApp({
@@ -187,44 +181,50 @@ describe('Fetch Metadata policy on /?rt=', () => {
 
   test.each(ACCEPTED)('%s: a valid token is redirected', async (_label, headers) => {
     const h = await harness();
-    for (const method of ['GET', 'HEAD']) {
-      const response = await h.app.request(`${SERVICE}/?rt=${h.rt}`, { method, headers });
-      expect(response.status, method).toBe(302);
-      expect(new URL(String(response.headers.get('Location'))).origin).toBe(
-        'https://docs.example.com',
-      );
-    }
+    const response = await h.app.request(`${SERVICE}/?rt=${h.rt}`, { headers });
+    expect(response.status).toBe(302);
+    expect(new URL(String(response.headers.get('Location'))).origin).toBe(
+      'https://docs.example.com',
+    );
   });
 
   test.each(REJECTED)(
     '%s: rejected before any JWT, JWKS or signing work',
     async (_label, headers) => {
       const h = await harness();
-      const bodies: string[] = [];
-      for (const method of ['GET', 'HEAD']) {
-        const response = await h.app.request(`${SERVICE}/?rt=${h.rt}`, { method, headers });
-        expect(response.status, method).toBe(400);
-        expect(response.headers.get('X-Jump-Error')).toBe('invalid_request');
-        expect(response.headers.get('Location')).toBeNull();
-        expect(response.headers.get('Set-Cookie')).toBeNull();
-        expect(response.headers.get('Cache-Control')).toBe('no-store');
-        expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
-        bodies.push(await response.text());
-      }
-      expect(bodies[1]).toBe('');
-      expect(bodies[0]).not.toContain(h.rt);
-      expect(bodies[0]).not.toContain('docs.example.com');
+      const response = await h.app.request(`${SERVICE}/?rt=${h.rt}`, { headers });
+      expect(response.status).toBe(400);
+      expect(response.headers.get('X-Jump-Error')).toBe('invalid_request');
+      expect(response.headers.get('Location')).toBeNull();
+      expect(response.headers.get('Set-Cookie')).toBeNull();
+      expect(response.headers.get('Cache-Control')).toBe('no-store');
+      expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
+      const body = await response.text();
+      expect(body).not.toContain(h.rt);
+      expect(body).not.toContain('docs.example.com');
       expect(h.fetchJwks).not.toHaveBeenCalled();
       expect(h.sign).not.toHaveBeenCalled();
     },
   );
+
+  test('HEAD on the token entry is refused whatever the metadata', async () => {
+    const h = await harness();
+    for (const headers of [{}, NAVIGATION, { 'Sec-Fetch-Mode': 'cors' }]) {
+      const response = await h.app.request(`${SERVICE}/?rt=${h.rt}`, { method: 'HEAD', headers });
+      expect(response.status).toBe(405);
+      expect(response.headers.get('Allow')).toBe('GET');
+      expect(await response.text()).toBe('');
+    }
+    expect(h.fetchJwks).not.toHaveBeenCalled();
+    expect(h.sign).not.toHaveBeenCalled();
+  });
 
   test('a rejection has the same public shape as any other invalid token', async () => {
     const h = await harness();
     const rejected = await h.app.request(`${SERVICE}/?rt=${h.rt}`, {
       headers: { 'Sec-Fetch-Mode': 'cors' },
     });
-    const malformed = await h.app.request(`${SERVICE}/?rt=a.b.c`);
+    const malformed = await h.app.request(`${SERVICE}/?rt=a.b.c`, { headers: NAVIGATION });
     expect(rejected.status).toBe(malformed.status);
     expect(await rejected.text()).toBe(await malformed.text());
     const names = (response: Response) => [...response.headers.keys()].sort();
@@ -253,7 +253,7 @@ describe('Fetch Metadata policy on /?rt=', () => {
 
   test('a malformed token is still rejected for itself when metadata is acceptable', async () => {
     const h = await harness();
-    const response = await h.app.request(`${SERVICE}/?rt=a.b`, { headers: NAVIGATION });
+    const response = await h.app.request(`${SERVICE}/?rt=a.b.c`, { headers: NAVIGATION });
     expect(response.status).toBe(400);
     expect(h.audit.mock.calls[0]?.[0]).toMatchObject({ reason: 'malformed' });
   });
@@ -346,6 +346,7 @@ describe('Fetch Metadata policy behind the Cloudflare adapter', () => {
       .sign(issuerKeys.privateKey);
     const env = {
       UMAXICA_JUMP_ORIGIN: ORIGIN,
+      UMAXICA_JUMP_ENVIRONMENT: 'production',
       JUMP_RATE_LIMITER: { limit: limiter },
       UMAXICA_JUMP_PRIVATE_KEY_PEM: await exportPKCS8(jumpKeys.privateKey),
       UMAXICA_JUMP_PRIVATE_KEY_KID: 'active',
@@ -369,18 +370,17 @@ describe('Fetch Metadata policy behind the Cloudflare adapter', () => {
 
   test('a rejected request is still counted by the rate limiter and does no crypto', async () => {
     const h = await adapter(async () => ({ success: true }));
-    for (const method of ['GET', 'HEAD']) {
-      const response = await h.send(
-        { 'Sec-Fetch-Mode': 'cors', 'Sec-Fetch-Dest': 'empty' },
-        method,
-      );
+    for (const headers of [
+      { 'Sec-Fetch-Mode': 'cors', 'Sec-Fetch-Dest': 'empty', 'Sec-Fetch-Site': 'same-origin' },
+      { 'Sec-Fetch-Mode': 'cors' },
+    ]) {
+      const response = await h.send(headers);
       expect(response.status).toBe(400);
       expect(response.headers.get('X-Jump-Error')).toBe('invalid_request');
       expect(response.headers.get('Location')).toBeNull();
       expect(response.headers.get('Set-Cookie')).toBeNull();
       expect(response.headers.get('Cache-Control')).toBe('no-store');
       expect(response.headers.get('X-Frame-Options')).toBe('DENY');
-      if (method === 'HEAD') expect(await response.text()).toBe('');
     }
     expect(h.limiter).toHaveBeenCalledTimes(2);
     expect(h.jwksFetch).not.toHaveBeenCalled();

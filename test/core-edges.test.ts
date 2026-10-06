@@ -21,7 +21,6 @@ const ISSUER: IssuerConfig = {
   iss: 'https://app.example.com',
   jwks_uri: 'https://app.example.com/.well-known/jwks.json',
   allowed_dst_internal: ['https://docs.example.com'],
-  allowed_dst_external: false,
 };
 
 function deps(overrides: Partial<JumpDeps> = {}): JumpDeps {
@@ -30,7 +29,7 @@ function deps(overrides: Partial<JumpDeps> = {}): JumpDeps {
     jwksCache: new JwksCache(async () => ({ keys: [] })),
     runtime: { edge: 'cloudflare', production: true },
     signer: { sign: async () => 'x.y.z' },
-    config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
+    config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN, environment: 'production' },
     ...overrides,
   };
 }
@@ -187,64 +186,96 @@ describe('jump jwks validation', () => {
   });
 });
 
-describe('jwks cache negative entries', () => {
-  test('expired negative entries are purged and refetched', async () => {
+describe('jwks cache bounded state', () => {
+  const keyset = async () => ({
+    keys: [
+      {
+        ...(await exportJWK((await generateKeyPair('ES384')).publicKey)),
+        kid: 'known',
+        alg: 'ES384',
+        use: 'sig',
+      },
+    ],
+  });
+
+  test('a flood of distinct unknown kids adds no state and at most one forced fetch per cooldown', async () => {
     vi.useFakeTimers();
     try {
-      const fetcher = vi.fn(async () => ({ keys: [] }));
-      const cache = new JwksCache(fetcher, 0, 10, 0);
-      await expect(cache.getKey(ISSUER, 'missing', 'ES384')).rejects.toThrow(JumpError);
+      const document = await keyset();
+      const fetcher = vi.fn(async () => document);
+      const cache = new JwksCache(fetcher, 30_000, 30_000, 10_000);
+      for (let i = 0; i < 5_000; i += 1) {
+        await expect(cache.getKey(ISSUER, `unknown-${i}`)).rejects.toMatchObject({
+          code: 'invalid_signature',
+        });
+      }
+      // One cold miss plus one forced refresh; the cooldown answers the rest.
       expect(fetcher).toHaveBeenCalledTimes(2);
-      await expect(cache.getKey(ISSUER, 'missing', 'ES384')).rejects.toThrow(JumpError);
-      expect(fetcher).toHaveBeenCalledTimes(2);
-      vi.advanceTimersByTime(20);
-      await expect(cache.getKey(ISSUER, 'missing', 'ES384')).rejects.toThrow(JumpError);
-      expect(fetcher).toHaveBeenCalledTimes(4);
+      expect(cache.stateSize).toBe(1);
+      vi.advanceTimersByTime(10_000);
+      for (let i = 0; i < 100; i += 1) {
+        await expect(cache.getKey(ISSUER, `later-${i}`)).rejects.toThrow(JumpError);
+      }
+      expect(fetcher).toHaveBeenCalledTimes(3);
+      expect(cache.stateSize).toBe(1);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  test('the 1025th negative entry evicts the oldest but preserves newer entries', async () => {
+  test('concurrent unknown kids on a cold cache share the fetches', async () => {
+    const document = await keyset();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const fetcher = vi.fn(async () => {
+      await gate;
+      return document;
+    });
+    const cache = new JwksCache(fetcher);
+    const pending = Array.from({ length: 200 }, (_, i) => cache.getKey(ISSUER, `kid-${i}`));
+    release();
+    const results = await Promise.allSettled(pending);
+    expect(results.every((result) => result.status === 'rejected')).toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(cache.stateSize).toBe(1);
+  });
+
+  test('a keyset past its TTL is never used, even during the forced-refresh cooldown', async () => {
     vi.useFakeTimers();
     try {
-      const fetcher = vi.fn(async () => ({ keys: [] }));
-      const cache = new JwksCache(fetcher, 60_000, 60_000, 0);
-      for (let i = 0; i < 1024; i += 1) {
-        await expect(cache.getKey(ISSUER, `k${i}`, 'ES384')).rejects.toThrow(JumpError);
-      }
-      const filledCalls = fetcher.mock.calls.length;
-      await expect(cache.getKey(ISSUER, 'k0', 'ES384')).rejects.toThrow(JumpError);
-      expect(fetcher).toHaveBeenCalledTimes(filledCalls);
-
-      await expect(cache.getKey(ISSUER, 'k1024', 'ES384')).rejects.toThrow(JumpError);
-      expect(fetcher).toHaveBeenCalledTimes(filledCalls + 1);
-      await expect(cache.getKey(ISSUER, 'k1', 'ES384')).rejects.toThrow(JumpError);
-      await expect(cache.getKey(ISSUER, 'k1024', 'ES384')).rejects.toThrow(JumpError);
-      expect(fetcher).toHaveBeenCalledTimes(filledCalls + 1);
-      await expect(cache.getKey(ISSUER, 'k0', 'ES384')).rejects.toThrow(JumpError);
-      expect(fetcher).toHaveBeenCalledTimes(filledCalls + 2);
+      const document = await keyset();
+      const fetcher = vi.fn(async () => document);
+      const cache = new JwksCache(fetcher, 30_000, 30_000, 60_000);
+      await expect(cache.getKey(ISSUER, 'missing')).rejects.toThrow(JumpError);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      vi.advanceTimersByTime(29_999);
+      await cache.getKey(ISSUER, 'known');
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      vi.advanceTimersByTime(1);
+      await cache.getKey(ISSUER, 'known');
+      expect(fetcher).toHaveBeenCalledTimes(3);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  test('capacity cleanup removes expired entries before evicting a live entry', async () => {
+  test('an invalid 200 document is not cached and suppresses refetch for the cooldown', async () => {
     vi.useFakeTimers();
     try {
       const fetcher = vi.fn(async () => ({ keys: [] }));
-      const cache = new JwksCache(fetcher, 60_000, 10, 0);
-      for (let i = 0; i < 1024; i += 1) {
-        if (i === 512) vi.advanceTimersByTime(5);
-        await expect(cache.getKey(ISSUER, `k${i}`, 'ES384')).rejects.toThrow(JumpError);
-      }
-      vi.advanceTimersByTime(5);
-      await expect(cache.getKey(ISSUER, 'k1024', 'ES384')).rejects.toThrow(JumpError);
-      const afterCleanup = fetcher.mock.calls.length;
-      await expect(cache.getKey(ISSUER, 'k512', 'ES384')).rejects.toThrow(JumpError);
-      expect(fetcher).toHaveBeenCalledTimes(afterCleanup);
-      await expect(cache.getKey(ISSUER, 'k0', 'ES384')).rejects.toThrow(JumpError);
-      expect(fetcher).toHaveBeenCalledTimes(afterCleanup + 1);
+      const cache = new JwksCache(fetcher, 30_000, 30_000, 10_000);
+      await expect(cache.getKey(ISSUER, 'known')).rejects.toMatchObject({
+        code: 'jwks_bad_gateway',
+      });
+      await expect(cache.getKey(ISSUER, 'known')).rejects.toMatchObject({
+        code: 'jwks_bad_gateway',
+      });
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(10_000);
+      await expect(cache.getKey(ISSUER, 'known')).rejects.toMatchObject({
+        code: 'jwks_bad_gateway',
+      });
+      expect(fetcher).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
     }
@@ -266,27 +297,8 @@ describe('fetchRegistryJwks edges', () => {
 
   test.each([
     ['no content-type', new Response('{}', { status: 200 })],
-    ['non-object json', jsonResponse('1')],
-    ['non-array keys', jsonResponse('{"keys":1}')],
-    ['non-object key', jsonResponse('{"keys":[null]}')],
-    [
-      'bad key_ops',
-      jsonResponse(
-        JSON.stringify({
-          keys: [
-            {
-              kty: 'EC',
-              crv: 'P-384',
-              alg: 'ES384',
-              kid: 'k',
-              x: 'A'.repeat(64),
-              y: 'A'.repeat(64),
-              key_ops: ['sign'],
-            },
-          ],
-        }),
-      ),
-    ],
+    ['invalid json', jsonResponse('{')],
+    ['invalid utf-8', jsonResponse(new Uint8Array([0x7b, 0xff, 0x7d]))],
   ])('rejects %s', async (_label, response) => {
     vi.stubGlobal('fetch', async () => response);
     try {
@@ -296,19 +308,14 @@ describe('fetchRegistryJwks edges', () => {
     }
   });
 
-  test('bodyless responses use text with a size cap', async () => {
-    const large = 'x'.repeat(70_000);
+  test('a bodyless 200 is an unusable document', async () => {
     const fake = {
-      ok: true,
       status: 200,
       headers: new Headers({ 'content-type': 'application/json' }),
       body: null,
-      text: async () => large,
     };
     vi.stubGlobal('fetch', async () => fake);
     try {
-      await expect(fetchRegistryJwks(ISSUER)).rejects.toMatchObject({ code: 'jwks_bad_gateway' });
-      fake.text = async () => '{"keys":[]}';
       await expect(fetchRegistryJwks(ISSUER)).rejects.toMatchObject({ code: 'jwks_bad_gateway' });
     } finally {
       vi.unstubAllGlobals();
@@ -357,7 +364,6 @@ describe('createApp registry validation and adapter edges', () => {
     iss: 'https://app.example.com',
     jwks_uri: 'https://app.example.com/.well-known/jwks.json',
     allowed_dst_internal: ['https://docs.example.com'],
-    allowed_dst_external: false as const,
   };
   const build = (issuer: Record<string, unknown>, key = String(issuer.iss)) =>
     createProductionApp({
@@ -384,19 +390,11 @@ describe('createApp registry validation and adapter edges', () => {
         jwks_uri: 'https://app.example.com:8443/.well-known/jwks.json',
       },
     ],
-    ['external policy shape', { ...base, allowed_dst_external: true }],
     ['http destination', { ...base, allowed_dst_internal: ['http://docs.example.com'] }],
     ['destination with path', { ...base, allowed_dst_internal: ['https://docs.example.com/x'] }],
-    [
-      'external list destination with port',
-      { ...base, allowed_dst_external: ['https://e.example:444'] },
-    ],
+    ['destination with port', { ...base, allowed_dst_internal: ['https://e.example:444'] }],
   ])('rejects %s', (_label, issuer, key?: string) => {
     expect(() => build(issuer, key)).toThrow(JumpError);
-  });
-
-  test('accepts an external allow-list', () => {
-    expect(() => build({ ...base, allowed_dst_external: ['https://e.example'] })).not.toThrow();
   });
 
   const app = () =>

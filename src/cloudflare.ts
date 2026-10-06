@@ -9,7 +9,8 @@ import { emitSecurityLog } from './core/security_log';
 import { publicErrorHeaders, publicErrorResponse } from './core/public_error';
 import { STANDALONE_HTML_SECURITY_HEADERS } from './core/security_headers';
 import { JoseOutboundSigner, type OutboundSigner } from './core/sign_outbound';
-import { JumpError, type OutboundJumpClaim } from './core/types';
+import { isJumpEnvironment } from './core/token_profile';
+import { JumpError, type JumpEnvironment, type OutboundJumpClaim } from './core/types';
 import { validateServiceOrigin, hasMalformedRtQuery } from './core/normalize_url';
 import { raceAbort, throwIfAborted } from './core/deadline';
 import { parseJumpJwks, type JumpJwks } from './core/jump_jwks';
@@ -32,6 +33,7 @@ export type CloudflareEnv = {
   UMAXICA_JUMP_PRIVATE_KEY_PEM?: SecretBinding;
   UMAXICA_JUMP_PRIVATE_KEY_KID?: SecretBinding;
   UMAXICA_JUMP_ORIGIN?: string;
+  UMAXICA_JUMP_ENVIRONMENT?: string;
   UMAXICA_JUMP_PUBLIC_JWKS?: SecretBinding;
   'UMAXICA-APPS-EDGE-JUMP-VERSION'?: VersionMetadata;
 };
@@ -51,7 +53,12 @@ export type CloudflareEnv = {
  * reaches the same decision at the cost of a JWKS fetch.
  */
 let cachedApp:
-  | { serviceOrigin: string; revision: string | null; app: ReturnType<typeof createApp> }
+  | {
+      serviceOrigin: string;
+      environment: JumpEnvironment;
+      revision: string | null;
+      app: ReturnType<typeof createApp>;
+    }
   | undefined;
 
 /**
@@ -137,16 +144,13 @@ async function dispatch(
     emitSecurityLog({ level: 'warn', event: 'jump_reject', reason: 'invalid_service_origin' });
     throw new JumpError('signer_unavailable');
   }
+  const environment = env.UMAXICA_JUMP_ENVIRONMENT;
+  if (!isJumpEnvironment(environment)) {
+    emitSecurityLog({ level: 'warn', event: 'jump_reject', reason: 'invalid_environment' });
+    throw new JumpError('signer_unavailable');
+  }
   for (const issuer of Object.values(umaxicaRegistry)) {
-    const external = issuer.allowed_dst_external;
-    if (
-      issuer.iss === serviceOrigin ||
-      issuer.allowed_dst_internal.includes(serviceOrigin) ||
-      // The production registry has no external allow-list.
-      /* v8 ignore start */
-      (Array.isArray(external) && external.includes(serviceOrigin))
-      /* v8 ignore stop */
-    )
+    if (issuer.iss === serviceOrigin || issuer.allowed_dst_internal.includes(serviceOrigin))
       throw new JumpError('signer_unavailable');
   }
   const url = new URL(request.url);
@@ -169,7 +173,7 @@ async function dispatch(
   throwIfAborted(signal);
   if (limited) return limited;
   if (isStaticAsset(url)) return raceAbort(serveStaticAsset(request, env, requestId), signal);
-  const app = getApp(env, serviceOrigin);
+  const app = getApp(env, serviceOrigin, environment);
   return app.fetch(request, env, ctx, { requestId, signal });
 }
 
@@ -182,14 +186,18 @@ function assertLimiterBinding(env: CloudflareEnv) {
   return limiter;
 }
 
-function getApp(env: CloudflareEnv, serviceOrigin: string) {
+function getApp(env: CloudflareEnv, serviceOrigin: string, environment: JumpEnvironment) {
   const revision = cloudflareRevision(env);
-  if (cachedApp?.serviceOrigin === serviceOrigin && cachedApp.revision === revision)
+  if (
+    cachedApp?.serviceOrigin === serviceOrigin &&
+    cachedApp.environment === environment &&
+    cachedApp.revision === revision
+  )
     return cachedApp.app;
   const app = createApp({
     registry: umaxicaRegistry,
     jwksCache: new JwksCache(fetchRegistryJwks),
-    config: { serviceOrigin },
+    config: { serviceOrigin, environment },
     runtime: { edge: 'cloudflare', production: true },
     signerForRequest: (requestEnv, signal) => {
       const cfEnv = requestEnv as CloudflareEnv;
@@ -203,7 +211,7 @@ function getApp(env: CloudflareEnv, serviceOrigin: string) {
       return keyMaterialCacheFor(cfEnv).getJwks(cfEnv, signal);
     },
   });
-  cachedApp = { serviceOrigin, revision, app };
+  cachedApp = { serviceOrigin, environment, revision, app };
   return app;
 }
 
@@ -287,11 +295,11 @@ class LazyCloudflareSigner implements OutboundSigner {
     private readonly signal: AbortSignal,
   ) {}
 
-  async sign(claim: OutboundJumpClaim) {
+  async sign(claim: OutboundJumpClaim, typ: string) {
     throwIfAborted(this.signal);
     const signer = await this.cache.getSigner(this.env, this.signal);
     throwIfAborted(this.signal);
-    return raceAbort(signer.sign(claim), this.signal);
+    return raceAbort(signer.sign(claim, typ), this.signal);
   }
 }
 
@@ -468,11 +476,11 @@ async function assertPrivateKeyMatchesPublicJwk(
 ) {
   const now = Math.floor(Date.now() / 1000);
   const token = await new SignJWT({ probe: true, iat: now })
-    .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid })
+    .setProtectedHeader({ typ: 'jump-key-pair-probe', alg: 'ES384', kid })
     .sign(privateKey);
   await jwtVerify(token, await importJWK(publicJwk, 'ES384'), {
     algorithms: ['ES384'],
-    typ: 'JWT',
+    typ: 'jump-key-pair-probe',
     currentDate: new Date(now * 1000),
   });
 }

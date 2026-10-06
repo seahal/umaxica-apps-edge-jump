@@ -22,6 +22,7 @@ import { jumpSecureHeaders, responseHygiene } from './core/security_headers';
 import { validateServiceOrigin, normalizeOrigin, hasMalformedRtQuery } from './core/normalize_url';
 import { throwIfAborted } from './core/deadline';
 import { NoopOutboundSigner, type OutboundSigner } from './core/sign_outbound';
+import { isJumpEnvironment } from './core/token_profile';
 import { JumpError, type JumpConfig, type IssuerRegistry, type RuntimeInfo } from './core/types';
 
 type RequestVariables = LanguageVariables & {
@@ -92,8 +93,14 @@ export function createApp(options: AppOptions = {}) {
   app.use('*', trimSlashExceptRoot());
 
   app.on(['GET', 'HEAD'], '/', async (c) => {
-    if (c.req.query('rt') === undefined) return c.redirect('/about');
+    if (!new URL(c.req.url).search) return c.redirect('/about');
     const locale = requestLocale(c);
+    // The token entry is a top-level document navigation, which is always GET.
+    if (c.req.method !== 'GET') {
+      const rejected = withoutBody(publicErrorResponse('method_not_allowed', locale));
+      rejected.headers.set('Allow', 'GET');
+      return rejected;
+    }
     // Defense in depth, after method/query validation and the adapter's rate
     // limiter, before any token decoding, JWKS fetch or signing.
     if (isNonNavigationRequest(c.req.raw.headers)) {
@@ -107,7 +114,7 @@ export function createApp(options: AppOptions = {}) {
         ...cfRayFields(c.req.header('CF-Ray')),
         status: rejected.status,
       });
-      return c.req.method === 'HEAD' ? withoutBody(rejected) : rejected;
+      return rejected;
     }
     const signal = c.get('deadlineSignal');
     let pendingAudit: JumpAuditLogEntry | undefined;
@@ -138,7 +145,7 @@ export function createApp(options: AppOptions = {}) {
       status: response.status,
       latency_ms: Math.round(performance.now() - started),
     });
-    return c.req.method === 'HEAD' ? withoutBody(response) : response;
+    return response;
   });
 
   /* v8 ignore start -- defensive: the method middleware rejects non-GET/HEAD first */
@@ -221,8 +228,11 @@ export function resolveJumpConfig(
   _runtime: RuntimeInfo,
   config: Partial<JumpConfig> = {},
 ): JumpConfig {
+  const environment = config.environment ?? 'production';
+  if (!isJumpEnvironment(environment)) throw new JumpError('signer_unavailable');
   return {
     serviceOrigin: validateServiceOrigin(config.serviceOrigin),
+    environment,
   };
 }
 
@@ -382,12 +392,7 @@ function validateRegistry(registry: IssuerRegistry, runtime: RuntimeInfo, servic
     if (issuerUrl.username || issuerUrl.password || issuerUrl.port || issuerUrl.pathname !== '/')
       throw new Error('issuer must be an exact origin');
     /* v8 ignore stop */
-    if (issuer.allowed_dst_external !== false && !Array.isArray(issuer.allowed_dst_external))
-      throw new Error('external destination policy rejected');
-    for (const destination of [
-      ...issuer.allowed_dst_internal,
-      ...(Array.isArray(issuer.allowed_dst_external) ? issuer.allowed_dst_external : []),
-    ]) {
+    for (const destination of issuer.allowed_dst_internal) {
       normalizeOrigin(destination, runtime, serviceOrigin);
       /* v8 ignore start -- normalizeOrigin above already rejects these */
       const url = new URL(destination);

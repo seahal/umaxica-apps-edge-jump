@@ -5,7 +5,7 @@ import { exportJWK, generateKeyPair, type JWK } from 'jose';
 import { beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { JwksCache } from '../src/core/jwks_cache';
 import type { IssuerConfig, IssuerRegistry } from '../src/core/types';
-import { verifyJumpJwt } from '../src/core/verify_jwt';
+import { verifyJumpJwt } from './app-fixture';
 
 const SERVICE = 'https://jump.umaxica.net';
 const NOW = 1_800_000_000;
@@ -15,7 +15,6 @@ const issuer = (iss: string): IssuerConfig => ({
   iss,
   jwks_uri: `${iss}/.well-known/jwks.json`,
   allowed_dst_internal: [],
-  allowed_dst_external: false,
 });
 const registry: IssuerRegistry = { [A]: issuer(A), [B]: issuer(B) };
 const HEADER = { typ: 'JWT', alg: 'ES384', kid: 'k' };
@@ -246,11 +245,11 @@ describe('RFC 8725bis regression: issuer and keys', () => {
   });
 
   test.each(['ES256', 'ES512', 'EdDSA', undefined])(
-    'a key published for alg %s is not used for ES384',
+    'a key published for alg %s is not used for ES384: the whole set is refused',
     async (alg) => {
       keysets[A] = (keysets[A] ?? []).map(({ alg: _alg, ...key }) => (alg ? { ...key, alg } : key));
       await expect(verify(await signed(HEADER, CLAIMS))).rejects.toMatchObject({
-        code: 'invalid_signature',
+        code: 'jwks_bad_gateway',
       });
     },
   );

@@ -11,6 +11,7 @@ beforeAll(async () => {
   pair = await generateKeyPair('ES384', { extractable: true });
   env = {
     UMAXICA_JUMP_ORIGIN: origin,
+    UMAXICA_JUMP_ENVIRONMENT: 'production',
     UMAXICA_JUMP_PRIVATE_KEY_KID: 'active',
     UMAXICA_JUMP_PRIVATE_KEY_PEM: await exportPKCS8(pair.privateKey),
     UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({

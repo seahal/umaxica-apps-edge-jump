@@ -4,7 +4,7 @@ import { JumpError, type OutboundJumpClaim } from './types';
 type SignKey = Parameters<SignJWT['sign']>[0];
 
 export interface OutboundSigner {
-  sign(claim: OutboundJumpClaim): Promise<string>;
+  sign(claim: OutboundJumpClaim, typ: string): Promise<string>;
 }
 
 export class JoseOutboundSigner implements OutboundSigner {
@@ -14,9 +14,9 @@ export class JoseOutboundSigner implements OutboundSigner {
     private readonly alg = 'ES384',
   ) {}
 
-  async sign(claim: OutboundJumpClaim): Promise<string> {
+  async sign(claim: OutboundJumpClaim, typ: string): Promise<string> {
     return new SignJWT(claim)
-      .setProtectedHeader({ typ: 'JWT', alg: this.alg, kid: this.kid })
+      .setProtectedHeader({ typ, alg: this.alg, kid: this.kid })
       .sign(this.privateKey);
   }
 }

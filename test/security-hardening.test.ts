@@ -22,6 +22,7 @@ const cloudflareWorker = {
       new Request(request, { headers }),
       {
         UMAXICA_JUMP_ORIGIN: 'https://jump.example.net',
+        UMAXICA_JUMP_ENVIRONMENT: 'production',
         JUMP_RATE_LIMITER: { limit: async () => ({ success: true }) },
         ...env,
       },
@@ -104,7 +105,6 @@ describe('public error contract', () => {
         iss: 'https://app.example.com',
         jwks_uri: 'https://app.example.com/.well-known/jwks.json',
         allowed_dst_internal: ['https://docs.example.com'],
-        allowed_dst_external: false,
       },
     };
     const app = createApp({
@@ -142,7 +142,6 @@ describe('public error contract', () => {
         iss: 'https://app.example.com',
         jwks_uri: 'https://app.example.com/.well-known/jwks.json',
         allowed_dst_internal: ['https://docs.example.com'],
-        allowed_dst_external: false,
       },
     };
     const app = createApp({
@@ -212,7 +211,6 @@ describe('stateless jump contract', () => {
           iss: 'https://app.example.com',
           jwks_uri: 'https://app.example.com/.well-known/jwks.json',
           allowed_dst_internal: ['https://docs.example.com'],
-          allowed_dst_external: false as const,
         },
       },
       jwksCache: new JwksCache(async () => ({
@@ -247,7 +245,6 @@ describe('stateless jump contract', () => {
           iss: 'https://app.example.com',
           jwks_uri: 'https://app.example.com/.well-known/jwks.json',
           allowed_dst_internal: ['https://docs.example.com'],
-          allowed_dst_external: false,
         },
       },
       jwksCache: new JwksCache(async () => ({
