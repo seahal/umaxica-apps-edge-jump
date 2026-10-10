@@ -94,6 +94,16 @@ Return tokens carry exactly `schema`, `rpl`, `iss`, `aud`, `sub`, `iat`, `nbf`,
 `url`, with header `alg`/`kid`/`typ`. Jump keeps no `jti` state (`rpl: reuse`):
 receivers must enforce their own one-time transaction semantics.
 
+- **Accept the 30-second lifetime.** Receivers must accept a correctly signed
+  return token whose `exp - iat` is 30 seconds. A receiver maximum below that
+  (10 seconds was reported) is incompatible, and Jump does not follow a
+  receiver-local TTL setting. This is an open release blocker in ADR 0006.
+- **One-time semantics are not `jti` deduplication.** Jump re-evaluates the same
+  request token until it expires and mints a new `jti` each time, with no link
+  to the request `jti`. Guard the receiver-owned transaction itself
+  (authorization code, state, nonce); see ADR 0002 and
+  [receiver obligations](receiver-contract.md).
+
 ## 8. URL differential
 
 Jump now accepts the entry query only in the raw form `?rt=<JWS>`, so no
