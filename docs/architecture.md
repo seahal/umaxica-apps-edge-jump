@@ -8,7 +8,7 @@ and Web Crypto through jose. No destination safety fetch is performed.
 
 Flow: configuration → Request origin binding → method/query/path → limiter →
 assets or Hono → compact JWT/header/issuer → pinned JWKS → ES384 verification →
-claims → URL → exact policy → cushion or new signed RT → common headers.
+claims → URL → exact policy → new signed internal RT → common headers.
 The [plan](../plans/jump-0.3-hardening.md) defines status precedence.
 
 Cloudflare production is the sole implemented provider. Portable core permits a

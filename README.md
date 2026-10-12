@@ -151,7 +151,7 @@ an approved edge. Nothing in the request can widen that decision.
   and noncanonical origins when it is built. At runtime, self links and links
   back to Jump are refused even if the registry were too permissive.
 - `dst` must be `internal`. External destinations are refused for every issuer;
-  the cushion page is dormant code awaiting removal (ADR 0007 phase 3).
+  the unused cushion page and its dedicated dependencies have been removed locally (ADR 0007 phase 3).
 
 ### Signature and key handling
 
@@ -192,7 +192,7 @@ an approved edge. Nothing in the request can widen that decision.
   `X-Forwarded-Host` never choose the protocol identity.
 - Every response is `no-store`, `no-referrer`, cookie-free and carries a strict
   CSP (`default-src 'none'`, hash-pinned script and style), `frame-ancestors
-'none'`, `nosniff` and HSTS with `preload`.
+  'none'`, `nosniff` and HSTS with `preload`.
 - The whole request has a 1000 ms deadline. Late work cannot turn an error into
   a redirect or log a success.
 
@@ -224,7 +224,7 @@ The `notFound` handler in `src/index.ts` will drop its `/about` redirect and ret
 
 Intentions, not commitments; each needs its own plan and ADR first.
 
-- **External destinations**: runtime rejection is implemented; removing the dormant cushion page is ADR 0007 phase 3 ([ADR 0007](adr/0007-remove-external-destinations.md)).
+- **External destinations**: runtime rejection is implemented; the unused cushion page has been removed locally under explicit owner authorization; production closure remains pending under ADR 0007 ([ADR 0007](adr/0007-remove-external-destinations.md)).
 - **Local Jump environment**: run Jump, a development issuer and a receiver on one machine with production validation rules.
 - **Workerd-fidelity tests**: prove isolate cache and `env` behavior under `@cloudflare/vitest-pool-workers`.
 - **Signing failure handling**: add the signer-failure cache and retry policy deferred in 0.3.
@@ -270,3 +270,11 @@ Intentions, not commitments; each needs its own plan and ADR first.
 - [Security policy and vulnerability reporting](SECURITY.md)
 - [Design](DESIGN.md)
 - [License](LICENSE) (Apache License 2.0)
+
+## 0.4.0 candidate
+
+RELEASE_BLOCKED: local pathname/query defenses and CSS-only OS dark mode are
+implemented. See [redirect policy](docs/redirect-policy.md),
+[release closure](docs/operations/release-closure.md) and
+[dated evidence](evidence/2026-10-11-jump-0-4-candidate.md). Dormant external
+renderer removal and production/receiver verification remain gated by ADR 0007.

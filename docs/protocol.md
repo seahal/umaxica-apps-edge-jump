@@ -1,4 +1,9 @@
-# Jump 0.3 protocol (normative)
+# Jump 0.4.0 candidate protocol (normative source contract)
+
+Deployment status: RELEASE_BLOCKED; deployed revision is NOT VERIFIED.
+Service version 0.4.0 does not change JWT schema 1.
+Direct path and transfer-query requirements are defined in
+[the redirect policy](redirect-policy.md).
 
 Production has exactly these 13 nodes. Node ID syntax is
 `^[a-z]{4}-[a-z]{3}-[a-z]{2}$` (11 ASCII characters); syntax alone grants no trust.
@@ -70,8 +75,7 @@ protocol identity.
 
 External destinations are refused: `dst` other than `internal` is400 without
 signing, Location or cushion, for every issuer, and the registry has no external
-allowlist (ADR 0007 runtime phase). The cushion page renderer remains as dormant
-code until its removal phase.
+allowlist (ADR 0007 runtime phase). The unused cushion renderer and its dedicated assets are removed in the 0.4.0 candidate.
 
 Transport `rt` only as a query parameter. JWTs and protocol values must not be
 placed in pathnames; native invocation logs and traces may persist arbitrary

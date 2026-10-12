@@ -63,11 +63,10 @@ export async function handleJump(request: Request, deps: JumpDeps): Promise<Resp
       signal: deps.signal,
     });
     audit = { iss: claim.iss, kid, dst: claim.dst };
-    const target = validateInternalTarget(
-      normalizeUrl(claim.url, deps.runtime, serviceOrigin(deps)),
-    );
+    let target = normalizeUrl(claim.url, deps.runtime, serviceOrigin(deps));
     audit.dst_origin = target.origin;
     assertDestinationPolicy(claim, issuer, target);
+    target = validateInternalTarget(target);
 
     const location = await buildInternalLocation(target, issuer, deps, now);
     /* v8 ignore next -- buildInternalLocation already checks after signing */

@@ -25,10 +25,9 @@ import { healthJson, renderHealthHtml, wantsJson } from '../src/core/health';
 import { JwksCache, type FetchJwks } from '../src/core/jwks_cache';
 import { messages } from '../src/core/i18n';
 import { normalizeOrigin, normalizeUrl } from './app-fixture';
-import { brandTitle, renderCushionPage, renderHealthPage } from '../src/core/page';
+import { brandTitle, renderHealthPage } from '../src/core/page';
 import { assertDestinationPolicy } from '../src/core/policy';
 import {
-  CUSHION_INLINE_SCRIPT,
   SPLASH_INLINE_SCRIPT,
   SPLASH_INLINE_SCRIPT_SHA256,
   PRODUCT_PAGE_CSS,
@@ -74,10 +73,6 @@ const cloudflareWorker = {
 };
 
 const NOW = 1_800_000_000;
-
-function cushionTarget(url: string) {
-  return normalizeUrl(url, { edge: 'cloudflare', production: true });
-}
 
 test('security constants and escaping helpers retain their public contract', () => {
   expect(CLOCK_SKEW_SECONDS).toBe(5);
@@ -442,7 +437,7 @@ describe('jump gateway routes', () => {
     expect(await json.json()).toMatchObject({
       status: 'OK',
       service: 'jump',
-      version: '0.3.0',
+      version: '0.4.0',
       edge: 'cloudflare',
     });
     const html = await app.request('https://jump.example.net/health.html');
@@ -453,7 +448,7 @@ describe('jump gateway routes', () => {
     expect(healthHtml).toContain('<h1>status</h1>');
     expect(healthHtml).toContain('<dt>status</dt><dd>OK</dd>');
     expect(healthHtml).toContain('<dt>service</dt><dd>jump</dd>');
-    expect(healthHtml).toContain('<dt>version</dt><dd>0.3.0</dd>');
+    expect(healthHtml).toContain('<dt>version</dt><dd>0.4.0</dd>');
     expect(healthHtml).toContain('<dt>edge</dt><dd>cloudflare</dd>');
     expect(healthHtml).toContain('<dt>time</dt><dd>');
     expect(healthHtml).toContain('<footer>© 2026 UMAXICA</footer>');
@@ -563,7 +558,7 @@ describe('jump gateway routes', () => {
     expect(await res.json()).toMatchObject({
       status: 'OK',
       edge: 'cloudflare',
-      version: '0.3.0',
+      version: '0.4.0',
     });
   });
 
@@ -920,7 +915,7 @@ describe('jump gateway routes', () => {
     expect(JSON.parse(body)).toMatchObject({
       status: 'OK',
       edge: 'cloudflare',
-      version: '0.3.0',
+      version: '0.4.0',
     });
     expect(body).not.toContain('cloudflare-revision-123');
     expect(body).not.toContain('deploy-tag');
@@ -940,24 +935,19 @@ describe('jump gateway routes', () => {
     expect(html).toContain('<dt>version</dt><dd></dd>');
   });
 
-  test('about and cushion carry product styles; health does not; errors splash', async () => {
+  test('about and health carry product styles; errors splash', async () => {
     const { app } = await fixture();
     const about = await (await app.request('https://jump.example.net/about')).text();
     const health = await (await app.request('https://jump.example.net/health')).text();
     const error = await (await app.request('https://jump.example.net/?rt=not-a-jwt')).text();
-    const cushion = renderCushionPage(cushionTarget('https://example.org/a'));
 
     expect(about).toContain('<body class="product">');
     expect(about).toContain(`<style>${PRODUCT_PAGE_CSS}</style>`);
     expect(about).not.toContain('class="origin"');
-    expect(cushion).toContain('<body class="product">');
-    expect(cushion).toContain(`<style>${PRODUCT_PAGE_CSS}</style>`);
-    expect(cushion).toContain('class="continue"');
-    expect(cushion).toContain('class="host"');
-    expect(health).not.toContain('class="product"');
+    expect(health).toContain('class="product"');
     expect(health).not.toContain('class="splash"');
-    expect(health).not.toContain('<style>');
-    expect(health).toContain('<body>');
+    expect(health).toContain(`<style>${PRODUCT_PAGE_CSS}</style>`);
+    expect(health).toContain('<body class="product">');
     expect(error).toContain('<body class="splash">');
     expect(error).toContain(`<style>${SPLASH_PAGE_CSS}</style>`);
     expect(error).toContain('href="/about"');
@@ -992,9 +982,6 @@ describe('jump gateway routes', () => {
     );
     expect(createHash('sha256').update(SPLASH_PAGE_CSS).digest('base64')).toBe(
       SPLASH_PAGE_CSS_SHA256,
-    );
-    expect(createHash('sha256').update(CUSHION_INLINE_SCRIPT).digest('base64')).toBe(
-      '8A+3er73YJf04rRHGhbZwZQACPiiipi9EPduIeAAIDk=',
     );
     expect(createHash('sha256').update(SPLASH_INLINE_SCRIPT).digest('base64')).toBe(
       SPLASH_INLINE_SCRIPT_SHA256,
@@ -1069,9 +1056,6 @@ describe('jump gateway routes', () => {
     );
     expect(external.status).toBe(400);
     expectSecurityHeaders(external);
-    const cushionHtml = renderCushionPage(cushionTarget('https://example.org/a?b=1'));
-    expect(cushionHtml).toContain('<header><a href="/">UMAXICA</a></header>');
-    expect(cushionHtml).toContain(`<footer>© ${new Date().getUTCFullYear()} UMAXICA</footer>`);
   });
 
   test('request logs expose only allowlisted paths', async () => {
@@ -1733,15 +1717,13 @@ describe('jump token validation', () => {
     }
   });
 
-  test('IDN hostnames expose Unicode alongside punycode', () => {
+  test('IDN hostnames retain canonical ASCII identity', () => {
     const normalized = normalizeUrl('https://xn--r8jz45g.example/path', {
       edge: 'cloudflare',
       production: true,
     });
     expect(normalized).toMatchObject({
       hostname: 'xn--r8jz45g.example',
-      unicodeHostname: '例え.example',
-      hasNonAsciiHostname: true,
     });
   });
 
@@ -1916,36 +1898,6 @@ describe('jump token validation', () => {
       expect(html).not.toContain('history.replaceState');
     }
     expect(fetchCount()).toBe(1);
-  });
-
-  test('dormant cushion page renders continue URL and replaceState', () => {
-    const html = renderCushionPage(cushionTarget('https://example.org/a?b=1'));
-    expect(html).toContain('history.replaceState');
-    expect(html).toContain('href="https://example.org/a?b=1"');
-    expect(html).toContain('rel="noopener noreferrer"');
-  });
-
-  test('dormant cushion page localizes and shows the host', () => {
-    const html = renderCushionPage(cushionTarget('https://example.com/jump/end?ok=1'), 'en');
-    expect(html).toContain('Continue to external site');
-    expect(html).toContain('href="https://example.com/jump/end?ok=1"');
-    expect(html).toContain('<dt>host</dt><dd class="host">example.com</dd>');
-  });
-
-  test('dormant cushion page truncates long displayed URLs while preserving href', () => {
-    const longUrl = `https://example.org/${'a'.repeat(220)}`;
-    const html = renderCushionPage(cushionTarget(longUrl));
-    expect(html).toContain(`href="${longUrl}"`);
-    expect(html).toContain('...');
-  });
-
-  test('dormant cushion page shows non-ASCII warning when hostname is punycode', () => {
-    const html = renderCushionPage(cushionTarget('https://xn--r8jz45g.example/path'));
-    expect(html).toContain('非 ASCII');
-    expect(html).toContain('例え.example');
-    expect(html).toContain('xn--r8jz45g.example');
-    expect(html).toContain('このページを再読み込みすると、移動先は消えます。');
-    expect(html).toContain('href="/about"');
   });
 
   test('internal redirect carries outbound rt signed by jump', async () => {
@@ -2271,7 +2223,7 @@ function replaceHeader(token: string, header: Record<string, unknown>) {
 
 function expectSecurityHeaders(res: Response) {
   expect(res.headers.get('Content-Security-Policy')).toContain("default-src 'none'");
-  expect(res.headers.get('Content-Security-Policy')).toContain(
+  expect(res.headers.get('Content-Security-Policy')).not.toContain(
     "'sha256-8A+3er73YJf04rRHGhbZwZQACPiiipi9EPduIeAAIDk='",
   );
   expect(res.headers.get('Content-Security-Policy')).toContain(
@@ -2992,7 +2944,6 @@ describe('UMAXICA title contract', () => {
       'errorTitle',
       'rateLimitTitle',
       'unavailableTitle',
-      'cushionTitle',
     ] as const;
     for (const locale of ['ja', 'en'] as const) {
       for (const key of titleKeys) {

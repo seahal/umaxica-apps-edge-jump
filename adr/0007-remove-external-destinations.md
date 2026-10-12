@@ -1,9 +1,20 @@
 # ADR 0007: Make Jump an internal-only gateway
 
-Status: proposed (2026-10-03). Not accepted.
+Status: accepted for local capability retirement (2026-10-11, explicit user authorization). Production release gates remain open.
 Target release: 0.4.0, subject to the phase verification gates.
 
-## Context
+## Candidate implementation status (2026-10-11)
+
+The 0e0b3c6 baseline already rejects external, missing and malformed dst in
+runtime and has no external registry field. Local regressions passed. The
+0.4.0 candidate adds independent pathname and transfer-query defense. The user confirmed that Cushion is unused and explicitly authorized deletion.
+The renderer, external-only IDNA display, translations, CSS and CSP permission
+are removed locally, with permanent external rejection tests retained. This
+confirmation is user-provided, not measured production usage. Phase 3 source
+retirement is implemented; runtime/browser/CI and production closure are still
+BLOCKED. No Away compatibility path is introduced.
+
+## Historical context
 
 Jump currently has two destination paths. Internal instructions pass the issuer
 origin graph and produce a redirect carrying a newly signed RT. Externally
@@ -42,10 +53,12 @@ schema change is proposed here.
 2. After that checkpoint, establish runtime rejection through observed RED,
    minimal implementation and GREEN, then CI, deployment and safe production
    verification. Startup failures and unexecuted tests are not RED or GREEN.
-3. Only after Phase 2 production verification, remove dormant implementation in
-   a separate phase while retaining permanent rejection regressions.
+3. The 2026-10-11 explicit owner confirmation of non-use authorizes local
+   dormant-code removal while retaining rejection regressions. This overrides
+   the earlier local-removal sequencing gate, not production release checks.
+   Close production verification separately; local deletion is not deployment.
 
-Internal redirect/signing behavior remains unchanged. Shared URL/IDNA, headers,
+Internal redirect/signing behavior remains unchanged. Shared URL validation, headers,
 CSS, layout, errors, logs, deadline and rate limit require individual dependency
 review before cleanup. `/about` fallback removal and Rails issuer cleanup are
 separate changes. Away implementation is outside this proposal.

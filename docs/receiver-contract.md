@@ -55,3 +55,10 @@ runtime E2E. The read-only review inspected Rails feature
 `7c308e49831c2a906781ddd875a8cb78a6780ddd`; this local follow-up changes no Rails
 code. Pre-deployment acceptance is USER_REPORTED complete, separately from these
 specific contract gaps. See [release closure](operations/release-closure.md).
+
+## Candidate service 0.4.0
+
+The fixture service version is 0.4.0; JWT schema is still 1. Canonical query
+serialization and 30-second outbound TTL are unchanged. The
+[redirect policy](redirect-policy.md) tightens target acceptance before signing.
+Rails runtime and actual receiver integration remain required release evidence.

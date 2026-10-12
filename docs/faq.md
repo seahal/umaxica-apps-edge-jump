@@ -18,7 +18,7 @@ Cookies add session behavior and cross-site complexity. Jump ignores cookies and
 
 ## Why Not Redirect Directly?
 
-External direct redirects increase phishing and OpenRedirect risk. Jump uses cushion pages for external destinations.
+External direct redirects increase phishing and OpenRedirect risk. Jump rejects all external destinations. External confirmation belongs to Away.
 
 ## Why Use JWKS?
 

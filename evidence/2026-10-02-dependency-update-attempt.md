@@ -11,7 +11,7 @@ pnpm-lock.yaml remain unchanged.
   timed out (exit 124) without metadata.
 - `timeout 35s pnpm update wrangler` could not fetch package archives from
   the configured `https://npm.flatt.tech/` registry: DNS errors (`no connections
-available`). The command was interrupted (exit 130).
+  available`). The command was interrupted (exit 130).
 - `curl -I --max-time 8 https://registry.npmjs.org/wrangler` also failed DNS
   resolution (exit 6), so the public registry was not an available fallback.
 - `timeout 15s pnpm audit --audit-level=high` timed out (exit 124) without a

@@ -1,17 +1,20 @@
 # Jump internal-only implementation plan
 
-Status: discussion draft (2026-10-04). Implementation is stopped. Resume only on
-an explicit instruction after discussion; this plan is not execution authority
-or a claim of deployed behavior.
+Status: resumed by the explicit 0.4.0 implementation request on 2026-10-11.
+Local internal-only rejection already exists at baseline HEAD 0e0b3c6 and passes
+tests; no artificial RED was created by restoring unsafe capability. Additional
+path/query defense and UI work are recorded in the 0.4.0 evidence. Production
+checkpoints remain open and Phase 3 removal has not begun. The historical phase
+sequence below remains the operational gate, not a completed deployment claim.
 
 ## Document map
 
-| Document                                                | Responsibility                                                     |
-| ------------------------------------------------------- | ------------------------------------------------------------------ |
-| [ADR 0007](../adr/0007-remove-external-destinations.md) | Ownership, rationale and proposal boundaries; remains proposed     |
-| [Target contract](../docs/internal-only-gateway.md)     | Redirect/rejection rules, test partitions and validation reference |
-| [Dated memo](../memo/2026-10-04-jump-internal-only.md)  | Findings, blockers, caller uncertainty and current stopping point  |
-| This plan                                               | Execution order, phase gates and cleanup boundaries                |
+| Document                                                | Responsibility                                                                                 |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| [ADR 0007](../adr/0007-remove-external-destinations.md) | Ownership, rationale and proposal boundaries; local retirement accepted; production gates open |
+| [Target contract](../docs/internal-only-gateway.md)     | Redirect/rejection rules, test partitions and validation reference                             |
+| [Dated memo](../memo/2026-10-04-jump-internal-only.md)  | Findings, blockers, caller uncertainty and current stopping point                              |
+| This plan                                               | Execution order, phase gates and cleanup boundaries                                            |
 
 Primary repository: `umaxica-apps-edge-jump`. Rails cleanup, Away implementation
 and `/about` fallback removal are separate work. Current observations belong to
@@ -67,11 +70,11 @@ do not silently change dependency policy or bypass security rules to run tests.
 
 Checkpoint: runtime rejection is GREEN, internal semantic contracts are
 unchanged, CI is GREEN and deployed internal behavior is safely verified.
-Do not proceed to Phase 3 on local results alone.
+Explicit owner authorization on 2026-10-11 permits local Phase 3 removal based on confirmed non-use; production closure still requires runtime/CI/operational evidence.
 
 ## Phase 3: remove dormant external implementation
 
-Only after Phase 2 production verification, review and remove actual dormant
+With explicit owner authorization for local removal, review and remove actual dormant
 external dependencies in a separate change. Candidates include the success
 branch, cushion renderer, external allowlist policy/configuration, external-only
 UI/strings/script/CSP, success fixtures/tests and obsolete external-flow docs.

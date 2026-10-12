@@ -1,6 +1,25 @@
 # Compatibility and recovery gate
 
-Service 0.3.0 retains JWT schema 1, JWT typ and ES384/P-384. Requiring exact
+## 0.4.0 candidate acceptance tightening
+
+RELEASE_BLOCKED. The [redirect policy](redirect-policy.md) documents newly refused
+paths, logout completion and forwarding routes (including Rails format suffixes), generic
+transfer query controls, invalid OAuth URI forms and prohibited parsed hosts.
+Valid internal 302/signing semantics, schema 1, mandatory dst, 30-second TTL and
+production/staging typ profiles remain unchanged. Issuers must inventory actual
+URLs before rollout, remove generic transfer controls, and stop targeting denied
+logout completion actions through Jump. Receivers must execute the updated
+service-version-0.4.0 fixture without loosening the existing URL/TTL contract.
+No Rails patch or production migration was performed in this change.
+
+Migration order: verify Rails registered URI/client/realm and URL/30s receiver
+contracts; adjust and test issuer paths/queries; validate the candidate in real
+workerd/browser integration; obtain candidate CI and immutable recovery evidence;
+then seek rollout approval. No typ production migration is included.
+
+## Earlier 0.3.0 baseline
+
+Baseline service 0.3.0 retains JWT schema 1, JWT typ and ES384/P-384. Requiring exact
 string `rpl: "reuse"` was introduced by 0.2 as an approved intentional acceptance tightening. Missing,
 null, once, case variants and other types are rejected. 13 issuers/20 edges replace
 the earlier Auth/Base-only registry, old Palm and Edit destinations.

@@ -44,11 +44,11 @@ test.describe('jump gateway smoke', () => {
     expect(response?.status()).toBe(200);
     await expect(page.locator('body')).toContainText('service');
     await expect(page.locator('body')).toContainText('jump');
-    await expect(page.locator('body')).not.toHaveClass('product');
+    await expect(page.locator('body')).toHaveClass('product');
     const background = await page
       .locator('body')
       .evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(background === 'rgba(0, 0, 0, 0)' || background === 'rgb(255, 255, 255)').toBe(true);
+    expect(background).toBe('rgb(246, 244, 239)');
   });
 
   test('/health returns JSON when requested', async ({ request }) => {
@@ -170,4 +170,36 @@ for (const path of ['/about', '/about/', '//', '/favicon.ico', '/.well-known/jwk
       if (method === 'HEAD') expect(await response.text()).toBe('');
     }
   });
+}
+
+for (const width of [320, 1280]) {
+  for (const path of [
+    '/about',
+    '/health.html',
+    '/?rt=invalid',
+    '/__e2e/rate',
+    '/__e2e/unavailable',
+  ]) {
+    test(`OS theme follows without reload: ${path} width ${width}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 720 });
+      await page.emulateMedia({ colorScheme: 'light' });
+      const errors: string[] = [];
+      page.on('console', (message) => {
+        if (message.text().includes('Content Security Policy')) errors.push(message.text());
+      });
+      await page.goto(path);
+      const navigation = await page.evaluate(() => performance.timeOrigin);
+      const ink = () => page.locator('main').evaluate((element) => getComputedStyle(element).color);
+      expect(await ink()).toBe('rgb(28, 25, 23)');
+      await page.emulateMedia({ colorScheme: 'dark' });
+      await expect.poll(ink).toBe('rgb(246, 244, 239)');
+      expect(await page.evaluate(() => performance.timeOrigin)).toBe(navigation);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await page.emulateMedia({ colorScheme: 'light' });
+      await expect.poll(ink).toBe('rgb(28, 25, 23)');
+      expect(errors).toEqual([]);
+    });
+  }
 }

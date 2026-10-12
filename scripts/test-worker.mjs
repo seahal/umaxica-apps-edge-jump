@@ -89,7 +89,7 @@ const options = {
     return Response.json(publicSets.get(request.url));
   },
 };
-const signInput = (src, dst, typ = 'JWT') => {
+const signInput = (src, dst, typ = 'JWT', path = '/receive?state=keep&q=a%20b') => {
   const now = Math.floor(Date.now() / 1000);
   return new SignJWT({
     schema: 1,
@@ -102,7 +102,7 @@ const signInput = (src, dst, typ = 'JWT') => {
     exp: now + 30,
     jti: crypto.randomUUID(),
     dst: 'internal',
-    url: `${nodes[dst]}/receive?state=keep&q=a%20b`,
+    url: `${nodes[dst]}${path}`,
   })
     .setProtectedHeader({ typ, alg: 'ES384', kid: 'issuer' })
     .sign(pairs.get(nodes[src]).privateKey);
@@ -150,6 +150,48 @@ try {
     assert.equal(verified.payload.src, nodes[src]);
     assert.equal(verified.payload.exp - verified.payload.iat, 30);
   }
+  // Exercise path aliases through real allowed edges, not origin-policy rejection.
+  const destinations = new Set();
+  for (const [src, dst] of edges) {
+    if (dst === 'palm-app-jp' || destinations.has(dst)) continue;
+    destinations.add(dst);
+    for (const path of ['/sign/out.html/', '/sign/out.json/', '/sign/out%2Ehtml/', '/sign/out//']) {
+      const input = await signInput(src, dst, 'JWT', path);
+      const response = await runtime.dispatchFetch(`${origin}/?rt=${input}`, {
+        redirect: 'manual',
+        headers: { 'CF-Connecting-IP': '203.0.113.7' },
+      });
+      assert.equal(response.status, 400, 'path aliases rejected in workerd');
+      assert.equal(response.headers.get('location'), null);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+      assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+      assert(response.headers.get('content-security-policy'));
+      assert(!(await response.text()).includes(input));
+    }
+    for (const path of [
+      '/sign/outbox',
+      '/articles/example.html',
+      '/oauth/authorize?state=a%5Cb&nonce=n',
+    ]) {
+      const input = await signInput(src, dst, 'JWT', path);
+      const response = await runtime.dispatchFetch(`${origin}/?rt=${input}`, {
+        redirect: 'manual',
+        headers: { 'CF-Connecting-IP': '203.0.113.7' },
+      });
+      assert.equal(response.status, 302, 'normal paths and opaque OAuth state survive');
+      const location = new URL(response.headers.get('location'));
+      assert.equal(location.searchParams.getAll('rt').length, 1);
+      const { payload } = await jwtVerify(location.searchParams.get('rt'), jumpPair.publicKey, {
+        issuer: origin,
+        audience: nodes[dst],
+        algorithms: ['ES384'],
+      });
+      location.searchParams.delete('rt');
+      assert.equal(location.href, `${nodes[dst]}${path}`);
+      assert.equal(payload.url, location.href);
+    }
+  }
+  assert.equal(destinations.size, 12, 'all denylisted origins exercised');
   for (const method of ['GET', 'HEAD']) {
     const response = await runtime.dispatchFetch(`${origin}/favicon.ico?rt%5Bx%5D=private`, {
       method,

@@ -12,7 +12,7 @@ fixed in the tree.
 - `pnpm audit` — "No known vulnerabilities found".
 - `pnpm run test` — 179 tests, 3 files, all passed.
 - CSP hash recomputed: `printf '%s' 'history.replaceState(null,"",location.pathname)'
-| openssl dgst -sha256 -binary | openssl base64` =
+  | openssl dgst -sha256 -binary | openssl base64` =
   `8A+3er73YJf04rRHGhbZwZQACPiiipi9EPduIeAAIDk=`, matching
   `CUSHION_INLINE_SCRIPT_SHA256` in `src/core/security_headers.ts:5`.
 - Throwaway `tsx` probe against `createApp` with a `fetchJwks` that throws
@@ -68,7 +68,7 @@ verification was performed.
 6. Low — permissive defaults in `createApp`. With no options,
    `src/index.ts:50-58` falls back to the example registry
    (`https://app.example.com`, `allowed_dst_external:
-['https://external.example']`) and the example JWKS. Both production
+   ['https://external.example']`) and the example JWKS. Both production
    entrypoints pass explicit configuration, so this is not reachable in
    deployment; a fail-closed default when `runtime.production` is true
    would remove the class.

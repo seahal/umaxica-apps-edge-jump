@@ -76,3 +76,11 @@ can be limited together. No readiness endpoint is exposed.
 Canonical key bindings are required; private-only or alias-only bundles fail 503. Public keysets reject private fields rather than stripping them. The
 active pair is probe checked; import validity of other keys is a distinct check.
 extractable:false restricts CryptoKey export, not absolute PEM/memory leakage.
+
+## 0.4.0 candidate redirect defense
+
+The [redirect policy](redirect-policy.md) adds raw/normalized direct pathname
+checks, immutable origin/path denial and independent parsed-host transfer-query
+restrictions after the existing issuer graph. Cryptographic, TTL, revocation,
+metadata, rate-limit, logging and deadline defenses remain mandatory.
+Deployment and receiver integration are not established by local tests.

@@ -5,7 +5,6 @@ import { raceAbort } from '../src/core/deadline';
 import { escapeHtml } from '../src/core/escape';
 import { fetchRegistryJwks } from '../src/core/fetch_jwks';
 import { handleJump, type JumpDeps } from '../src/core/handle_jump';
-import { unicodeHostname } from '../src/core/idna';
 import { parseJumpJwks, validateJumpJwks } from '../src/core/jump_jwks';
 import { JwksCache } from '../src/core/jwks_cache';
 import { renderErrorPage, renderUnavailablePage } from '../src/core/page';
@@ -153,15 +152,6 @@ describe('small helpers', () => {
       }),
     ).toEqual({ iss: 'https://ok.example' });
     expect(sanitizeSecurityLog({ dst_origin: 'not a url' })).toEqual({});
-  });
-
-  test('punycode decoding fails closed to the ASCII label', () => {
-    expect(unicodeHostname('xn--bcher-kva.example')).toBe('bücher.example');
-    expect(unicodeHostname('xn--ü-abc.example')).toBe('xn--ü-abc.example');
-    expect(unicodeHostname('xn--a-99999.example')).toBe('xn--a-99999.example');
-    expect(unicodeHostname('xn--a-!.example')).toBe('xn--a-!.example');
-    expect(unicodeHostname('xn--mnchen-3ya.example')).toBe('münchen.example');
-    expect(unicodeHostname('xn--4ca.example')).toBe('ä.example');
   });
 });
 
@@ -448,10 +438,6 @@ test('createApp fetch works without an adapter context', async () => {
 
 test('service origin rejects the AS112 range', () => {
   expect(() => validateServiceOrigin('https://192.88.99.1')).toThrow(JumpError);
-});
-
-test('punycode accepts upper-case digits', () => {
-  expect(unicodeHostname('xn--bcher-KVA.example')).toBe('bücher.example');
 });
 
 describe('fetchRegistryJwks error metadata', () => {

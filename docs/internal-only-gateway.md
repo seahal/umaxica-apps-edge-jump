@@ -1,11 +1,11 @@
 # Jump internal-only target contract
 
-Status: draft target contract. This describes intended behavior, not an
-implemented or verified production state. The current normative protocol remains
-[docs/protocol.md](protocol.md) until runtime enforcement is implemented.
-See [ADR 0007](../adr/0007-remove-external-destinations.md) for rationale,
-[the plan](../plans/jump-internal-only.md) for execution order and
-[the dated memo](../memo/2026-10-04-jump-internal-only.md) for investigation status.
+Status: internal-only rejection is implemented in the local 0.4.0 candidate and
+covered by regression tests. Production revision, usage and retirement gates
+remain NOT VERIFIED. Local Phase 3 source removal is owner-authorized and implemented; this does not establish deployment or operational closure.
+The normative source contract is [docs/protocol.md](protocol.md), including
+[the path/query policy](redirect-policy.md). ADR 0007 remains proposed pending
+its operational gates; its architecture and phase boundaries are retained.
 
 ## Redirect eligibility
 
@@ -18,6 +18,8 @@ redirect eligibility =
   AND destination URL canonicalization succeeds
   AND destination origin is a permitted registered internal origin
   AND destination origin exactly matches this issuer's internal allowlist
+  AND raw/normalized direct pathname and origin/path deny rules pass
+  AND transfer-query policy passes
   AND existing self-destination, URL, JWT, signature and lifetime checks pass
 ```
 
@@ -51,7 +53,7 @@ and malformed. BVA/type/encoding cases include null, undefined as JSON omission,
 empty/whitespace, 0, booleans, arrays/objects, case differences, NUL and applicable
 string/encoding boundaries. An undefined value is not a JSON wire value.
 
-After dormant code removal, permanently retain B, C, D, E and F rejection
+After owner-authorized dormant code removal, permanently retain B, C, D, E and F rejection
 regressions. Their purpose is to prevent URL inference, fallback and accidental
 reintroduction of external capability.
 

@@ -136,3 +136,9 @@ ROLLOUT_STATUS remains BLOCKED_FOR_ROLLOUT until every gate above is CLOSED with
 candidate-specific evidence. The release owner signs the packet with the exact
 candidate SHA, immutable recovery/version IDs and linked receiver/protection/CI
 records. This document contains no claim of production readiness.
+
+## 0.4.0 candidate
+
+The [0.4.0 gate packet](jump-0-4-release-gates.md) preserves all fifteen required
+conditions and records RELEASE_BLOCKED. Local implementation/coverage do not
+close candidate CI, browser/workerd, dependency, production or Rails gates.

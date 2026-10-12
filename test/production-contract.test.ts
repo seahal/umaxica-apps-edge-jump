@@ -62,7 +62,7 @@ function claim(src: Node = 'auth-app-ww', dst: Node = 'base-app-ww'): InboundJum
     exp: now() + 30,
     jti: crypto.randomUUID(),
     dst: 'internal',
-    url: `${nodes[dst]}/receive?state=keep&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&q=a%20b`,
+    url: `${nodes[dst]}/receive?state=keep&redirect_uri=https%3A%2F%2Fclient.umaxica.com%2Fcb&q=a%20b`,
   };
 }
 const issuerKeys = new Map<string, Awaited<ReturnType<typeof generateKeyPair>>>();
@@ -456,6 +456,18 @@ describe('D/F/G/J/K: crypto, URL and configuration boundaries', () => {
     'https://www.umaxica.app/a?next=a&next=b',
     'https://www.umaxica.app/a?return_to=a&return_to=b',
     'https://www.umaxica.app/a?state=a&state=b',
+    'https://www.umaxica.app/a//b',
+    'https://www.umaxica.app/a/../b',
+    'https://www.umaxica.app/a/%2e%2e/b',
+    'https://www.umaxica.app/a/%2F/b',
+    'https://www.umaxica.app/a/%25/b',
+    'https://www.umaxica.app/a%3Bb',
+    'https://www.umaxica.app/sign/out',
+    'https://www.umaxica.app/sign/%6fut',
+    'https://www.umaxica.app/sign/out/',
+    'https://www.umaxica.app/a?next=/safe',
+    'https://www.umaxica.app/a?redirect_uri=https%3A%2F%2Fexample.com%2Fcb',
+
     'https://www.umaxica.app/a?x=%xx',
     'https://www.umaxica.app/a\\b',
     'https://www.umaxica.app/\0a',
@@ -768,4 +780,57 @@ describe('F/K: remaining validation partitions', () => {
     await denied(await request(`/?rt=${rt}`));
     expect(fetch).not.toHaveBeenCalled();
   });
+});
+
+describe('0.4.0 audited logout path through signed production graph', () => {
+  test.each(edges)('%s -> %s logout policy', async (src, dst) => {
+    mockJwks();
+    const res = await request(
+      `/?rt=${await token({ ...claim(src, dst), url: `${nodes[dst]}/sign/out` }, nodes[src])}`,
+    );
+    if (dst === 'palm-app-jp') expect(res.status).toBe(302);
+    else await denied(res);
+  });
+});
+
+// AC-062 / AC-085: opaque OAuth values do not inherit direct-path syntax rules.
+test.each(['a%5Cb', 'a%5cb', 'a%255Cb', 'a%2Fb', 'a%25b'])(
+  'signed OAuth opaque state %s preserves Location and output claim',
+  async (state) => {
+    mockJwks();
+    const input = `${nodes['base-app-ww']}/oauth/authorize?state=${state}&nonce=n%5Cc&redirect_uri=${encodeURIComponent('https://client.umaxica.com/a//b')}`;
+    const res = await request(`/?rt=${await token({ ...claim(), url: input })}`);
+    expect(res.status).toBe(302);
+    const location = new URL(assertDefined(res.headers.get('location')));
+    const output = assertDefined(location.searchParams.get('rt'));
+    location.searchParams.delete('rt');
+    const { payload } = await jwtVerify(output, jumpKeys.publicKey, { algorithms: ['ES384'] });
+    expect(payload.url).toBe(location.href);
+    const signed = new URL(payload.url as string);
+    expect(signed.searchParams.get('state')).toBe(new URL(input).searchParams.get('state'));
+    expect(signed.searchParams.get('nonce')).toBe('n\\c');
+    expect(signed.searchParams.get('redirect_uri')).toBe('https://client.umaxica.com/a//b');
+    hygiene(res);
+  },
+);
+
+test.each([
+  '/a%5Cb',
+  '/a%5cb',
+  '/a%2Fb',
+  '/a%2fb',
+  '/a%25b',
+  '/oauth/authorize?state=a&state=b',
+  '/oauth/authorize?nonce=a&nonce=b',
+  '/oauth/authorize?state=%00',
+  '/oauth/authorize?state=%0A',
+  '/oauth/authorize?state=%7F',
+  '/oauth/authorize?state=%GG',
+  '/oauth/authorize?next=https%3A%2F%2Fattacker.umaxica.com',
+  '/oauth/authorize?return_to=%2Fsafe',
+])('opaque-value repair retains signed target rejection: %s', async (suffix) => {
+  mockJwks();
+  await denied(
+    await request(`/?rt=${await token({ ...claim(), url: nodes['base-app-ww'] + suffix })}`),
+  );
 });
