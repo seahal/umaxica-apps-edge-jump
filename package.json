@@ -18,8 +18,8 @@
     "test:worker": "node scripts/test-worker.mjs"
   },
   "dependencies": {
-    "@fastly/hono-fastly-compute": "^0.3.10",
-    "@fastly/js-compute": "^3.46.0",
+    "@fastly/hono-fastly-compute": "^0.4.0",
+    "@fastly/js-compute": "^4.0.1",
     "hono": "^4.13.13",
     "jose": "^6.2.13"
   },
@@ -28,16 +28,16 @@
     "@hono/node-server": "^2.1.5",
     "@playwright/test": "^1.64.1",
     "@types/node": "^26.6.5",
-    "@vitest/coverage-v8": "5.0.2",
+    "@vitest/coverage-v8": "5.0.5",
     "esbuild": "0.28.2",
     "knip": "^6.42.1",
-    "oxfmt": "0.71.0",
-    "oxlint": "1.86.0",
-    "oxlint-tsgolint": "7.0.2003",
+    "oxfmt": "0.74.0",
+    "oxlint": "1.89.0",
+    "oxlint-tsgolint": "7.0.2004",
     "tsx": "^4.23.15",
     "typescript": "7.0.2",
-    "vite": "8.3.1",
-    "vitest": "5.0.2",
+    "vite": "8.3.4",
+    "vitest": "5.0.5",
     "wrangler": "^4.151.3"
   },
   "engines": {
