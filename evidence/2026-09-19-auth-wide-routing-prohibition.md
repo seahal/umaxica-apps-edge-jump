@@ -33,9 +33,9 @@ was updated to the same table.
   rejected with `X-Jump-Error: invalid_claim` (edit is not an issuer), and
   `www.umaxica.org -> palm.umaxica.app`, `www.umaxica.app -> edit.umaxica.org`,
   `www.umaxica.org -> www-jp.umaxica.com`, `auth.umaxica.app ->
-www.umaxica.org` are each rejected with `invalid_dst`.
+  www.umaxica.org` are each rejected with `invalid_dst`.
 - `umaxica registry accepts exactly the 14 allowed edges of the 196 ordered
-pairs` (new) enumerates the 14 FQDNs the registry mentions (6 issuers + 8
+  pairs` (new) enumerates the 14 FQDNs the registry mentions (6 issuers + 8
   destination-only hosts) and drives `handleJump` once per ordered pair,
   self-pairs included. It asserts exactly the 14 registry edges return 302 with
   a `Location` on the claimed destination origin, and that each of the other 182

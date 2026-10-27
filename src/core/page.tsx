@@ -2,8 +2,7 @@ import type { Child } from 'hono/jsx';
 import { raw } from 'hono/html';
 import { renderToString } from 'hono/jsx/dom/server';
 import { messages, type Locale } from './i18n';
-import type { NormalizedUrl } from './normalize_url';
-import { CUSHION_INLINE_SCRIPT, PRODUCT_PAGE_CSS, SPLASH_PAGE_CSS } from './security_headers';
+import { PRODUCT_PAGE_CSS, SPLASH_INLINE_SCRIPT, SPLASH_PAGE_CSS } from './security_headers';
 
 type PageProps = {
   pageTitle?: string;
@@ -30,7 +29,7 @@ export function brandTitle(pageTitle?: string) {
   return page ? `${page} — ${BRAND}` : BRAND;
 }
 
-export function renderAboutPage(locale: Locale, serviceOrigin: string, now = new Date()) {
+export function renderAboutPage(locale: Locale, now = new Date()) {
   const t = messages[locale];
   return renderDocument({
     pageTitle: t.aboutPageTitle,
@@ -41,7 +40,6 @@ export function renderAboutPage(locale: Locale, serviceOrigin: string, now = new
       <main>
         <h1>{t.aboutTitle}</h1>
         <p>{t.aboutDescription}</p>
-        <p class="origin">{serviceOrigin}</p>
       </main>
     ),
   });
@@ -55,6 +53,7 @@ export function renderHealthPage(
   const t = messages[locale];
   return renderDocument({
     pageTitle: t.healthTitle,
+    product: true,
     locale,
     now,
     children: (
@@ -99,74 +98,51 @@ export function renderSplashPage(kind: SplashKind, locale: Locale = 'ja', now = 
     now,
     splash: true,
     children: (
-      <main>
-        <p class="brand">UMAXICA</p>
-        <h1>{copy.heading}</h1>
-        <p>{copy.body}</p>
-        <p class="actions">
-          {kind === 'invalid' ? (
-            <>
-              <a class="primary" href="/about">
-                {t.aboutCta}
-              </a>
-              <a class="secondary reload" href="">
-                {t.reload}
-              </a>
-            </>
-          ) : (
-            <>
+      <>
+        <main>
+          <div class="bar">
+            <button class="back" type="button" aria-label={t.back} title={t.back} hidden>
+              <svg
+                viewBox="0 0 24 24"
+                width="20"
+                height="20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M19 12H5M11 6l-6 6 6 6" />
+              </svg>
+            </button>
+            <span class="brand">UMAXICA</span>
+            <a class="about" href="/about" aria-label={t.aboutCta} title={t.aboutCta}>
+              <svg
+                viewBox="0 0 24 24"
+                width="20"
+                height="20"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                aria-hidden="true"
+              >
+                <path d="M12 11v6M12 7h.01" />
+              </svg>
+            </a>
+          </div>
+          <h1>{copy.heading}</h1>
+          <p>{copy.body}</p>
+          {kind === 'invalid' ? null : (
+            <p class="actions">
               <a class="primary reload" href="">
                 {t.reload}
               </a>
-              <a class="secondary" href="/about">
-                {t.aboutCta}
-              </a>
-            </>
+            </p>
           )}
-        </p>
-      </main>
-    ),
-  });
-}
-
-export function renderCushionPage(target: NormalizedUrl, locale: Locale = 'ja', now = new Date()) {
-  const t = messages[locale];
-  const displayUrl = truncate(target.href, 180);
-  const showPunycode = target.hasNonAsciiHostname && target.unicodeHostname !== target.hostname;
-  return renderDocument({
-    pageTitle: t.cushionTitle,
-    locale,
-    now,
-    product: true,
-    children: (
-      <>
-        <main>
-          <h1>{t.cushionTitle}</h1>
-          <p class="lede">{t.cushionHint}</p>
-          {target.hasNonAsciiHostname ? <p role="alert">{t.nonAsciiWarning}</p> : null}
-          <dl>
-            <dt>{t.host}</dt>
-            <dd class="host">{showPunycode ? target.unicodeHostname : target.hostname}</dd>
-            {showPunycode ? (
-              <>
-                <dt>{t.punycode}</dt>
-                <dd class="punycode">{target.hostname}</dd>
-              </>
-            ) : null}
-            <dt>{t.url}</dt>
-            <dd>{displayUrl}</dd>
-          </dl>
-          <p class="note">{t.cushionReloadNote}</p>
-          <p class="actions">
-            <a class="continue" href={target.href} rel="noopener noreferrer">
-              {t.continue}
-            </a>
-            <a class="home" href="/about">
-              {t.aboutCta}
-            </a>
-          </p>
         </main>
-        <script>{raw(CUSHION_INLINE_SCRIPT)}</script>
+        <script>{raw(SPLASH_INLINE_SCRIPT)}</script>
       </>
     ),
   });
@@ -208,8 +184,4 @@ function renderDocument({
 function displayValue(value: string | boolean | null | undefined) {
   if (value === null || value === undefined) return '';
   return String(value);
-}
-
-function truncate(value: string, max: number) {
-  return value.length > max ? `${value.slice(0, max - 1)}...` : value;
 }

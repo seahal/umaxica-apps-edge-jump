@@ -1,10 +1,15 @@
 import { raceAbort, throwIfAborted } from './deadline';
-import type { JWK } from 'jose';
 import type { FetchJwks } from './jwks_cache';
 import { JumpError } from './types';
 
-const MAX_BYTES = 64 * 1024;
-const JSON_CONTENT_TYPE = /^application\/(?:[a-z0-9.+-]+\+)?json(?:\s*;|$)/i;
+export const MAX_JWKS_BYTES = 64 * 1024;
+/**
+ * RFC 7517 JWK Set media type, or plain JSON as Rails serves it, with at most a
+ * UTF-8 charset parameter. Other types, other parameters and an absent header
+ * are rejected.
+ */
+const JWKS_CONTENT_TYPE =
+  /^application\/(?:jwk-set\+json|json)[ \t]*(?:;[ \t]*charset=(?:"utf-8"|utf-8)[ \t]*)?$/i;
 
 export const fetchRegistryJwks: FetchJwks = async (issuer, signal) => {
   const started = performance.now();
@@ -14,7 +19,10 @@ export const fetchRegistryJwks: FetchJwks = async (issuer, signal) => {
     assertJwksUrl(issuer);
     stage = 'fetch';
     const response = await fetch(issuer.jwks_uri, {
-      headers: { Accept: 'application/json' },
+      headers: { Accept: 'application/jwk-set+json, application/json' },
+      // Bypass any cache between the Worker and the issuer, so a forced refresh
+      // after a rotation is not answered with the previous keyset.
+      cache: 'no-store',
       // Cloudflare Workers implements only `follow` and `manual`. Manual keeps
       // registry-pinned JWKS requests from following a redirect; the non-2xx
       // check below rejects the redirect response itself.
@@ -22,7 +30,7 @@ export const fetchRegistryJwks: FetchJwks = async (issuer, signal) => {
       ...(signal ? { signal } : {}),
     });
     upstreamStatus = response.status;
-    if (!response.ok) {
+    if (response.status !== 200) {
       stage = 'http_status';
       if (response.status >= 500 || response.status === 429) {
         throw new JumpError('jwks_unavailable', 'issuer jwks temporarily unavailable');
@@ -32,27 +40,22 @@ export const fetchRegistryJwks: FetchJwks = async (issuer, signal) => {
 
     const contentType = response.headers.get('content-type') ?? '';
     stage = 'content_type';
-    if (!JSON_CONTENT_TYPE.test(contentType)) {
+    if (!JWKS_CONTENT_TYPE.test(contentType)) {
       throw new JumpError('jwks_bad_gateway', 'issuer jwks content-type rejected');
     }
     const advertisedLength = Number(response.headers.get('content-length') ?? '');
-    if (Number.isFinite(advertisedLength) && advertisedLength > MAX_BYTES) {
+    if (Number.isFinite(advertisedLength) && advertisedLength > MAX_JWKS_BYTES) {
       throw new JumpError('jwks_bad_gateway', 'issuer jwks response too large');
     }
 
     stage = 'body';
-    const body = await readBodyWithCap(response, MAX_BYTES, signal);
-    let parsed: unknown;
+    const body = await readBodyWithCap(response, MAX_JWKS_BYTES, signal);
     try {
       stage = 'json';
-      parsed = JSON.parse(body);
+      return JSON.parse(body) as unknown;
     } catch {
       throw new JumpError('jwks_bad_gateway', 'issuer jwks json rejected');
     }
-    stage = 'keyset';
-    const jwks = parseJwks(parsed);
-    if (!jwks) throw new JumpError('jwks_bad_gateway', 'issuer jwks shape rejected');
-    return jwks;
   } catch (error) {
     if (error instanceof JumpError) {
       logJwksFetchFailure(issuer.iss, error.code, stage, started, upstreamStatus, error);
@@ -134,71 +137,12 @@ function assertJwksUrl(issuer: Parameters<FetchJwks>[0]) {
   }
 }
 
-const PRIVATE_JWK_FIELDS = ['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k'] as const;
-
-/** A key the Jump handshake can actually verify with: ES384 over P-384, for signing. */
-function isVerificationJwk(jwk: Record<string, unknown>) {
-  return (
-    jwk.kty === 'EC' &&
-    jwk.crv === 'P-384' &&
-    jwk.alg === 'ES384' &&
-    (jwk.use === undefined || jwk.use === 'sig') &&
-    typeof jwk.kid === 'string' &&
-    jwk.kid !== '' &&
-    String(jwk.kid).length <= 128 &&
-    typeof jwk.x === 'string' &&
-    /^[A-Za-z0-9_-]{64}$/.test(jwk.x) &&
-    typeof jwk.y === 'string' &&
-    /^[A-Za-z0-9_-]{64}$/.test(jwk.y) &&
-    (jwk.key_ops === undefined ||
-      (Array.isArray(jwk.key_ops) && jwk.key_ops.length === 1 && jwk.key_ops[0] === 'verify'))
-  );
-}
-
-/**
- * Validates an issuer keyset beyond "it parsed".
- *
- * Non-conforming keys are dropped rather than failing the whole set, so an
- * issuer publishing an unrelated future key does not take its own redirects
- * down. Two conditions do fail the set outright, because both make the
- * remaining keys untrustworthy rather than merely unusable: private key
- * material in a public keyset, and a duplicate `kid` — `getKey` resolves a kid
- * with `find`, so a duplicate lets whichever entry is listed first decide which
- * key verifies a token.
- *
- * Returns the filtered keyset, or null if the set cannot be trusted.
- */
-function parseJwks(value: unknown): { keys: JWK[] } | null {
-  if (!value || typeof value !== 'object') return null;
-  const keys = (value as { keys?: unknown }).keys;
-  if (!Array.isArray(keys)) return null;
-
-  const usable: JWK[] = [];
-  const seen = new Set<string>();
-  for (const key of keys) {
-    if (!key || typeof key !== 'object') return null;
-    const jwk = key as Record<string, unknown>;
-    if (PRIVATE_JWK_FIELDS.some((field) => jwk[field] !== undefined)) return null;
-    if (!isVerificationJwk(jwk)) continue;
-    const kid = jwk.kid as string;
-    if (seen.has(kid)) return null;
-    seen.add(kid);
-    usable.push(jwk as JWK);
-  }
-  return usable.length > 0 ? { keys: usable } : null;
-}
-
 async function readBodyWithCap(
   response: Response,
   maxBytes: number,
   signal?: AbortSignal,
 ): Promise<string> {
-  if (!response.body) {
-    const text = await response.text();
-    if (new TextEncoder().encode(text).byteLength > maxBytes)
-      throw new JumpError('jwks_bad_gateway', 'issuer jwks response too large');
-    return text;
-  }
+  if (!response.body) return '';
   const reader = response.body.getReader();
   const cancel = () => {
     /* v8 ignore next -- cancel rejection is only swallowed */
@@ -233,5 +177,9 @@ async function readBodyWithCap(
     merged.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new TextDecoder().decode(merged);
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(merged);
+  } catch {
+    throw new JumpError('jwks_bad_gateway', 'issuer jwks encoding rejected');
+  }
 }

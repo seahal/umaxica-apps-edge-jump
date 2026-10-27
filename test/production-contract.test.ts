@@ -23,9 +23,29 @@ const nodes = {
   'warp-com-jp': 'https://www-jp.umaxica.com',
   'warp-org-jp': 'https://www-jp.umaxica.org',
   'palm-app-jp': 'https://palm-jp.umaxica.app',
+  'visa-app-ww': 'https://visa.umaxica.app',
+  'visa-org-ww': 'https://visa.umaxica.org',
 } as const;
 type Node = keyof typeof nodes;
 const edges: [Node, Node][] = [
+  ['auth-app-ww', 'visa-app-ww'],
+  ['auth-org-ww', 'visa-org-ww'],
+  ['base-app-ww', 'visa-app-ww'],
+  ['core-app-jp', 'visa-app-ww'],
+  ['warp-app-jp', 'visa-app-ww'],
+  ['palm-app-jp', 'visa-app-ww'],
+  ['base-org-ww', 'visa-org-ww'],
+  ['core-org-jp', 'visa-org-ww'],
+  ['warp-org-jp', 'visa-org-ww'],
+  ['visa-app-ww', 'auth-app-ww'],
+  ['visa-app-ww', 'base-app-ww'],
+  ['visa-app-ww', 'core-app-jp'],
+  ['visa-app-ww', 'warp-app-jp'],
+  ['visa-app-ww', 'palm-app-jp'],
+  ['visa-org-ww', 'auth-org-ww'],
+  ['visa-org-ww', 'base-org-ww'],
+  ['visa-org-ww', 'core-org-jp'],
+  ['visa-org-ww', 'warp-org-jp'],
   ['auth-app-ww', 'base-app-ww'],
   ['auth-com-ww', 'base-com-ww'],
   ['auth-org-ww', 'base-org-ww'],
@@ -62,7 +82,7 @@ function claim(src: Node = 'auth-app-ww', dst: Node = 'base-app-ww'): InboundJum
     exp: now() + 30,
     jti: crypto.randomUUID(),
     dst: 'internal',
-    url: `${nodes[dst]}/receive?state=keep&redirect_uri=https%3A%2F%2Fclient.example%2Fcb&q=a%20b`,
+    url: `${nodes[dst]}/receive?state=keep&redirect_uri=https%3A%2F%2Fclient.umaxica.com%2Fcb&q=a%20b`,
   };
 }
 const issuerKeys = new Map<string, Awaited<ReturnType<typeof generateKeyPair>>>();
@@ -81,6 +101,7 @@ beforeAll(async () => {
   jumpKeys = await generateKeyPair('ES384', { extractable: true });
   env = {
     UMAXICA_JUMP_ORIGIN: jump,
+    UMAXICA_JUMP_ENVIRONMENT: 'production',
     UMAXICA_JUMP_PRIVATE_KEY_KID: 'opaque-active',
     UMAXICA_JUMP_PRIVATE_KEY_PEM: await exportPKCS8(jumpKeys.privateKey),
     UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({
@@ -147,13 +168,12 @@ async function denied(res: Response, status = 400, code = 'invalid_request', hea
 }
 
 describe('A: exact production graph', () => {
-  test('13 nodes / 169 ordered pairs / 20 allow / 149 deny', () => {
+  test('15 nodes / 225 ordered pairs / 38 allow / 187 deny', () => {
     expect(Object.keys(registry).sort()).toEqual(Object.values(nodes).sort());
     let count = 0;
     for (const [src, origin] of Object.entries(nodes)) {
       const issuer = assertDefined(registry[origin]);
       expect(issuer.jwks_uri).toBe(`${origin}/.well-known/jwks.json`);
-      expect(issuer.allowed_dst_external).toBe(false);
       expect(issuer.allowed_dst_internal.slice().sort()).toEqual(
         edges
           .filter(([a]) => a === src)
@@ -174,8 +194,8 @@ describe('A: exact production graph', () => {
         } else expect(check).toThrow();
       }
     }
-    expect(count).toBe(20);
-    expect(169 - count).toBe(149);
+    expect(count).toBe(38);
+    expect(225 - count).toBe(187);
   });
   test('C: frozen Base/Auth six allow and twelve cross-TLD deny', () => {
     for (const a of ['app', 'com', 'org'] as const)
@@ -226,7 +246,7 @@ describe('B: real issuer-specific signatures through Worker adapter', () => {
       src: nodes[src],
       dst: 'internal',
       sub: 'jump-redirect',
-      url: location.href,
+      url: claim(src, dst).url,
     });
     expect(Object.keys(verified.payload).sort()).toEqual(
       [...receiverContract.required_claims].sort(),
@@ -456,6 +476,18 @@ describe('D/F/G/J/K: crypto, URL and configuration boundaries', () => {
     'https://www.umaxica.app/a?next=a&next=b',
     'https://www.umaxica.app/a?return_to=a&return_to=b',
     'https://www.umaxica.app/a?state=a&state=b',
+    'https://www.umaxica.app/a//b',
+    'https://www.umaxica.app/a/../b',
+    'https://www.umaxica.app/a/%2e%2e/b',
+    'https://www.umaxica.app/a/%2F/b',
+    'https://www.umaxica.app/a/%25/b',
+    'https://www.umaxica.app/a%3Bb',
+    'https://www.umaxica.app/sign/out',
+    'https://www.umaxica.app/sign/%6fut',
+    'https://www.umaxica.app/sign/out/',
+    'https://www.umaxica.app/a?next=/safe',
+    'https://www.umaxica.app/a?redirect_uri=https%3A%2F%2Fexample.com%2Fcb',
+
     'https://www.umaxica.app/a?x=%xx',
     'https://www.umaxica.app/a\\b',
     'https://www.umaxica.app/\0a',
@@ -501,24 +533,30 @@ describe('D/F/G/J/K: crypto, URL and configuration boundaries', () => {
       expect(fetch).not.toHaveBeenCalled();
     }
   });
-  test.each([8191, 8192, 8193])('compact token size BVA %i', async (length) => {
+  test('largest token the claim bounds allow fits the compact size bound', async () => {
+    mockJwks();
+    const url = `https://www.umaxica.app/receive?q=${'a'.repeat(2048 - 34)}`;
+    expect(url).toHaveLength(2048);
+    const rt = await token({ ...claim(), url, jti: 'j'.repeat(128) });
+    expect(rt.length).toBeLessThan(4096);
+    expect((await request(`/?rt=${rt}`)).status).toBe(302);
+  });
+  test.each([4095, 4096, 4097])('compact token size BVA %i', async (length) => {
     const fetch = mockJwks();
-    const data = { ...claim(), padding: '' };
+    const data = { ...claim(), url: `https://www.umaxica.app/receive?q=` };
     let rt = await token(data);
     let n = Math.floor(((length - rt.length) * 3) / 4);
     for (let i = 0; i < 8; i++) {
-      data.padding = 'a'.repeat(n);
+      data.url = `https://www.umaxica.app/receive?q=${'a'.repeat(n)}`;
       rt = await token(data);
       if (rt.length === length) break;
       n += rt.length < length ? 1 : -1;
     }
     expect(rt.length).toBe(length);
-    const res = await request(`/?rt=${rt}`);
-    if (length <= 8192) expect(res.status).toBe(302);
-    else {
-      await denied(res);
-      expect(fetch).not.toHaveBeenCalled();
-    }
+    // Within the size bound the token is verified (one JWKS fetch) and then
+    // refused for its oversized url claim; past it, nothing is decoded.
+    await denied(await request(`/?rt=${rt}`));
+    expect(fetch).toHaveBeenCalledTimes(length <= 4096 ? 1 : 0);
   });
   test.each([null, false, 0, 'scalar', []].map((root) => ({ root })))(
     'header/payload JSON root $root is 400 before fetch',
@@ -673,7 +711,7 @@ describe('construction and runtime defensive policy', () => {
   test('rejects duplicate nodes/origins/edges, unknown nodes, cross-TLD and self edges', async () => {
     const { buildRegistry } = await import('../src/config/registry.umaxica');
     const table = Object.entries(nodes) as [string, string][];
-    expect(Object.keys(buildRegistry(table, edges))).toHaveLength(13);
+    expect(Object.keys(buildRegistry(table, edges))).toHaveLength(15);
     for (const invalid of [
       [...table, assertDefined(table[0])],
       [...table, ['zzzz-zzz-zz', assertDefined(table[0])[1]]],
@@ -696,12 +734,10 @@ describe('construction and runtime defensive policy', () => {
       iss: data.iss,
       jwks_uri: `${data.iss}/.well-known/jwks.json`,
       allowed_dst_internal: [data.iss],
-      allowed_dst_external: [data.iss],
     };
-    for (const dst of ['internal', 'external'] as const)
-      expect(() =>
-        assertDestinationPolicy({ ...data, dst }, issuer, normalizeUrl(data.url, runtime, jump)),
-      ).toThrow();
+    expect(() =>
+      assertDestinationPolicy(data, issuer, normalizeUrl(data.url, runtime, jump)),
+    ).toThrow();
   });
   test('prototype names are never registered issuers', async () => {
     const fetch = mockJwks();
@@ -722,20 +758,15 @@ describe('F/K: remaining validation partitions', () => {
       issuer.jwks_uri = previous;
     }
   });
-  test('oversized outbound RT is refused although input fits', async () => {
+  test('a long valid query is retained without serialization expansion', async () => {
     mockJwks();
-    let input = '';
-    let n = 5500;
-    for (; n < 6050; n++) {
-      input = await token({
-        ...claim(),
-        url: `${nodes['base-app-ww']}/receive?q=${'a'.repeat(n)}`,
-      });
-      if (input.length >= 8150) break;
-    }
-    expect(input.length).toBeGreaterThanOrEqual(8150);
-    expect(input.length).toBeLessThanOrEqual(8192);
-    await denied(await request(`/?rt=${input}`));
+    const url = `${nodes['base-app-ww']}/receive?q=${'!'.repeat(2000)}`;
+    expect(url.length).toBeLessThanOrEqual(2048);
+    const input = await token({ ...claim(), url });
+    expect(input.length).toBeLessThanOrEqual(4096);
+    const response = await request(`/?rt=${input}`);
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toMatch(`${url}&rt=`);
   });
   test.each(
     ['iat', 'nbf', 'exp', 'url', 'jti', 'aud', 'sub', 'dst'].flatMap((field) =>
@@ -769,4 +800,94 @@ describe('F/K: remaining validation partitions', () => {
     await denied(await request(`/?rt=${rt}`));
     expect(fetch).not.toHaveBeenCalled();
   });
+});
+
+describe('0.4.0 audited logout path through signed production graph', () => {
+  test.each(edges)('%s -> %s logout policy', async (src, dst) => {
+    mockJwks();
+    const res = await request(
+      `/?rt=${await token({ ...claim(src, dst), url: `${nodes[dst]}/sign/out` }, nodes[src])}`,
+    );
+    if (dst === 'palm-app-jp' || dst.startsWith('visa-')) expect(res.status).toBe(302);
+    else await denied(res);
+  });
+});
+
+// AC-062 / AC-085: opaque OAuth values do not inherit direct-path syntax rules.
+test.each(['a%5Cb', 'a%5cb', 'a%255Cb', 'a%2Fb', 'a%25b'])(
+  'signed OAuth opaque state %s preserves Location and output claim',
+  async (state) => {
+    mockJwks();
+    const input = `${nodes['base-app-ww']}/oauth/authorize?state=${state}&nonce=n%5Cc&redirect_uri=${encodeURIComponent('https://client.umaxica.com/a//b')}`;
+    const res = await request(`/?rt=${await token({ ...claim(), url: input })}`);
+    expect(res.status).toBe(302);
+    const location = new URL(assertDefined(res.headers.get('location')));
+    const output = assertDefined(location.searchParams.get('rt'));
+    location.searchParams.delete('rt');
+    const { payload } = await jwtVerify(output, jumpKeys.publicKey, { algorithms: ['ES384'] });
+    expect(payload.url).toBe(input);
+    expect(res.headers.get('location')).toBe(`${input}&rt=${output}`);
+    const signed = new URL(payload.url as string);
+    expect(signed.searchParams.get('state')).toBe(new URL(input).searchParams.get('state'));
+    expect(signed.searchParams.get('nonce')).toBe('n\\c');
+    expect(signed.searchParams.get('redirect_uri')).toBe('https://client.umaxica.com/a//b');
+    hygiene(res);
+  },
+);
+
+test('Visa authorization keeps the exact signed query and rejects cross-realm destinations', async () => {
+  mockJwks();
+  const url = `${nodes['visa-app-ww']}/oauth/authorize?state=a%20b%2b&nonce=n%2f&code_challenge=x%2By&ri=jp`;
+  const res = await request(
+    `/?rt=${await token({ ...claim('base-app-ww', 'visa-app-ww'), url }, nodes['base-app-ww'])}`,
+  );
+  expect(res.status).toBe(302);
+  const location = assertDefined(res.headers.get('location'));
+  const output = assertDefined(new URL(location).searchParams.get('rt'));
+  expect(location).toBe(`${url}&rt=${output}`);
+  expect((await jwtVerify(output, jumpKeys.publicKey)).payload.url).toBe(url);
+  await denied(
+    await request(`/?rt=${await token(claim('visa-app-ww', 'visa-org-ww'), nodes['visa-app-ww'])}`),
+  );
+});
+
+test('Visa accepts a published test kid only with its own issuer key', async () => {
+  const origin = nodes['visa-app-ww'];
+  const key = assertDefined(issuerKeys.get(origin));
+  const uri = `${origin}/.well-known/jwks.json`;
+  const previous = jwks[uri];
+  jwks[uri] = [{ ...(await exportJWK(key.publicKey)), kid: 'test-visa', alg: 'ES384', use: 'sig' }];
+  try {
+    mockJwks();
+    const payload = claim('visa-app-ww', 'base-app-ww');
+    const sign = (keyOrigin: string) =>
+      new SignJWT(payload)
+        .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'test-visa' })
+        .sign(assertDefined(issuerKeys.get(keyOrigin)).privateKey);
+    expect((await request(`/?rt=${await sign(origin)}`)).status).toBe(302);
+    await denied(await request(`/?rt=${await sign(nodes['visa-org-ww'])}`));
+  } finally {
+    if (previous) jwks[uri] = previous;
+  }
+});
+
+test.each([
+  '/a%5Cb',
+  '/a%5cb',
+  '/a%2Fb',
+  '/a%2fb',
+  '/a%25b',
+  '/oauth/authorize?state=a&state=b',
+  '/oauth/authorize?nonce=a&nonce=b',
+  '/oauth/authorize?state=%00',
+  '/oauth/authorize?state=%0A',
+  '/oauth/authorize?state=%7F',
+  '/oauth/authorize?state=%GG',
+  '/oauth/authorize?next=https%3A%2F%2Fattacker.umaxica.com',
+  '/oauth/authorize?return_to=%2Fsafe',
+])('opaque-value repair retains signed target rejection: %s', async (suffix) => {
+  mockJwks();
+  await denied(
+    await request(`/?rt=${await token({ ...claim(), url: nodes['base-app-ww'] + suffix })}`),
+  );
 });

@@ -1,6 +1,25 @@
 # Compatibility and recovery gate
 
-Service 0.3.0 retains JWT schema 1, JWT typ and ES384/P-384. Requiring exact
+## 0.4.0 candidate acceptance tightening
+
+RELEASE_BLOCKED. The [redirect policy](redirect-policy.md) documents newly refused
+paths, logout completion and forwarding routes (including Rails format suffixes), generic
+transfer query controls, invalid OAuth URI forms and prohibited parsed hosts.
+Valid internal 302/signing semantics, schema 1, mandatory dst, 30-second TTL and
+production/staging typ profiles remain unchanged. Issuers must inventory actual
+URLs before rollout, remove generic transfer controls, and stop targeting denied
+logout completion actions through Jump. Receivers must execute the updated
+service-version-0.4.0 fixture without loosening the existing URL/TTL contract.
+No Rails patch or production migration was performed in this change.
+
+Migration order: verify Rails registered URI/client/realm and URL/30s receiver
+contracts; adjust and test issuer paths/queries; validate the candidate in real
+workerd/browser integration; obtain candidate CI and immutable recovery evidence;
+then seek rollout approval. No typ production migration is included.
+
+## Earlier 0.3.0 baseline
+
+Baseline service 0.3.0 retains JWT schema 1, JWT typ and ES384/P-384. Requiring exact
 string `rpl: "reuse"` was introduced by 0.2 as an approved intentional acceptance tightening. Missing,
 null, once, case variants and other types are rejected. 13 issuers/20 edges replace
 the earlier Auth/Base-only registry, old Palm and Edit destinations.
@@ -22,7 +41,7 @@ issuer/receiver cutover. Never restore compromised trust to regain availability.
 
 Use actual Worker version IDs and secret/config references. Git SHA, service
 version and deployed Worker version are different identifiers. Production owner
-must verify canonical bindings, 13 live issuer JWKS endpoints, real receiver
+must verify canonical bindings, 15 live issuer JWKS endpoints, real receiver
 contracts, routes/DNS/TLS/Access/WAF, headers and platform logging before release.
 Tests with fixture JWKS or browser-only receivers are not Rails E2E.
 
@@ -36,6 +55,34 @@ and a tested immutable rollback artifact. The
 [current plan](../plans/jump-0.3-hardening.md) pins baseline CI evidence to its SHA.
 
 See [explicit recovery artifact conditions](operations/rollback-recovery.md). rollback-compatible immutable artifact: NOT YET VERIFIED. Identity migration requires issuer/receiver coordination; [origin cutover](operations/origin-cutover.md) describes future migration windows without implementing multi-origin trust.
+
+## Coordinated blockers (not changeable from Jump alone)
+
+- **Explicit typing.** `typ: JWT` is not effective explicit typing under the JWT
+  BCP (RFC 8725 §3.11, draft-ietf-oauth-rfc8725bis-10). The staging deployment
+  (`UMAXICA_JUMP_ENVIRONMENT=staging`) now enforces `jump-request+jwt` inbound
+  and signs `jump-return+jwt` outbound, compared exactly. Production keeps
+  schema-1 `typ: JWT` until issuers and receivers migrate; each deployment
+  accepts exactly one value, so there is no dual-acceptance fallback. The
+  production cutover is a separate, coordinated change after the Rails work in
+  [the handoff](rails-handoff.md).
+- **URL parser differential.** Jump compares with WHATWG URL/URLSearchParams;
+  the Rails receiver reportedly uses Rack nested-query semantics. Jump cannot
+  declare this safe on its own and does not blanket-reject characters such as
+  `;` that are legal in OAuth `state`. The cases below must be run in the Rails
+  runtime against Jump-produced URLs before any change on either side.
+
+| Case                 | Input to compare in both parsers                                      |
+| -------------------- | --------------------------------------------------------------------- |
+| Semicolon            | `?a=1;b=2`, `?state=x;y`, `?rt=<jwt>;rt=<jwt>`                        |
+| Duplicate parameters | `?state=a&state=b`, `?rt=<jwt>&rt=<jwt>` (first/last/array)           |
+| `rt` forms           | `rt`, `rt[]`, `rt[x]`, `rt[][x]`, `rt%5B%5D`, `RT`                    |
+| Nested query         | `a[b]=1&a[c]=2`, `a[]=1&a[]=2`, `a[b][c]=1`, conflicting `a=1&a[b]=2` |
+| Space                | `%20` vs `+` in keys and values                                       |
+| Literal plus         | `%2B` in keys and values                                              |
+| Encoded key          | `%72t=<jwt>`, `r%74=<jwt>`, `stat%65=x`                               |
+| Slash and backslash  | `%2F`, `%5C`, raw `\` in path and query                               |
+| Ordering             | `a=1&b=2` vs `b=2&a=1`, position of `rt` (first, middle, last)        |
 
 ## Schema-1 acceptance tightening in 0.3
 
@@ -56,4 +103,23 @@ must accept Jump's 30-second output; a configured 10-second limit is incompatibl
 `ROLLBACK_ARTIFACT = NOT_VERIFIED`.
 `ROLLOUT_STATUS = BLOCKED_FOR_ROLLOUT`.
 Production bindings/traffic, the specific Rails contract gaps and immutable
-recovery remain external gates. See the [Rails handoff](operations/rails-receiver-followup.md).
+recovery remain external gates. See [release closure](operations/release-closure.md).
+
+## Strict stateless profile (2026-10-07, not deployed)
+
+Changes that apply to every deployment of this code, production included, and
+must be accepted by issuers and receivers before production is redeployed (see
+[the Rails handoff](rails-handoff.md)):
+
+- Entry: `GET` only; `HEAD /?rt=` is 405. Raw query exactly `?rt=<JWS>`.
+- Fetch Metadata: partial, unknown or non-navigation metadata, any
+  `Sec-Purpose`/`X-Sec-Purpose` and legacy prefetch headers are refused.
+- JWT: compact ≤4096 characters; header exactly `alg`/`kid`/`typ`; closed claim
+  set; integer NumericDates (fractions are no longer accepted); `jti` ≤128
+  printable ASCII; `url` ≤2048 characters.
+- Issuer JWKS: status 200 only; `application/jwk-set+json` or `application/json`
+  with at most `charset=utf-8`; 1–4 keys, every key ES384/P-384 with `use: sig`
+  (absent `use` is no longer accepted) or the whole set is refused.
+- `dst: external` is refused for every issuer (ADR 0007 runtime phase).
+- Production `wrangler.jsonc` gains `UMAXICA_JUMP_ENVIRONMENT=production`; a
+  Worker without it answers 503.

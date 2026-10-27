@@ -35,6 +35,7 @@ async function jwksRequest(env: Record<string, unknown>) {
     }),
     {
       UMAXICA_JUMP_ORIGIN: 'https://jump.example.net',
+      UMAXICA_JUMP_ENVIRONMENT: 'production',
       JUMP_RATE_LIMITER: { limit: async () => ({ success: true }) },
       ...env,
     } as Parameters<typeof worker.fetch>[1],

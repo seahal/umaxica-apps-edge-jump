@@ -5,6 +5,9 @@ trusted issuer within token lifetime. It does not authorize authentication
 completion, identity, authorization, CSRF approval, state mutation or one-time
 transaction execution. Origin policy does not certify every endpoint at an origin.
 
+The receiver MUST verify the protected header `typ` exactly — `JWT` from the
+production Jump, `jump-return+jwt` from the staging Jump — and MUST NOT accept a
+Jump request type (`jump-request+jwt`) or any other token type in its place.
 The receiver MUST verify the Jump ES384 signature against its trusted Jump JWKS,
 exact configured iss, string aud equal to its origin, schema 1, sub jump-redirect,
 rpl reuse, finite NumericDates, expiry/5-second tolerance, src and the signed URL.
@@ -51,4 +54,11 @@ rollout. Fixture evaluation in this repository is not Rails acceptance or Rails
 runtime E2E. The read-only review inspected Rails feature
 `7c308e49831c2a906781ddd875a8cb78a6780ddd`; this local follow-up changes no Rails
 code. Pre-deployment acceptance is USER_REPORTED complete, separately from these
-specific contract gaps. See the [Rails handoff](operations/rails-receiver-followup.md).
+specific contract gaps. See [release closure](operations/release-closure.md).
+
+## Candidate service 0.4.0
+
+The fixture service version is 0.4.0; JWT schema is still 1. Canonical query
+serialization and 30-second outbound TTL are unchanged. The
+[redirect policy](redirect-policy.md) tightens target acceptance before signing.
+Rails runtime and actual receiver integration remain required release evidence.

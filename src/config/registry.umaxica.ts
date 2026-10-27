@@ -1,3 +1,4 @@
+import { isDeniedDomain } from '../core/redirect_policy';
 import { normalizeOrigin } from '../core/normalize_url';
 import type { IssuerRegistry } from '../core/types';
 
@@ -17,8 +18,28 @@ const nodes: readonly NodeDefinition[] = [
   ['warp-com-jp', 'https://www-jp.umaxica.com'],
   ['warp-org-jp', 'https://www-jp.umaxica.org'],
   ['palm-app-jp', 'https://palm-jp.umaxica.app'],
+  ['visa-app-ww', 'https://visa.umaxica.app'],
+  ['visa-org-ww', 'https://visa.umaxica.org'],
 ];
 const edges: readonly EdgeDefinition[] = [
+  ['auth-app-ww', 'visa-app-ww'],
+  ['auth-org-ww', 'visa-org-ww'],
+  ['base-app-ww', 'visa-app-ww'],
+  ['core-app-jp', 'visa-app-ww'],
+  ['warp-app-jp', 'visa-app-ww'],
+  ['palm-app-jp', 'visa-app-ww'],
+  ['base-org-ww', 'visa-org-ww'],
+  ['core-org-jp', 'visa-org-ww'],
+  ['warp-org-jp', 'visa-org-ww'],
+  ['visa-app-ww', 'auth-app-ww'],
+  ['visa-app-ww', 'base-app-ww'],
+  ['visa-app-ww', 'core-app-jp'],
+  ['visa-app-ww', 'warp-app-jp'],
+  ['visa-app-ww', 'palm-app-jp'],
+  ['visa-org-ww', 'auth-org-ww'],
+  ['visa-org-ww', 'base-org-ww'],
+  ['visa-org-ww', 'core-org-jp'],
+  ['visa-org-ww', 'warp-org-jp'],
   ['auth-app-ww', 'base-app-ww'],
   ['auth-com-ww', 'base-com-ww'],
   ['auth-org-ww', 'base-org-ww'],
@@ -52,6 +73,7 @@ export function buildRegistry(
   for (const [id, origin] of nodeTable) {
     if (!/^[a-z]{4}-[a-z]{3}-[a-z]{2}$/.test(id) || origins.has(id) || seenOrigins.has(origin))
       throw new Error('invalid_node_table');
+    if (isDeniedDomain(new URL(origin).hostname)) throw new Error('invalid_node_table');
     normalizeOrigin(origin, runtime, 'https://registry-validation.invalid');
     origins.set(id, origin);
     seenOrigins.add(origin);
@@ -62,7 +84,6 @@ export function buildRegistry(
       iss: origin,
       jwks_uri: `${origin}/.well-known/jwks.json`,
       allowed_dst_internal: [],
-      allowed_dst_external: false,
       revoked_kids: [],
     };
   const seen = new Set<string>();

@@ -25,7 +25,7 @@ describe('normative receiver URL fixtures (no receiver acceptance claim)', () =>
     expect(matchesSignedUrl(request_url, signed_url)).toBe(accepted);
   });
   test('service and structural TTL inventory', () => {
-    expect(contract.service_version).toBe('0.3.0');
+    expect(contract.service_version).toBe('0.4.0');
     expect(contract.schema).toBe(1);
     expect(contract.rpl).toBe('reuse');
     expect(contract.inbound_max_ttl_seconds).toBe(30);

@@ -25,11 +25,14 @@ export const normalizeOrigin = (
   runtime: Parameters<typeof normalize>[1],
   serviceOrigin = PRODUCTION_SERVICE_ORIGIN,
 ) => origin(input, runtime, serviceOrigin);
+type VerifyOptions = Parameters<typeof verify>[1];
+/** Positional test shorthand for `verifyJumpJwt`, defaulting to the production `typ`. */
 export const verifyJumpJwt = (
   token: string,
-  registry: Parameters<typeof verify>[1],
-  cache: Parameters<typeof verify>[2],
+  registry: VerifyOptions['registry'],
+  jwksCache: VerifyOptions['jwksCache'],
   now: number,
   serviceOrigin = PRODUCTION_SERVICE_ORIGIN,
   signal?: AbortSignal,
-) => verify(token, registry, cache, now, serviceOrigin, signal);
+  typ = 'JWT',
+) => verify(token, { registry, jwksCache, now, serviceOrigin, signal, typ });

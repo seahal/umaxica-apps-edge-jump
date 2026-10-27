@@ -1,12 +1,11 @@
-import { unicodeHostname } from './idna';
+import { assertDirectPath, assertPathAllowed, assertTransferQuery } from './redirect_policy';
 import { JumpError, type RuntimeInfo } from './types';
 
 export type NormalizedUrl = {
   href: string;
+  rawPathname?: string;
   origin: string;
   hostname: string;
-  unicodeHostname: string;
-  hasNonAsciiHostname: boolean;
 };
 
 const FORBIDDEN_PROTOCOLS = new Set(['javascript:', 'data:', 'file:', 'blob:']);
@@ -28,14 +27,23 @@ export function normalizeUrl(
   if (
     typeof input !== 'string' ||
     !input ||
-    /[ \\]/.test(input) ||
+    / /.test(input) ||
     containsControlCharacter(input) ||
     /%(?![0-9a-fA-F]{2})/.test(input)
   )
     throw new JumpError('invalid_url');
+  // Preserve the direct path before WHATWG parsing can erase dot segments.
+  // These captures establish syntax boundaries only; URL.origin authorizes origins.
+  const rawParts = input.match(/^https:\/\/([^/?#]+)([^?#]*)(?:\?([^#]*))?(?:#(.*))?$/i);
+  if (!rawParts) throw new JumpError('invalid_url');
+  const [, authority = '', rawPathname = '', query = '', fragment = ''] = rawParts;
+  if (/\\/.test(authority) || /\\/.test(rawPathname)) throw new JumpError('invalid_url');
   try {
-    const decoded = decodeURI(input);
-    if (/[\\]/.test(decoded) || containsControlCharacter(decoded)) throw new Error();
+    // Validate encoding/controls component by component, without treating opaque
+    // OAuth values as paths or using decoded values to construct the destination.
+    for (const component of [authority, rawPathname, query, fragment]) {
+      if (containsControlCharacter(decodeURI(component))) throw new Error();
+    }
   } catch {
     throw new JumpError('invalid_url');
   }
@@ -63,13 +71,14 @@ export function normalizeUrl(
     throw new JumpError('invalid_url', 'self link rejected');
   if (isForbiddenHost(hostname)) throw new JumpError('invalid_url', 'forbidden host');
 
-  const hasNonAsciiHostname = hostname.split('.').some((label) => label.startsWith('xn--'));
   return {
-    href: parsed.href,
+    href:
+      parsed.href.split(/[?#]/, 1)[0] +
+      (input.includes('?') ? `?${query}` : '') +
+      (input.includes('#') ? `#${fragment}` : ''),
+    rawPathname: rawPathname || '/',
     origin: parsed.origin,
     hostname,
-    unicodeHostname: hasNonAsciiHostname ? unicodeHostname(hostname) : hostname,
-    hasNonAsciiHostname,
   };
 }
 
@@ -307,16 +316,51 @@ export function isRtKey(name: string) {
   return name === 'rt' || name.startsWith('rt[');
 }
 
+/**
+ * The only accepted entry query, matched on the raw serialized query rather
+ * than decoded parameters: exactly one literal `rt` key whose value is three
+ * Base64URL segments. Percent-encoded keys or values, `+`, `;`, `rt[]`, empty
+ * or repeated `rt` and any other parameter therefore never reach a parser that
+ * could disagree with another one about what `rt` is.
+ */
+export const ENTRY_QUERY = /^\?rt=[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
+
+/** `rt` is accepted only on `/`, in exactly the `ENTRY_QUERY` form. */
+export function hasMalformedRtQuery(url: URL) {
+  if (url.pathname !== '/') return [...url.searchParams.keys()].some(isRtKey);
+  if (!url.search) return false;
+  return !ENTRY_QUERY.test(url.search);
+}
+
 export function validateInternalTarget(target: NormalizedUrl): NormalizedUrl {
   const url = new URL(target.href);
   if (url.hash || target.href.includes('#')) throw new JumpError('invalid_url');
-  const single = new Set(['redirect_uri', 'state', 'nonce', 'code', 'next', 'return_to']);
+  assertDirectPath(target.rawPathname ?? url.pathname);
+  assertDirectPath(url.pathname);
+  assertPathAllowed(target.origin, url.pathname);
+  assertTransferQuery(url, isForbiddenServiceHost);
+  const single = new Set([
+    'redirect_uri',
+    'state',
+    'nonce',
+    'code',
+    'next',
+    'return_to',
+    'post_logout_redirect_uri',
+    'client_id',
+    'response_type',
+    'code_challenge',
+    'code_challenge_method',
+  ]);
   const seen = new Set<string>();
   for (const name of url.searchParams.keys()) {
-    if (isRtKey(name) || (single.has(name) && seen.has(name))) throw new JumpError('invalid_url');
+    if (
+      isRtKey(name) ||
+      [...single].some((key) => name.startsWith(`${key}[`)) ||
+      (single.has(name) && seen.has(name))
+    )
+      throw new JumpError('invalid_url');
     seen.add(name);
   }
-  // Canonical query serialization shared by claim and Location (not input bytes).
-  url.search = url.searchParams.toString();
-  return { ...target, href: url.href };
+  return target;
 }

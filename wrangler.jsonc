@@ -25,6 +25,9 @@
     }
   ],
   "vars": {
+    // Selects only the JOSE `typ` pair; production keeps schema-1 `JWT` until
+    // the coordinated Rails migration. Missing or unknown values fail closed.
+    "UMAXICA_JUMP_ENVIRONMENT": "production",
     "UMAXICA_JUMP_ORIGIN": "https://jump.umaxica.net",
     "UMAXICA_JUMP_PRIVATE_KEY_KID": "cloudflare-active-2026-09-12-871e7273",
     "UMAXICA_JUMP_PUBLIC_JWKS": "{\"keys\":[{\"kty\":\"EC\",\"x\":\"gCxcSIjgAUZeet-kGp1phZ1WbP2Y54pL-Hk5NUGvfEkIAAZhTsB4nk0qPbzBmZSg\",\"y\":\"EQDtyh4VoT-BL3p9y-xccaOj3C-oUIqN_Me33MPxAjSXYYvytDtQi7AV2vSDihup\",\"crv\":\"P-384\",\"kid\":\"cloudflare-active-2026-09-12-871e7273\",\"alg\":\"ES384\",\"use\":\"sig\"}]}"
@@ -59,6 +62,57 @@
     },
     "issues": {
       "enabled": true
+    }
+  },
+  // Staging: `wrangler deploy --env staging`. Same code and security contract
+  // as production except explicit typing (`jump-request+jwt` in,
+  // `jump-return+jwt` out). Bindings and vars are not inherited, so each is
+  // repeated here. Deployment-specific values are deliberately absent and make
+  // the Worker answer 503 until supplied: UMAXICA_JUMP_ORIGIN (and its route),
+  // and an independent staging signing key — UMAXICA_JUMP_PRIVATE_KEY_PEM as a
+  // secret, UMAXICA_JUMP_PRIVATE_KEY_KID and UMAXICA_JUMP_PUBLIC_JWKS. Never
+  // reuse the production key.
+  "env": {
+    "staging": {
+      "workers_dev": false,
+      // Must stay explicit: an inherited top-level route would move the
+      // production custom domain jump.umaxica.net to the staging Worker.
+      "routes": [],
+      "vars": {
+        "UMAXICA_JUMP_ENVIRONMENT": "staging"
+      },
+      "version_metadata": {
+        "binding": "UMAXICA-APPS-EDGE-JUMP-VERSION"
+      },
+      "ratelimits": [
+        {
+          "name": "JUMP_RATE_LIMITER",
+          "namespace_id": "520901",
+          "simple": {
+            "limit": 600,
+            "period": 60
+          }
+        }
+      ],
+      "observability": {
+        "enabled": true,
+        "head_sampling_rate": 1,
+        "redact_query_string": true,
+        "logs": {
+          "enabled": true,
+          "head_sampling_rate": 1,
+          "invocation_logs": true,
+          "persist": true
+        },
+        "traces": {
+          "enabled": true,
+          "head_sampling_rate": 1,
+          "persist": true
+        },
+        "issues": {
+          "enabled": true
+        }
+      }
     }
   }
 }

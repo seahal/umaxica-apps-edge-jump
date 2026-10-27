@@ -31,6 +31,13 @@ const bundle = await build({
     contents: `import worker from './src/cloudflare';
       export default { fetch(request, env, ctx) {
         const settings = env;
+        // Node's fetch (undici) always sends Sec-Fetch-Mode: cors and cannot send
+        // "navigate". Drop that artifact and take the browser headers under test
+        // from X-Test-Sec-* instead.
+        { const headers = new Headers(request.headers);
+          headers.delete('Sec-Fetch-Mode');
+          for (const [name, value] of request.headers) if (name.startsWith('x-test-sec-')) { headers.delete(name); headers.set(name.slice(7), value); }
+          request = new Request(request, { headers }); }
         if (env.TEST_MISSING_IP) { request = new Request(request); request.headers.delete('CF-Connecting-IP'); }
         if (env.TEST_LIMIT_MODE === 'deny') settings.JUMP_RATE_LIMITER = { limit: async () => ({ success: false }) };
         if (env.TEST_LIMIT_MODE === 'throw') settings.JUMP_RATE_LIMITER = { limit: async () => { throw new Error('test-provider-exception'); } };
@@ -47,6 +54,8 @@ const bundle = await build({
   jsxImportSource: 'hono/jsx',
 });
 const logs = [];
+const jwksFetches = [];
+let slowJwksUrl;
 const options = {
   cf: false,
   handleStructuredLogs: (entry) => logs.push(entry.message),
@@ -56,6 +65,7 @@ const options = {
   compatibilityFlags: ['nodejs_compat'],
   bindings: {
     UMAXICA_JUMP_ORIGIN: origin,
+    UMAXICA_JUMP_ENVIRONMENT: 'production',
     UMAXICA_JUMP_PRIVATE_KEY_KID: 'nonproduction-active',
     UMAXICA_JUMP_PRIVATE_KEY_PEM: await exportPKCS8(jumpPair.privateKey),
     UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({
@@ -74,8 +84,28 @@ const options = {
   },
   outboundService: async (request) => {
     assert(publicSets.has(request.url), 'only pinned issuer JWKS can be fetched');
+    jwksFetches.push(request.url);
+    if (request.url === slowJwksUrl) await new Promise((resolve) => setTimeout(resolve, 1500));
     return Response.json(publicSets.get(request.url));
   },
+};
+const signInput = (src, dst, typ = 'JWT', path = '/receive?state=keep&q=a%20b') => {
+  const now = Math.floor(Date.now() / 1000);
+  return new SignJWT({
+    schema: 1,
+    rpl: 'reuse',
+    iss: nodes[src],
+    aud: origin,
+    sub: 'jump-redirect',
+    iat: now,
+    nbf: now,
+    exp: now + 30,
+    jti: crypto.randomUUID(),
+    dst: 'internal',
+    url: `${nodes[dst]}${path}`,
+  })
+    .setProtectedHeader({ typ, alg: 'ES384', kid: 'issuer' })
+    .sign(pairs.get(nodes[src]).privateKey);
 };
 let runtime;
 let sampleInput;
@@ -120,6 +150,48 @@ try {
     assert.equal(verified.payload.src, nodes[src]);
     assert.equal(verified.payload.exp - verified.payload.iat, 30);
   }
+  // Exercise path aliases through real allowed edges, not origin-policy rejection.
+  const destinations = new Set();
+  for (const [src, dst] of edges) {
+    if (dst === 'palm-app-jp' || destinations.has(dst)) continue;
+    destinations.add(dst);
+    for (const path of ['/sign/out.html/', '/sign/out.json/', '/sign/out%2Ehtml/', '/sign/out//']) {
+      const input = await signInput(src, dst, 'JWT', path);
+      const response = await runtime.dispatchFetch(`${origin}/?rt=${input}`, {
+        redirect: 'manual',
+        headers: { 'CF-Connecting-IP': '203.0.113.7' },
+      });
+      assert.equal(response.status, 400, 'path aliases rejected in workerd');
+      assert.equal(response.headers.get('location'), null);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+      assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+      assert(response.headers.get('content-security-policy'));
+      assert(!(await response.text()).includes(input));
+    }
+    for (const path of [
+      '/sign/outbox',
+      '/articles/example.html',
+      '/oauth/authorize?state=a%5Cb&nonce=n',
+    ]) {
+      const input = await signInput(src, dst, 'JWT', path);
+      const response = await runtime.dispatchFetch(`${origin}/?rt=${input}`, {
+        redirect: 'manual',
+        headers: { 'CF-Connecting-IP': '203.0.113.7' },
+      });
+      assert.equal(response.status, 302, 'normal paths and opaque OAuth state survive');
+      const location = new URL(response.headers.get('location'));
+      assert.equal(location.searchParams.getAll('rt').length, 1);
+      const { payload } = await jwtVerify(location.searchParams.get('rt'), jumpPair.publicKey, {
+        issuer: origin,
+        audience: nodes[dst],
+        algorithms: ['ES384'],
+      });
+      location.searchParams.delete('rt');
+      assert.equal(location.href, `${nodes[dst]}${path}`);
+      assert.equal(payload.url, location.href);
+    }
+  }
+  assert.equal(destinations.size, 12, 'all denylisted origins exercised');
   for (const method of ['GET', 'HEAD']) {
     const response = await runtime.dispatchFetch(`${origin}/favicon.ico?rt%5Bx%5D=private`, {
       method,
@@ -133,6 +205,129 @@ try {
   }
   await runtime.dispose();
   runtime = undefined;
+
+  // Fresh runtime instance: issuer JWKS reuse, Fetch Metadata and the deadline.
+  runtime = new Miniflare(convertV4MiniflareOptions(options));
+  logs.length = 0;
+  jwksFetches.length = 0;
+  const [src, dst] = edges[0];
+  const issuerJwksUrl = `${nodes[src]}/.well-known/jwks.json`;
+  const navigation = {
+    'CF-Connecting-IP': '203.0.113.7',
+    'X-Test-Sec-Fetch-Mode': 'navigate',
+    'X-Test-Sec-Fetch-Dest': 'document',
+    'X-Test-Sec-Fetch-Site': 'cross-site',
+  };
+  const tokens = [await signInput(src, dst)];
+  for (const [label, metadata] of [
+    ['fetch()', { 'X-Test-Sec-Fetch-Mode': 'cors', 'X-Test-Sec-Fetch-Dest': 'empty' }],
+    ['iframe', { ...navigation, 'X-Test-Sec-Fetch-Dest': 'iframe' }],
+    ['partial metadata', { 'X-Test-Sec-Fetch-Mode': 'navigate' }],
+    ['prefetch', { ...navigation, 'X-Test-Sec-Purpose': 'prefetch' }],
+    ['prerender', { ...navigation, 'X-Test-Sec-Purpose': 'prefetch;prerender' }],
+    ['turbo prefetch', { ...navigation, 'X-Sec-Purpose': 'prefetch' }],
+  ]) {
+    for (const method of ['GET']) {
+      const response = await runtime.dispatchFetch(`${origin}/?rt=${tokens[0]}`, {
+        method,
+        redirect: 'manual',
+        headers: { 'CF-Connecting-IP': '203.0.113.7', ...metadata },
+      });
+      assert.equal(response.status, 400, label);
+      assert.equal(response.headers.get('x-jump-error'), 'invalid_request', label);
+      assert.equal(response.headers.get('location'), null, label);
+      assert.equal(response.headers.get('set-cookie'), null, label);
+      assert.equal(response.headers.get('cache-control'), 'no-store', label);
+      const text = await response.text();
+      assert(!text.includes(tokens[0]), label);
+    }
+  }
+  {
+    const response = await runtime.dispatchFetch(`${origin}/?rt=${tokens[0]}`, {
+      method: 'HEAD',
+      redirect: 'manual',
+      headers: navigation,
+    });
+    assert.equal(response.status, 405, 'HEAD on the token entry');
+    assert.equal(response.headers.get('allow'), 'GET', 'HEAD on the token entry');
+    assert.equal(await response.text(), '', 'HEAD on the token entry');
+  }
+  assert.equal(jwksFetches.length, 0, 'metadata rejection precedes any JWKS fetch');
+  assert(!logs.some((message) => message.includes('jump_signer_config')), 'no signing work');
+  assert(
+    logs.some((message) => message.includes('non_navigation_request')),
+    'metadata rejection is logged with its internal reason',
+  );
+
+  const latencies = [];
+  for (const method of ['GET', 'GET', 'GET']) {
+    const input = await signInput(src, dst);
+    tokens.push(input);
+    const started = performance.now();
+    const response = await runtime.dispatchFetch(`${origin}/?rt=${input}`, {
+      method,
+      redirect: 'manual',
+      headers: navigation,
+    });
+    latencies.push(Math.round(performance.now() - started));
+    assert.equal(response.status, 302, method);
+    assert.equal(await response.text(), '', method);
+    assert.equal(response.headers.get('set-cookie'), null);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(response.headers.get('x-frame-options'), 'DENY');
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+    assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+    assert(response.headers.get('content-security-policy'), 'CSP present');
+    const location = new URL(response.headers.get('location'));
+    assert.equal(location.origin, nodes[dst]);
+    const verified = await jwtVerify(location.searchParams.get('rt'), jumpPair.publicKey, {
+      issuer: origin,
+      audience: nodes[dst],
+      algorithms: ['ES384'],
+    });
+    assert.equal(verified.payload.src, nodes[src]);
+    tokens.push(location.searchParams.get('rt'));
+  }
+  assert.deepEqual(
+    jwksFetches,
+    [issuerJwksUrl],
+    'successive requests in one runtime instance reuse the issuer JWKS',
+  );
+  // Informational: whether workerd handed over a stable `env` reference.
+  const signerImports = logs.filter((message) => message.includes('signer_configured')).length;
+  for (const token of tokens)
+    assert(!logs.some((message) => message.includes(token)), 'no token in logs');
+  assert(!logs.some((message) => message.includes('rt=')), 'no query in logs');
+  assert(!logs.some((message) => /sec-fetch|"cors"|prerender/i.test(message)), 'no raw metadata');
+
+  // Whole-entry deadline: an issuer JWKS slower than 1000ms.
+  const [slowSrc, slowDst] = edges.find(([source]) => source !== src);
+  slowJwksUrl = `${nodes[slowSrc]}/.well-known/jwks.json`;
+  logs.length = 0;
+  for (const method of ['GET', 'GET']) {
+    const started = performance.now();
+    const response = await runtime.dispatchFetch(
+      `${origin}/?rt=${await signInput(slowSrc, slowDst)}`,
+      { method, redirect: 'manual', headers: navigation },
+    );
+    const elapsed = performance.now() - started;
+    assert.equal(response.status, 504, `${method} slow JWKS`);
+    assert.equal(response.headers.get('x-jump-error'), 'deadline_exceeded');
+    assert.equal(response.headers.get('location'), null);
+    assert.equal(response.headers.get('set-cookie'), null);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert(elapsed < 1400, 'deadline answers without waiting for the late JWKS');
+    await response.text();
+  }
+  await new Promise((resolve) => setTimeout(resolve, 1800));
+  assert(!logs.some((message) => message.includes('jump_accept')), 'no late acceptance log');
+  slowJwksUrl = undefined;
+  await runtime.dispose();
+  runtime = undefined;
+  // eslint-disable-next-line no-console -- measurements only, no request data.
+  console.log(
+    `workerd: issuer JWKS fetches=1 for 3 signed requests; signer imports=${signerImports}; latency_ms=${latencies.join('/')}`,
+  );
   const other = await generateKeyPair('ES384', { extractable: true });
   /** @type {Array<[string, Record<string, string | boolean>, string, number, string?, boolean?]>} */
   const cases = [
@@ -239,6 +434,39 @@ try {
     await runtime.dispose();
     runtime = undefined;
   }
+  // Staging deployment: explicit typing in and out, same runtime and checks.
+  runtime = new Miniflare(
+    convertV4MiniflareOptions({
+      ...options,
+      bindings: { ...options.bindings, UMAXICA_JUMP_ENVIRONMENT: 'staging' },
+    }),
+  );
+  {
+    const [stagingSrc, stagingDst] = edges[1];
+    const legacy = await runtime.dispatchFetch(
+      `${origin}/?rt=${await signInput(stagingSrc, stagingDst)}`,
+      {
+        redirect: 'manual',
+        headers: navigation,
+      },
+    );
+    assert.equal(legacy.status, 400, 'staging refuses typ JWT');
+    await legacy.text();
+    const strict = await runtime.dispatchFetch(
+      `${origin}/?rt=${await signInput(stagingSrc, stagingDst, 'jump-request+jwt')}`,
+      { redirect: 'manual', headers: navigation },
+    );
+    assert.equal(strict.status, 302, 'staging accepts jump-request+jwt');
+    const output = new URL(strict.headers.get('location')).searchParams.get('rt');
+    await jwtVerify(output, jumpPair.publicKey, {
+      issuer: origin,
+      audience: nodes[stagingDst],
+      typ: 'jump-return+jwt',
+      algorithms: ['ES384'],
+    });
+  }
+  await runtime.dispose();
+  runtime = undefined;
   // `/ready` is not a production interface: it must fall through to notFound.
   runtime = new Miniflare(convertV4MiniflareOptions(options));
   for (const method of ['GET', 'HEAD']) {
@@ -256,11 +484,13 @@ try {
   runtime = undefined;
   // eslint-disable-next-line no-console -- concise runtime verification result.
   console.log(
-    'workerd: 20 signed edges, wrong-path rt, signing material, limiter and deadline contracts passed',
+    'workerd: 20 signed edges, JWKS reuse, Fetch Metadata, wrong-path rt, signing material, limiter and deadline contracts passed',
   );
 } catch (error) {
   // eslint-disable-next-line no-console -- error code only, never raw exception text.
   console.error(`workerd contract failed: ${error?.code ?? 'runtime_error'}`);
+  // eslint-disable-next-line no-console -- assertion label only; labels carry no request data.
+  if (error?.code === 'ERR_ASSERTION') console.error(String(error.message).split('\n')[0]);
   process.exitCode = 1;
 } finally {
   await runtime?.dispose();

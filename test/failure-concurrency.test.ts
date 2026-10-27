@@ -10,7 +10,6 @@ const issuer: IssuerConfig = {
   iss: 'https://auth.umaxica.app',
   jwks_uri: 'https://auth.umaxica.app/.well-known/jwks.json',
   allowed_dst_internal: ['https://www.umaxica.app'],
-  allowed_dst_external: false,
 };
 describe('K: cancellation and isolated caches', () => {
   test('aborted JWKS stream cancels reader and releases its lock', async () => {
@@ -46,12 +45,12 @@ describe('K: cancellation and isolated caches', () => {
       return { keys };
     });
     const first = new AbortController();
-    const waiting = cache.getKey(issuer, 'k', 'ES384', false, first.signal);
-    const other = cache.getKey(issuer, 'k', 'ES384');
+    const waiting = cache.getKey(issuer, 'k', false, first.signal);
+    const other = cache.getKey(issuer, 'k');
     first.abort();
     await expect(waiting).rejects.toMatchObject({ code: 'deadline_exceeded' });
     await expect(other).rejects.toMatchObject({ code: 'deadline_exceeded' });
-    await expect(cache.getKey(issuer, 'k', 'ES384')).resolves.toBeDefined();
+    await expect(cache.getKey(issuer, 'k')).resolves.toBeDefined();
     expect(calls).toBe(2);
   });
   test('a revoked kid is rejected before a warm key is used', async () => {
@@ -60,10 +59,10 @@ describe('K: cancellation and isolated caches', () => {
       keys: [{ ...(await exportJWK(pair.publicKey)), kid: 'k', alg: 'ES384', use: 'sig' }],
     }));
     const cache = new JwksCache(fetch);
-    await cache.getKey(issuer, 'k', 'ES384');
-    await expect(
-      cache.getKey({ ...issuer, revoked_kids: ['k'] }, 'k', 'ES384'),
-    ).rejects.toMatchObject({ code: 'invalid_signature' });
+    await cache.getKey(issuer, 'k');
+    await expect(cache.getKey({ ...issuer, revoked_kids: ['k'] }, 'k')).rejects.toMatchObject({
+      code: 'invalid_signature',
+    });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
   test('same issuer/kid in independent keyset caches does not mix', async () => {
@@ -77,8 +76,8 @@ describe('K: cancellation and isolated caches', () => {
           })),
       ),
     );
-    const ka = await assertDefined(caches[0]).getKey(issuer, 'same', 'ES384');
-    const kb = await assertDefined(caches[1]).getKey(issuer, 'same', 'ES384');
+    const ka = await assertDefined(caches[0]).getKey(issuer, 'same');
+    const kb = await assertDefined(caches[1]).getKey(issuer, 'same');
     expect(await exportJWK(ka)).not.toEqual(await exportJWK(kb));
   });
   test('invalid escaped control/UTF8 URL partitions reject before signing', () => {
