@@ -5,7 +5,7 @@ Service version 0.4.0 does not change JWT schema 1.
 Direct path and transfer-query requirements are defined in
 [the redirect policy](redirect-policy.md).
 
-Production has exactly these 13 nodes. Node ID syntax is
+Production has exactly these 15 nodes. Node ID syntax is
 `^[a-z]{4}-[a-z]{3}-[a-z]{2}$` (11 ASCII characters); syntax alone grants no trust.
 ww means global; jp is regional. ri=us changes no identity. No us node or alias.
 JWT iss/aud/src are origins, never Node IDs. Every node is issuer and destination,
@@ -26,24 +26,29 @@ with issuer JWKS exactly `<origin>/.well-known/jwks.json`.
 | warp-com-jp | https://www-jp.umaxica.com  |
 | warp-org-jp | https://www-jp.umaxica.org  |
 | palm-app-jp | https://palm-jp.umaxica.app |
+| visa-app-ww | https://visa.umaxica.app    |
+| visa-org-ww | https://visa.umaxica.org    |
 
-| Source      | Allowed internal destinations                      |
-| ----------- | -------------------------------------------------- |
-| auth-app-ww | base-app-ww                                        |
-| auth-com-ww | base-com-ww                                        |
-| auth-org-ww | base-org-ww                                        |
-| base-app-ww | auth-app-ww, core-app-jp, palm-app-jp, warp-app-jp |
-| base-com-ww | auth-com-ww, core-com-jp, warp-com-jp              |
-| base-org-ww | auth-org-ww, core-org-jp, warp-org-jp              |
-| core-app-jp | base-app-ww                                        |
-| core-com-jp | base-com-ww                                        |
-| core-org-jp | base-org-ww                                        |
-| palm-app-jp | base-app-ww                                        |
-| warp-app-jp | base-app-ww                                        |
-| warp-com-jp | base-com-ww                                        |
-| warp-org-jp | base-org-ww                                        |
+| Source      | Allowed internal destinations                                   |
+| ----------- | --------------------------------------------------------------- |
+| auth-app-ww | base-app-ww, visa-app-ww                                        |
+| auth-com-ww | base-com-ww                                                     |
+| auth-org-ww | base-org-ww, visa-org-ww                                        |
+| base-app-ww | auth-app-ww, core-app-jp, palm-app-jp, warp-app-jp, visa-app-ww |
+| base-com-ww | auth-com-ww, core-com-jp, warp-com-jp                           |
+| base-org-ww | auth-org-ww, core-org-jp, warp-org-jp, visa-org-ww              |
+| core-app-jp | base-app-ww, visa-app-ww                                        |
+| core-com-jp | base-com-ww                                                     |
+| core-org-jp | base-org-ww, visa-org-ww                                        |
+| palm-app-jp | base-app-ww, visa-app-ww                                        |
+| warp-app-jp | base-app-ww, visa-app-ww                                        |
+| warp-com-jp | base-com-ww                                                     |
+| warp-org-jp | base-org-ww, visa-org-ww                                        |
 
-This is 20 allowed edges out of 169 ordered pairs; all other 149 are denied.
+| visa-app-ww | auth-app-ww, base-app-ww, core-app-jp, warp-app-jp, palm-app-jp |
+| visa-org-ww | auth-org-ww, base-org-ww, core-org-jp, warp-org-jp |
+
+This is 38 allowed edges out of 225 ordered pairs; all other 187 are denied.
 Auth↔RP, RP↔RP, self, cross-TLD, Edit and old www.jp/jpx/palm/palm.jp hosts are
 not aliases. zzzz/zzz/zz is an unregistered sentinel only.
 
@@ -59,9 +64,8 @@ nbf≤exp, TTL≤30s; clock tolerance 5s affects now comparisons only.
 Internal output302: header {alg ES384, kid, typ `JWT` in production or
 `jump-return+jwt` in staging}; schema1, rpl reuse, iss Jump identity, aud target origin,
 sub jump-redirect, src issuer origin, dst internal, url canonical validated target,
-iat=nbf=now, exp=now+30, fresh jti. One new rt is appended. Remove this rt then
-WHATWG/URLSearchParams serialize to compare against output url; %20/+ can change
-bytes without changing values. Existing rt/rt[...], fragments, ambiguous
+iat=nbf=now, exp=now+30, fresh jti. One new rt is appended. The original query bytes are retained in the signed output url and Location;
+remove the appended rt to recover the signed target. Existing rt/rt[...], fragments, ambiguous
 URLs and duplicate single-valued protocol query parameters are rejected, not repaired.
 No destination fetch. Output token size is also≤8192.
 

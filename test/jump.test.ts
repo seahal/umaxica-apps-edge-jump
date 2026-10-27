@@ -249,7 +249,7 @@ describe('jump gateway routes', () => {
   });
 
   test('production registration rejects aliases, edit and future regions', () => {
-    expect(Object.keys(umaxicaRegistry)).toHaveLength(13);
+    expect(Object.keys(umaxicaRegistry)).toHaveLength(15);
     for (const origin of [
       'https://edit.umaxica.org',
       'https://palm.umaxica.app',
@@ -295,8 +295,8 @@ describe('jump gateway routes', () => {
       now: () => NOW,
     });
 
-    // behavioural: every one of the 14 hosts is refused a jump back to itself
-    expect(fqdns).toHaveLength(13);
+    // behavioural: every registered host is refused a jump back to itself
+    expect(fqdns).toHaveLength(15);
     for (const host of fqdns) {
       const res = await jump(
         app,
@@ -310,7 +310,7 @@ describe('jump gateway routes', () => {
       expect(res.headers.get('X-Jump-Error'), host).toBe('invalid_request');
     }
 
-    // the broker is the 15th fqdn: no issuer may redirect back into Jump itself
+    // No issuer may redirect back into Jump itself.
     for (const iss of Object.keys(umaxicaRegistry)) {
       const res = await jump(
         app,
@@ -330,8 +330,8 @@ describe('jump gateway routes', () => {
       new URL('./production-contract.test.ts', import.meta.url),
       'utf8',
     );
-    expect(contract).toContain('169 ordered pairs');
-    expect(contract).toContain('20 allow / 149 deny');
+    expect(contract).toContain('225 ordered pairs');
+    expect(contract).toContain('38 allow / 187 deny');
     expect(contract).toContain('same-kid');
   });
 

@@ -72,7 +72,10 @@ export function normalizeUrl(
   if (isForbiddenHost(hostname)) throw new JumpError('invalid_url', 'forbidden host');
 
   return {
-    href: parsed.href,
+    href:
+      parsed.href.split(/[?#]/, 1)[0] +
+      (input.includes('?') ? `?${query}` : '') +
+      (input.includes('#') ? `#${fragment}` : ''),
     rawPathname: rawPathname || '/',
     origin: parsed.origin,
     hostname,
@@ -359,7 +362,5 @@ export function validateInternalTarget(target: NormalizedUrl): NormalizedUrl {
       throw new JumpError('invalid_url');
     seen.add(name);
   }
-  // Canonical query serialization shared by claim and Location (not input bytes).
-  url.search = url.searchParams.toString();
-  return { ...target, href: url.href };
+  return target;
 }

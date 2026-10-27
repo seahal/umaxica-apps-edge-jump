@@ -13,7 +13,7 @@ explicit `https://` syntax, pass existing control/encoding/userinfo/host checks,
 and its normalized origin must be an allowed edge of the issuer. Only then are
 raw and normalized direct pathnames, origin-specific path rules and transfer
 query controls evaluated. No rule can add an edge. No destination is fetched.
-Accepted targets retain canonical URLSearchParams serialization, fresh outbound
+Accepted targets retain the signed query bytes, fresh outbound
 jti, ES384 and 30-second TTL, followed by one outbound RT and 302.
 
 Direct pathnames reject empty interior segments, double slashes, raw or encoded
@@ -25,8 +25,8 @@ characters remain permitted; deny rules compare the once-decoded pathname, so
 This strict pathname syntax is never recursively applied to a query's URL path.
 Existing control and encoding restrictions remain in place for each URL component. Decoded
 backslash rejection applies to the direct pathname, not opaque query values.
-OAuth `state=a%5Cb` retains the value `a\b`; canonical query serialization
-is shared by the output claim and Location. Authority, direct pathname, query and
+OAuth `state=a%5Cb` retains the value `a\b`; the original query bytes
+are shared by the output claim and Location. Authority, direct pathname, query and
 fragment are separated before encoding/control validation; the whole URL is never
 decoded for path matching. Raw component extraction does not authorize origins.
 See [RFC 6749 Appendix A.5](https://www.rfc-editor.org/rfc/rfc6749.html#appendix-A.5).
@@ -62,7 +62,7 @@ use. A signed token cannot authorize an unknown secondary redirect.
 `redirect_uri` and `post_logout_redirect_uri` are separately parsed absolute
 URIs. Reject invalid syntax, credentials, fragments, unsafe protocols, special
 hosts and prohibited domains. Do not re-decode or rewrite their values. HTTPS
-OAuth client URIs need not use one of Jump's 13 origins. Native private-use
+OAuth client URIs need not use one of Jump's 15 origins. Native private-use
 schemes can remain syntactically eligible; registration is verified by Rails.
 For `redirect_uri` only, RFC 8252 IPv4/IPv6 loopback HTTP is permitted inside the
 OAuth parameter (`127.0.0.1` or `[::1]`, including a port); direct Jump
@@ -71,7 +71,7 @@ client, and Rails must reject an unregistered URI/client pairing.
 
 Duplicate single-valued protocol keys and bracket aliases are refused.
 `state` and `nonce` remain opaque; text containing `example.com` is not a domain
-match. Canonical query serialization remains the existing receiver contract.
+match. Query bytes are retained in the output claim and Location.
 
 Parsed hostname matching uses lowercase normalization, removes a terminal dot
 for comparison, and matches only equality or dot-boundary subdomains:

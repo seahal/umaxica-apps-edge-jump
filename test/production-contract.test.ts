@@ -23,9 +23,29 @@ const nodes = {
   'warp-com-jp': 'https://www-jp.umaxica.com',
   'warp-org-jp': 'https://www-jp.umaxica.org',
   'palm-app-jp': 'https://palm-jp.umaxica.app',
+  'visa-app-ww': 'https://visa.umaxica.app',
+  'visa-org-ww': 'https://visa.umaxica.org',
 } as const;
 type Node = keyof typeof nodes;
 const edges: [Node, Node][] = [
+  ['auth-app-ww', 'visa-app-ww'],
+  ['auth-org-ww', 'visa-org-ww'],
+  ['base-app-ww', 'visa-app-ww'],
+  ['core-app-jp', 'visa-app-ww'],
+  ['warp-app-jp', 'visa-app-ww'],
+  ['palm-app-jp', 'visa-app-ww'],
+  ['base-org-ww', 'visa-org-ww'],
+  ['core-org-jp', 'visa-org-ww'],
+  ['warp-org-jp', 'visa-org-ww'],
+  ['visa-app-ww', 'auth-app-ww'],
+  ['visa-app-ww', 'base-app-ww'],
+  ['visa-app-ww', 'core-app-jp'],
+  ['visa-app-ww', 'warp-app-jp'],
+  ['visa-app-ww', 'palm-app-jp'],
+  ['visa-org-ww', 'auth-org-ww'],
+  ['visa-org-ww', 'base-org-ww'],
+  ['visa-org-ww', 'core-org-jp'],
+  ['visa-org-ww', 'warp-org-jp'],
   ['auth-app-ww', 'base-app-ww'],
   ['auth-com-ww', 'base-com-ww'],
   ['auth-org-ww', 'base-org-ww'],
@@ -148,7 +168,7 @@ async function denied(res: Response, status = 400, code = 'invalid_request', hea
 }
 
 describe('A: exact production graph', () => {
-  test('13 nodes / 169 ordered pairs / 20 allow / 149 deny', () => {
+  test('15 nodes / 225 ordered pairs / 38 allow / 187 deny', () => {
     expect(Object.keys(registry).sort()).toEqual(Object.values(nodes).sort());
     let count = 0;
     for (const [src, origin] of Object.entries(nodes)) {
@@ -174,8 +194,8 @@ describe('A: exact production graph', () => {
         } else expect(check).toThrow();
       }
     }
-    expect(count).toBe(20);
-    expect(169 - count).toBe(149);
+    expect(count).toBe(38);
+    expect(225 - count).toBe(187);
   });
   test('C: frozen Base/Auth six allow and twelve cross-TLD deny', () => {
     for (const a of ['app', 'com', 'org'] as const)
@@ -226,7 +246,7 @@ describe('B: real issuer-specific signatures through Worker adapter', () => {
       src: nodes[src],
       dst: 'internal',
       sub: 'jump-redirect',
-      url: location.href,
+      url: claim(src, dst).url,
     });
     expect(Object.keys(verified.payload).sort()).toEqual(
       [...receiverContract.required_claims].sort(),
@@ -691,7 +711,7 @@ describe('construction and runtime defensive policy', () => {
   test('rejects duplicate nodes/origins/edges, unknown nodes, cross-TLD and self edges', async () => {
     const { buildRegistry } = await import('../src/config/registry.umaxica');
     const table = Object.entries(nodes) as [string, string][];
-    expect(Object.keys(buildRegistry(table, edges))).toHaveLength(13);
+    expect(Object.keys(buildRegistry(table, edges))).toHaveLength(15);
     for (const invalid of [
       [...table, assertDefined(table[0])],
       [...table, ['zzzz-zzz-zz', assertDefined(table[0])[1]]],
@@ -738,15 +758,15 @@ describe('F/K: remaining validation partitions', () => {
       issuer.jwks_uri = previous;
     }
   });
-  test('oversized outbound RT is refused although input fits', async () => {
+  test('a long valid query is retained without serialization expansion', async () => {
     mockJwks();
-    // Canonical query serialization percent-encodes `!`, tripling the URL that
-    // the outbound token carries while the inbound claim stays within bounds.
     const url = `${nodes['base-app-ww']}/receive?q=${'!'.repeat(2000)}`;
     expect(url.length).toBeLessThanOrEqual(2048);
     const input = await token({ ...claim(), url });
     expect(input.length).toBeLessThanOrEqual(4096);
-    await denied(await request(`/?rt=${input}`));
+    const response = await request(`/?rt=${input}`);
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toMatch(`${url}&rt=`);
   });
   test.each(
     ['iat', 'nbf', 'exp', 'url', 'jti', 'aud', 'sub', 'dst'].flatMap((field) =>
@@ -788,7 +808,7 @@ describe('0.4.0 audited logout path through signed production graph', () => {
     const res = await request(
       `/?rt=${await token({ ...claim(src, dst), url: `${nodes[dst]}/sign/out` }, nodes[src])}`,
     );
-    if (dst === 'palm-app-jp') expect(res.status).toBe(302);
+    if (dst === 'palm-app-jp' || dst.startsWith('visa-')) expect(res.status).toBe(302);
     else await denied(res);
   });
 });
@@ -805,7 +825,8 @@ test.each(['a%5Cb', 'a%5cb', 'a%255Cb', 'a%2Fb', 'a%25b'])(
     const output = assertDefined(location.searchParams.get('rt'));
     location.searchParams.delete('rt');
     const { payload } = await jwtVerify(output, jumpKeys.publicKey, { algorithms: ['ES384'] });
-    expect(payload.url).toBe(location.href);
+    expect(payload.url).toBe(input);
+    expect(res.headers.get('location')).toBe(`${input}&rt=${output}`);
     const signed = new URL(payload.url as string);
     expect(signed.searchParams.get('state')).toBe(new URL(input).searchParams.get('state'));
     expect(signed.searchParams.get('nonce')).toBe('n\\c');
@@ -813,6 +834,42 @@ test.each(['a%5Cb', 'a%5cb', 'a%255Cb', 'a%2Fb', 'a%25b'])(
     hygiene(res);
   },
 );
+
+test('Visa authorization keeps the exact signed query and rejects cross-realm destinations', async () => {
+  mockJwks();
+  const url = `${nodes['visa-app-ww']}/oauth/authorize?state=a%20b%2b&nonce=n%2f&code_challenge=x%2By&ri=jp`;
+  const res = await request(
+    `/?rt=${await token({ ...claim('base-app-ww', 'visa-app-ww'), url }, nodes['base-app-ww'])}`,
+  );
+  expect(res.status).toBe(302);
+  const location = assertDefined(res.headers.get('location'));
+  const output = assertDefined(new URL(location).searchParams.get('rt'));
+  expect(location).toBe(`${url}&rt=${output}`);
+  expect((await jwtVerify(output, jumpKeys.publicKey)).payload.url).toBe(url);
+  await denied(
+    await request(`/?rt=${await token(claim('visa-app-ww', 'visa-org-ww'), nodes['visa-app-ww'])}`),
+  );
+});
+
+test('Visa accepts a published test kid only with its own issuer key', async () => {
+  const origin = nodes['visa-app-ww'];
+  const key = assertDefined(issuerKeys.get(origin));
+  const uri = `${origin}/.well-known/jwks.json`;
+  const previous = jwks[uri];
+  jwks[uri] = [{ ...(await exportJWK(key.publicKey)), kid: 'test-visa', alg: 'ES384', use: 'sig' }];
+  try {
+    mockJwks();
+    const payload = claim('visa-app-ww', 'base-app-ww');
+    const sign = (keyOrigin: string) =>
+      new SignJWT(payload)
+        .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'test-visa' })
+        .sign(assertDefined(issuerKeys.get(keyOrigin)).privateKey);
+    expect((await request(`/?rt=${await sign(origin)}`)).status).toBe(302);
+    await denied(await request(`/?rt=${await sign(nodes['visa-org-ww'])}`));
+  } finally {
+    if (previous) jwks[uri] = previous;
+  }
+});
 
 test.each([
   '/a%5Cb',

@@ -119,9 +119,8 @@ async function buildInternalLocation(
   const token = await deps.signer.sign(outbound, tokenTypes(deps.config.environment).outbound);
   if (deps.signal?.aborted) throw new JumpError('deadline_exceeded');
   if (token.length > 8192) throw new JumpError('invalid_claim');
-  const destination = new URL(target.href);
-  destination.searchParams.set('rt', token);
-  return destination.href;
+  const separator = target.href.includes('?') ? (target.href.endsWith('?') ? '' : '&') : '?';
+  return `${target.href}${separator}rt=${token}`;
 }
 
 function serviceOrigin(deps: JumpDeps) {

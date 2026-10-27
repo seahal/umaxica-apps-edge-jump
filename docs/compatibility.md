@@ -41,7 +41,7 @@ issuer/receiver cutover. Never restore compromised trust to regain availability.
 
 Use actual Worker version IDs and secret/config references. Git SHA, service
 version and deployed Worker version are different identifiers. Production owner
-must verify canonical bindings, 13 live issuer JWKS endpoints, real receiver
+must verify canonical bindings, 15 live issuer JWKS endpoints, real receiver
 contracts, routes/DNS/TLS/Access/WAF, headers and platform logging before release.
 Tests with fixture JWKS or browser-only receivers are not Rails E2E.
 

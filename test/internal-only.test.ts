@@ -116,7 +116,7 @@ describe('permanent internal-only gateway contract', () => {
       sub: 'jump-redirect',
       src: issuer,
       dst: 'internal',
-      url: location.href,
+      url: `${internal}/receive?state=keep&q=a%20b`,
       iat: now,
       nbf: now,
       exp: now + receiverContract.ttl_seconds,
