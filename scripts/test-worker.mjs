@@ -3,9 +3,20 @@
 // requires internal TCP listeners. Do not replace workerd with a Node-only fake.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
-import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { exportJWK, exportPKCS8, generateKeyPair, jwtVerify, SignJWT } from 'jose';
+
+// Load the exact Miniflare that wrangler runs, resolved through wrangler itself.
+// A direct `miniflare` devDependency would be a second pin to keep in step, and
+// pnpm 12 links it without its transitive peer suffix, leaving a dangling link.
+const wranglerRequire = createRequire(
+  createRequire(import.meta.url).resolve('wrangler/package.json'),
+);
+const { Miniflare, convertV4MiniflareOptions } = await import(
+  pathToFileURL(wranglerRequire.resolve('miniflare')).href
+);
 const runtimeConfig = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
 assert.match(runtimeConfig, /"redact_query_string"\s*:\s*true/, 'query redaction configured');
 const { nodes, edges } = JSON.parse(
@@ -144,8 +155,11 @@ try {
       audience: nodes[dst],
       algorithms: ['ES384'],
     });
-    location.searchParams.delete('rt');
-    assert.equal(verified.payload.url, location.href);
+    // Compare raw bytes: Jump must not reserialize the query (`%20` stays `%20`),
+    // which `searchParams.delete` would do by rewriting it as `+`.
+    const rawLocation = response.headers.get('location');
+    assert.ok(rawLocation.endsWith(`&rt=${location.searchParams.get('rt')}`));
+    assert.equal(verified.payload.url, rawLocation.slice(0, rawLocation.lastIndexOf('&rt=')));
     assert.equal(verified.payload.rpl, 'reuse');
     assert.equal(verified.payload.src, nodes[src]);
     assert.equal(verified.payload.exp - verified.payload.iat, 30);
