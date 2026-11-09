@@ -3135,11 +3135,11 @@ describe('UMAXICA title contract', () => {
     expect(obs.redact_query_string).toBe(true);
     expect(obs.logs).toMatchObject({
       enabled: true,
-      head_sampling_rate: 1,
+      head_sampling_rate: 0.1,
       invocation_logs: true,
       persist: true,
     });
-    expect(obs.traces).toMatchObject({ enabled: true, head_sampling_rate: 1, persist: true });
+    expect(obs.traces).toMatchObject({ enabled: true, head_sampling_rate: 0.02, persist: true });
     expect(obs.logs.destinations ?? []).toEqual([]);
     expect(obs.traces.destinations ?? []).toEqual([]);
   });
