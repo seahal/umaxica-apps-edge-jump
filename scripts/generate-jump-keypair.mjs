@@ -1,4 +1,4 @@
-import { generateKeyPairSync, randomBytes, sign, verify } from 'node:crypto';
+import { constants, generateKeyPairSync, randomBytes, sign, verify } from 'node:crypto';
 import { closeSync, mkdirSync, openSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -27,19 +27,33 @@ if (!/^[A-Za-z0-9._-]{1,128}$/.test(kid)) {
 
 mkdirSync(outputDirectory, { recursive: false, mode: 0o700 });
 
-const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'secp384r1' });
+const { privateKey, publicKey } = generateKeyPairSync('rsa', {
+  modulusLength: 3072,
+  publicExponent: 65537,
+});
 const privatePem = privateKey.export({ format: 'pem', type: 'pkcs8' });
 const publicJwk = {
   ...publicKey.export({ format: 'jwk' }),
   kid,
-  alg: 'ES384',
+  alg: 'PS256',
   use: 'sig',
 };
 const jwks = { keys: [publicJwk] };
 
 const probe = randomBytes(48);
-const signature = sign('sha384', probe, privateKey);
-if (!verify('sha384', probe, publicKey, signature)) {
+const signature = sign('sha256', probe, {
+  key: privateKey,
+  padding: constants.RSA_PKCS1_PSS_PADDING,
+  saltLength: 32,
+});
+if (
+  !verify(
+    'sha256',
+    probe,
+    { key: publicKey, padding: constants.RSA_PKCS1_PSS_PADDING, saltLength: 32 },
+    signature,
+  )
+) {
   throw new Error('generated key pair failed its signing self-check');
 }
 
@@ -66,8 +80,8 @@ const secretsPath = writeExclusive(
 console.log(
   JSON.stringify({
     result: 'ok',
-    algorithm: 'ES384',
-    curve: 'P-384',
+    algorithm: 'PS256',
+    modulus_bits: 3072,
     kid,
     pair_check_ok: true,
     private_key_path: privateKeyPath,

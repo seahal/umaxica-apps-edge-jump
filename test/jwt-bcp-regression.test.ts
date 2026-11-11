@@ -17,7 +17,7 @@ const issuer = (iss: string): IssuerConfig => ({
   allowed_dst_internal: [],
 });
 const registry: IssuerRegistry = { [A]: issuer(A), [B]: issuer(B) };
-const HEADER = { typ: 'JWT', alg: 'ES384', kid: 'k' };
+const HEADER = { typ: 'JWT', alg: 'PS256', kid: 'k' };
 const CLAIMS = {
   schema: 1,
   rpl: 'reuse',
@@ -47,7 +47,7 @@ async function signed(header: object, payload: unknown, signer = A) {
   if (!pair) throw new Error('fixture pair missing');
   const signingInput = `${encode(header)}.${encode(payload)}`;
   const signature = await crypto.subtle.sign(
-    { name: 'ECDSA', hash: 'SHA-384' },
+    { name: 'RSA-PSS', saltLength: 32 },
     pair.privateKey as CryptoKey,
     new TextEncoder().encode(signingInput),
   );
@@ -58,14 +58,14 @@ const verify = (token: string) => verifyJumpJwt(token, registry, cache, NOW, SER
 
 beforeAll(async () => {
   pairs = {
-    [A]: await generateKeyPair('ES384', { extractable: true }),
-    [B]: await generateKeyPair('ES384', { extractable: true }),
+    [A]: await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 }),
+    [B]: await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 }),
   };
 });
 beforeEach(async () => {
   keysets = {};
   for (const [iss, pair] of Object.entries(pairs))
-    keysets[iss] = [{ ...(await exportJWK(pair.publicKey)), kid: 'k', alg: 'ES384', use: 'sig' }];
+    keysets[iss] = [{ ...(await exportJWK(pair.publicKey)), kid: 'k', alg: 'PS256', use: 'sig' }];
   fetchJwks = vi.fn(async (config: IssuerConfig) => ({ keys: keysets[config.iss] ?? [] }));
   cache = new JwksCache(fetchJwks);
 });
@@ -82,9 +82,9 @@ describe('RFC 8725bis regression: header', () => {
     ['unsecured upper case', 'NONE'],
     ['lower case', 'es384'],
     ['mixed case', 'Es384'],
-    ['trailing space', 'ES384 '],
-    ['leading space', ' ES384'],
-    ['NUL suffix', 'ES384\u0000'],
+    ['trailing space', 'PS256 '],
+    ['leading space', ' PS256'],
+    ['NUL suffix', 'PS256\u0000'],
     ['symmetric confusion', 'HS384'],
     ['other curve', 'ES256'],
     ['other curve', 'ES512'],
@@ -94,8 +94,8 @@ describe('RFC 8725bis regression: header', () => {
     ['null', null],
     ['zero', 0],
     ['boolean', true],
-    ['array', ['ES384']],
-    ['object', { alg: 'ES384' }],
+    ['array', ['PS256']],
+    ['object', { alg: 'PS256' }],
     ['omitted', undefined],
   ])('alg %s (%j) is rejected before any key lookup', async (_label, alg) => {
     const header = alg === undefined ? { typ: 'JWT', kid: 'k' } : { ...HEADER, alg };
@@ -115,7 +115,7 @@ describe('RFC 8725bis regression: header', () => {
     ['omitted', undefined],
     ['129 characters', 'k'.repeat(129)],
   ])('kid %s is rejected before any key lookup', async (_label, kid) => {
-    const header = kid === undefined ? { typ: 'JWT', alg: 'ES384' } : { ...HEADER, kid };
+    const header = kid === undefined ? { typ: 'JWT', alg: 'PS256' } : { ...HEADER, kid };
     await expect(verify(await signed(header, CLAIMS))).rejects.toMatchObject({
       code: 'invalid_header',
     });
@@ -160,7 +160,7 @@ describe('RFC 8725bis regression: header', () => {
     ['null', null],
     ['array', ['JWT']],
   ])('typ %s is rejected before any key lookup', async (_label, typ) => {
-    const header = typ === undefined ? { alg: 'ES384', kid: 'k' } : { ...HEADER, typ };
+    const header = typ === undefined ? { alg: 'PS256', kid: 'k' } : { ...HEADER, typ };
     await expect(verify(await signed(header, CLAIMS))).rejects.toMatchObject({
       code: 'invalid_header',
     });
@@ -168,7 +168,7 @@ describe('RFC 8725bis regression: header', () => {
   });
 
   test.each([
-    ['array', '["JWT","ES384","k"]'],
+    ['array', '["JWT","PS256","k"]'],
     ['string', '"header"'],
     ['number', '1'],
     ['null', 'null'],
@@ -245,7 +245,7 @@ describe('RFC 8725bis regression: issuer and keys', () => {
   });
 
   test.each(['ES256', 'ES512', 'EdDSA', undefined])(
-    'a key published for alg %s is not used for ES384: the whole set is refused',
+    'a key published for alg %s is not used for PS256: the whole set is refused',
     async (alg) => {
       keysets[A] = (keysets[A] ?? []).map(({ alg: _alg, ...key }) => (alg ? { ...key, alg } : key));
       await expect(verify(await signed(HEADER, CLAIMS))).rejects.toMatchObject({

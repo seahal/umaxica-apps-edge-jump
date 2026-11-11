@@ -14,14 +14,14 @@ const { nodes, edges } = JSON.parse(
 const pairs = new Map();
 const publicSets = new Map();
 for (const origin of Object.values(nodes)) {
-  const pair = await generateKeyPair('ES384', { extractable: true });
+  const pair = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
   pairs.set(origin, pair);
   publicSets.set(`${origin}/.well-known/jwks.json`, {
-    keys: [{ ...(await exportJWK(pair.publicKey)), kid: 'issuer', alg: 'ES384', use: 'sig' }],
+    keys: [{ ...(await exportJWK(pair.publicKey)), kid: 'issuer', alg: 'PS256', use: 'sig' }],
   });
 }
 const origin = 'https://jump-next.example';
-const jumpPair = await generateKeyPair('ES384', { extractable: true });
+const jumpPair = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
 const bundle = await build({
   // Fault injection is bundled only by this harness, never by Wrangler.
   // The adapter, crypto, timers and response handling still execute in workerd.
@@ -73,7 +73,7 @@ const options = {
         {
           ...(await exportJWK(jumpPair.publicKey)),
           kid: 'nonproduction-active',
-          alg: 'ES384',
+          alg: 'PS256',
           use: 'sig',
         },
       ],
@@ -104,7 +104,7 @@ const signInput = (src, dst, typ = 'JWT', path = '/receive?state=keep&q=a%20b') 
     dst: 'internal',
     url: `${nodes[dst]}${path}`,
   })
-    .setProtectedHeader({ typ, alg: 'ES384', kid: 'issuer' })
+    .setProtectedHeader({ typ, alg: 'PS256', kid: 'issuer' })
     .sign(pairs.get(nodes[src]).privateKey);
 };
 let runtime;
@@ -126,7 +126,7 @@ try {
       dst: 'internal',
       url: `${nodes[dst]}/receive?state=keep&q=a%20b`,
     })
-      .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'issuer' })
+      .setProtectedHeader({ typ: 'JWT', alg: 'PS256', kid: 'issuer' })
       .sign(pairs.get(nodes[src]).privateKey);
     sampleInput ??= input;
     const response = await runtime.dispatchFetch(`${origin}/?rt=${input}`, {
@@ -142,7 +142,7 @@ try {
     const verified = await jwtVerify(location.searchParams.get('rt'), jumpPair.publicKey, {
       issuer: origin,
       audience: nodes[dst],
-      algorithms: ['ES384'],
+      algorithms: ['PS256'],
     });
     location.searchParams.delete('rt');
     assert.equal(verified.payload.url, location.href);
@@ -184,7 +184,7 @@ try {
       const { payload } = await jwtVerify(location.searchParams.get('rt'), jumpPair.publicKey, {
         issuer: origin,
         audience: nodes[dst],
-        algorithms: ['ES384'],
+        algorithms: ['PS256'],
       });
       location.searchParams.delete('rt');
       assert.equal(location.href, `${nodes[dst]}${path}`);
@@ -283,7 +283,7 @@ try {
     const verified = await jwtVerify(location.searchParams.get('rt'), jumpPair.publicKey, {
       issuer: origin,
       audience: nodes[dst],
-      algorithms: ['ES384'],
+      algorithms: ['PS256'],
     });
     assert.equal(verified.payload.src, nodes[src]);
     tokens.push(location.searchParams.get('rt'));
@@ -328,7 +328,7 @@ try {
   console.log(
     `workerd: issuer JWKS fetches=1 for 3 signed requests; signer imports=${signerImports}; latency_ms=${latencies.join('/')}`,
   );
-  const other = await generateKeyPair('ES384', { extractable: true });
+  const other = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
   /** @type {Array<[string, Record<string, string | boolean>, string, number, string?, boolean?]>} */
   const cases = [
     ['health', {}, '/health.json', 200],
@@ -462,7 +462,7 @@ try {
       issuer: origin,
       audience: nodes[stagingDst],
       typ: 'jump-return+jwt',
-      algorithms: ['ES384'],
+      algorithms: ['PS256'],
     });
   }
   await runtime.dispose();

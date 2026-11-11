@@ -7,10 +7,10 @@ const DESTINATION = 'https://www.umaxica.app';
 const KID = 'cloudflare-active-2026-05';
 
 async function fixture() {
-  const issuerKeys = await generateKeyPair('ES384');
-  const jumpKeys = await generateKeyPair('ES384', { extractable: true });
+  const issuerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+  const jumpKeys = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
   const issuerJwks = {
-    keys: [{ ...(await exportJWK(issuerKeys.publicKey)), kid: 'issuer', alg: 'ES384', use: 'sig' }],
+    keys: [{ ...(await exportJWK(issuerKeys.publicKey)), kid: 'issuer', alg: 'PS256', use: 'sig' }],
   };
   const jwksFetch = vi.fn(async () => Response.json(issuerJwks));
   vi.stubGlobal('fetch', jwksFetch);
@@ -18,7 +18,7 @@ async function fixture() {
     UMAXICA_JUMP_PRIVATE_KEY_PEM: await exportPKCS8(jumpKeys.privateKey),
     UMAXICA_JUMP_PRIVATE_KEY_KID: KID,
     UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({
-      keys: [{ ...(await exportJWK(jumpKeys.publicKey)), kid: KID, alg: 'ES384', use: 'sig' }],
+      keys: [{ ...(await exportJWK(jumpKeys.publicKey)), kid: KID, alg: 'PS256', use: 'sig' }],
     }),
   };
   // A new object per call: workerd does not promise a stable `env` reference.
@@ -44,7 +44,7 @@ async function fixture() {
       dst: 'internal',
       url: `${DESTINATION}/`,
     })
-      .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'issuer' })
+      .setProtectedHeader({ typ: 'JWT', alg: 'PS256', kid: 'issuer' })
       .sign(issuerKeys.privateKey);
     const response = await worker.fetch(
       new Request(`${origin}/?rt=${rt}`, { headers: { 'CF-Connecting-IP': '203.0.113.7' } }),
@@ -56,7 +56,7 @@ async function fixture() {
     return {
       status: response.status,
       iss: outbound
-        ? (await jwtVerify(outbound, jumpKeys.publicKey, { algorithms: ['ES384'] })).payload.iss
+        ? (await jwtVerify(outbound, jumpKeys.publicKey, { algorithms: ['PS256'] })).payload.iss
         : null,
     };
   };

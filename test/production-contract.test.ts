@@ -92,13 +92,13 @@ let jwks: Record<string, unknown[]>;
 beforeAll(async () => {
   jwks = {};
   for (const origin of Object.values(nodes)) {
-    const keys = await generateKeyPair('ES384', { extractable: true });
+    const keys = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
     issuerKeys.set(origin, keys);
     jwks[`${origin}/.well-known/jwks.json`] = [
-      { ...(await exportJWK(keys.publicKey)), kid: 'same-kid', alg: 'ES384', use: 'sig' },
+      { ...(await exportJWK(keys.publicKey)), kid: 'same-kid', alg: 'PS256', use: 'sig' },
     ];
   }
-  jumpKeys = await generateKeyPair('ES384', { extractable: true });
+  jumpKeys = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
   env = {
     UMAXICA_JUMP_ORIGIN: jump,
     UMAXICA_JUMP_ENVIRONMENT: 'production',
@@ -109,7 +109,7 @@ beforeAll(async () => {
         {
           ...(await exportJWK(jumpKeys.publicKey)),
           kid: 'opaque-active',
-          alg: 'ES384',
+          alg: 'PS256',
           use: 'sig',
         },
       ],
@@ -131,7 +131,7 @@ function mockJwks() {
 }
 async function token(payload: Record<string, unknown>, keyOrigin: string = nodes['auth-app-ww']) {
   return new SignJWT(payload)
-    .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'same-kid' })
+    .setProtectedHeader({ typ: 'JWT', alg: 'PS256', kid: 'same-kid' })
     .sign(assertDefined(issuerKeys.get(keyOrigin)).privateKey);
 }
 async function request(
@@ -233,10 +233,10 @@ describe('B: real issuer-specific signatures through Worker adapter', () => {
       {
         issuer: jump,
         audience: nodes[dst],
-        algorithms: ['ES384'],
+        algorithms: ['PS256'],
       },
     );
-    expect(verified.protectedHeader).toEqual({ alg: 'ES384', typ: 'JWT', kid: 'opaque-active' });
+    expect(verified.protectedHeader).toEqual({ alg: 'PS256', typ: 'JWT', kid: 'opaque-active' });
     location.searchParams.delete('rt');
     expect(verified.payload).toMatchObject({
       schema: 1,
@@ -482,9 +482,6 @@ describe('D/F/G/J/K: crypto, URL and configuration boundaries', () => {
     'https://www.umaxica.app/a/%2F/b',
     'https://www.umaxica.app/a/%25/b',
     'https://www.umaxica.app/a%3Bb',
-    'https://www.umaxica.app/sign/out',
-    'https://www.umaxica.app/sign/%6fut',
-    'https://www.umaxica.app/sign/out/',
     'https://www.umaxica.app/a?next=/safe',
     'https://www.umaxica.app/a?redirect_uri=https%3A%2F%2Fexample.com%2Fcb',
 
@@ -505,7 +502,7 @@ describe('D/F/G/J/K: crypto, URL and configuration boundaries', () => {
   test.each([127, 128, 129])('kid length BVA %i', async (length) => {
     const fetch = mockJwks();
     const rt = await new SignJWT(claim())
-      .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'k'.repeat(length) })
+      .setProtectedHeader({ typ: 'JWT', alg: 'PS256', kid: 'k'.repeat(length) })
       .sign(assertDefined(issuerKeys.get(nodes['auth-app-ww'])).privateKey);
     if (length <= 128) {
       const origin = nodes['auth-app-ww'];
@@ -513,7 +510,7 @@ describe('D/F/G/J/K: crypto, URL and configuration boundaries', () => {
         {
           ...(await exportJWK(assertDefined(issuerKeys.get(origin)).publicKey)),
           kid: 'k'.repeat(length),
-          alg: 'ES384',
+          alg: 'PS256',
           use: 'sig',
         },
       ];
@@ -524,7 +521,7 @@ describe('D/F/G/J/K: crypto, URL and configuration boundaries', () => {
         assertDefined(jwks[`${origin}/.well-known/jwks.json`])[0] = {
           ...(await exportJWK(assertDefined(issuerKeys.get(origin)).publicKey)),
           kid: 'same-kid',
-          alg: 'ES384',
+          alg: 'PS256',
           use: 'sig',
         };
       }
@@ -566,7 +563,7 @@ describe('D/F/G/J/K: crypto, URL and configuration boundaries', () => {
       await denied(await request(`/?rt=${encode(root)}.${encode(claim())}.AAAA`));
       await denied(
         await request(
-          `/?rt=${encode({ typ: 'JWT', alg: 'ES384', kid: 'same-kid' })}.${encode(root)}.AAAA`,
+          `/?rt=${encode({ typ: 'JWT', alg: 'PS256', kid: 'same-kid' })}.${encode(root)}.AAAA`,
         ),
       );
       expect(fetch).not.toHaveBeenCalled();
@@ -597,7 +594,7 @@ describe('D/F/G/J/K: crypto, URL and configuration boundaries', () => {
     'explicit %s keyset publishes all keys and signs with active kid',
     async (label) => {
       mockJwks();
-      const other = await generateKeyPair('ES384', { extractable: true });
+      const other = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
       const active = JSON.parse(env.UMAXICA_JUMP_PUBLIC_JWKS as string).keys[0];
       const settings = {
         ...env,
@@ -606,7 +603,7 @@ describe('D/F/G/J/K: crypto, URL and configuration boundaries', () => {
             {
               ...(await exportJWK(other.publicKey)),
               kid: label,
-              alg: 'ES384',
+              alg: 'PS256',
               use: 'sig',
               key_ops: ['verify'],
             },
@@ -636,9 +633,9 @@ describe('D/F/G/J/K: crypto, URL and configuration boundaries', () => {
     if (kind === 'old-only') keys[0].kid = 'retired';
     if (kind === 'duplicate') keys.push({ ...active });
     if (kind === 'private') keys[0].d = 'secret';
-    if (kind === 'curve') keys[0].crv = 'P-256';
+    if (kind === 'curve') keys[0].e = 'Aw';
     if (kind === 'alg') keys[0].alg = 'ES256';
-    if (kind === 'coordinate') keys[0].x = 'invalid';
+    if (kind === 'coordinate') keys[0].n = 'invalid';
     if (kind === 'key_ops') keys[0].key_ops = ['sign'];
     if (kind === 'empty') keys = [];
     await denied(
@@ -651,7 +648,7 @@ describe('D/F/G/J/K: crypto, URL and configuration boundaries', () => {
     );
   });
   test('same kid, different active key fails pair check', async () => {
-    const other = await generateKeyPair('ES384', { extractable: true });
+    const other = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
     await denied(
       await request('/.well-known/jwks.json', {
         ...env,
@@ -791,7 +788,7 @@ describe('F/K: remaining validation partitions', () => {
     parts[0] = Buffer.from(
       JSON.stringify({
         typ: 'JWT',
-        alg: 'ES384',
+        alg: 'PS256',
         kid: 'same-kid',
         [hint]: hint === 'crit' ? [] : 'https://untrusted.example/',
       }),
@@ -802,14 +799,13 @@ describe('F/K: remaining validation partitions', () => {
   });
 });
 
-describe('0.4.0 audited logout path through signed production graph', () => {
+describe('former logout path through signed production graph', () => {
   test.each(edges)('%s -> %s logout policy', async (src, dst) => {
     mockJwks();
     const res = await request(
       `/?rt=${await token({ ...claim(src, dst), url: `${nodes[dst]}/sign/out` }, nodes[src])}`,
     );
-    if (dst === 'palm-app-jp' || dst.startsWith('visa-')) expect(res.status).toBe(302);
-    else await denied(res);
+    expect(res.status).toBe(302);
   });
 });
 
@@ -824,7 +820,7 @@ test.each(['a%5Cb', 'a%5cb', 'a%255Cb', 'a%2Fb', 'a%25b'])(
     const location = new URL(assertDefined(res.headers.get('location')));
     const output = assertDefined(location.searchParams.get('rt'));
     location.searchParams.delete('rt');
-    const { payload } = await jwtVerify(output, jumpKeys.publicKey, { algorithms: ['ES384'] });
+    const { payload } = await jwtVerify(output, jumpKeys.publicKey, { algorithms: ['PS256'] });
     expect(payload.url).toBe(input);
     expect(res.headers.get('location')).toBe(`${input}&rt=${output}`);
     const signed = new URL(payload.url as string);
@@ -856,13 +852,13 @@ test('Visa accepts a published test kid only with its own issuer key', async () 
   const key = assertDefined(issuerKeys.get(origin));
   const uri = `${origin}/.well-known/jwks.json`;
   const previous = jwks[uri];
-  jwks[uri] = [{ ...(await exportJWK(key.publicKey)), kid: 'test-visa', alg: 'ES384', use: 'sig' }];
+  jwks[uri] = [{ ...(await exportJWK(key.publicKey)), kid: 'test-visa', alg: 'PS256', use: 'sig' }];
   try {
     mockJwks();
     const payload = claim('visa-app-ww', 'base-app-ww');
     const sign = (keyOrigin: string) =>
       new SignJWT(payload)
-        .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'test-visa' })
+        .setProtectedHeader({ typ: 'JWT', alg: 'PS256', kid: 'test-visa' })
         .sign(assertDefined(issuerKeys.get(keyOrigin)).privateKey);
     expect((await request(`/?rt=${await sign(origin)}`)).status).toBe(302);
     await denied(await request(`/?rt=${await sign(nodes['visa-org-ww'])}`));

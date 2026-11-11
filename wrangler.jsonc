@@ -28,9 +28,9 @@
     // Selects only the JOSE `typ` pair; production keeps schema-1 `JWT` until
     // the coordinated Rails migration. Missing or unknown values fail closed.
     "UMAXICA_JUMP_ENVIRONMENT": "production",
-    "UMAXICA_JUMP_ORIGIN": "https://jump.umaxica.net",
-    "UMAXICA_JUMP_PRIVATE_KEY_KID": "cloudflare-active-2026-09-12-871e7273",
-    "UMAXICA_JUMP_PUBLIC_JWKS": "{\"keys\":[{\"kty\":\"EC\",\"x\":\"gCxcSIjgAUZeet-kGp1phZ1WbP2Y54pL-Hk5NUGvfEkIAAZhTsB4nk0qPbzBmZSg\",\"y\":\"EQDtyh4VoT-BL3p9y-xccaOj3C-oUIqN_Me33MPxAjSXYYvytDtQi7AV2vSDihup\",\"crv\":\"P-384\",\"kid\":\"cloudflare-active-2026-09-12-871e7273\",\"alg\":\"ES384\",\"use\":\"sig\"}]}"
+    "UMAXICA_JUMP_ORIGIN": "https://jump.umaxica.net"
+    // Configure a new RSA-3072 PS256 key, its kid and public JWKS before deployment.
+    // The retired ES384 key must not be reused.
   },
   "workers_dev": false,
   "routes": [

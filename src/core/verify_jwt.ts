@@ -5,15 +5,14 @@ import { getIssuer } from './registry';
 import type { JwksCache } from './jwks_cache';
 import { JumpError, type InboundJumpClaim, type IssuerRegistry } from './types';
 
-/** The only signature algorithm; never taken from the token. */
-const ALG = 'ES384';
+/** Only PS256 is accepted. */
+const ALG = 'PS256';
 /**
- * Compact serialization bound, checked before any decoding. The largest token
- * the claim bounds below allow (url 2048, jti 128, kid 128 characters) is about
- * 3.8 KiB, so this leaves headroom without letting arbitrary input reach a parser.
+ * Compact serialization bound, checked before any decoding. This overall limit
+ * applies in addition to individual claim bounds and includes the RSA signature.
  */
 export const MAX_TOKEN_LENGTH = 4096;
-const ES384_SIGNATURE_LENGTH = 128;
+
 const MAX_JTI_LENGTH = 128;
 const MAX_URL_LENGTH = 2048;
 export const CLOCK_SKEW_SECONDS = 5;
@@ -55,10 +54,6 @@ export async function verifyJumpJwt(token: string, options: VerifyJumpJwtOptions
   const parts = token.split('.');
   if (parts.length !== 3) throw new JumpError('malformed', 'not compact jwt');
   for (const part of parts) assertBase64Url(part);
-  // ES384 signatures are exactly 96 bytes (r || s), 128 base64url characters.
-  if (String(parts[2]).length !== ES384_SIGNATURE_LENGTH)
-    throw new JumpError('malformed', 'signature length rejected');
-
   const header = decodeJsonObject(String(parts[0]), 'invalid_header');
   for (const name of Object.keys(header)) {
     if (!HEADER_MEMBERS.has(name)) throw new JumpError('invalid_header', 'header member rejected');
@@ -66,6 +61,8 @@ export async function verifyJumpJwt(token: string, options: VerifyJumpJwtOptions
   if (header.typ !== typ) throw new JumpError('invalid_header', 'typ rejected');
   if (header.alg !== ALG) throw new JumpError('invalid_header', 'alg rejected');
   if (!isValidKid(header.kid)) throw new JumpError('invalid_header', 'kid rejected');
+  if (String(parts[2]).length !== 512)
+    throw new JumpError('malformed', 'signature length rejected');
   const kid = header.kid;
 
   // Unverified payload: used only to select a registered issuer, never to

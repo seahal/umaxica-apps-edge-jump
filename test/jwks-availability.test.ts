@@ -28,15 +28,15 @@ function issuerConfig(iss: string): IssuerConfig {
 }
 
 async function publicJwk(pair: Pair, kid: string): Promise<JWK> {
-  return { ...(await exportJWK(pair.publicKey)), kid, alg: 'ES384', use: 'sig' };
+  return { ...(await exportJWK(pair.publicKey)), kid, alg: 'PS256', use: 'sig' };
 }
 
 async function harness() {
   const [current, next, stranger, jumpKeys] = await Promise.all([
-    generateKeyPair('ES384'),
-    generateKeyPair('ES384'),
-    generateKeyPair('ES384'),
-    generateKeyPair('ES384'),
+    generateKeyPair('PS256', { modulusLength: 3072 }),
+    generateKeyPair('PS256', { modulusLength: 3072 }),
+    generateKeyPair('PS256', { modulusLength: 3072 }),
+    generateKeyPair('PS256', { modulusLength: 3072 }),
   ]);
   const registry: IssuerRegistry = { [ISS_A]: issuerConfig(ISS_A), [ISS_B]: issuerConfig(ISS_B) };
   const keysets: Record<string, JWK[]> = {
@@ -75,7 +75,7 @@ async function harness() {
       dst: 'internal',
       url: 'https://docs.example.com/path',
     })
-      .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid })
+      .setProtectedHeader({ typ: 'JWT', alg: 'PS256', kid })
       .sign(pair.privateKey);
   const jump = async (rt: string) => {
     const response = await app.request(`${SERVICE}/?rt=${rt}`);
@@ -274,7 +274,7 @@ describe('issuer JWKS availability semantics', () => {
   });
 
   test('concurrent refreshes share one upstream fetch', async () => {
-    const pair = await generateKeyPair('ES384');
+    const pair = await generateKeyPair('PS256', { modulusLength: 3072 });
     const keys = [await publicJwk(pair, 'kid-1')];
     let release: (value: { keys: JWK[] }) => void = () => {};
     const fetchJwks = vi.fn(
@@ -310,8 +310,8 @@ describe('issuer JWKS availability semantics', () => {
     expect(fetchJwks).toHaveBeenCalledTimes(1);
   });
 
-  test('a fetch that resolves after the deadline neither succeeds nor warms the cache', async () => {
-    const pair = await generateKeyPair('ES384');
+  test('a shared fetch can warm the cache after a caller deadline', async () => {
+    const pair = await generateKeyPair('PS256', { modulusLength: 3072 });
     const keys = [await publicJwk(pair, 'kid-1')];
     let release: (value: { keys: JWK[] }) => void = () => {};
     const fetchJwks = vi.fn(
@@ -328,7 +328,7 @@ describe('issuer JWKS availability semantics', () => {
 
     fetchJwks.mockResolvedValueOnce({ keys });
     await expect(cache.getKey(issuer, 'kid-1')).resolves.toBeDefined();
-    expect(fetchJwks).toHaveBeenCalledTimes(2);
+    expect(fetchJwks).toHaveBeenCalledTimes(1);
   });
 
   test('a request that hits its deadline during the JWKS fetch emits no acceptance', async () => {

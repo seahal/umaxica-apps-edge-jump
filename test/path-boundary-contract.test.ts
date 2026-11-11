@@ -11,7 +11,7 @@ import graph from './fixtures/production-graph.json';
 const SERVICE_ORIGIN = 'https://jump.umaxica.net';
 const NOW = 1_800_000_000;
 const runtime = { edge: 'cloudflare', production: true } as const;
-const denied = [
+const formerLogoutPaths = [
   '/sign/out',
   '/sign/out/',
   '/sign/out.html',
@@ -54,16 +54,16 @@ const allowed = [
   '/oauth/authorize?state=a%5Cb',
   '/oauth/authorize?redirect_uri=https%3A%2F%2Fclient.umaxica.com%2Fa%2F%2Fb&state=a%5Cb&nonce=n%252F',
 ];
-const origins = PATH_DENYLIST.map((rule) => rule.origin);
+const origins = Object.values(graph.nodes);
 let issuerPair: Awaited<ReturnType<typeof generateKeyPair>>;
 let outputPair: Awaited<ReturnType<typeof generateKeyPair>>;
 let jwks: { keys: Awaited<ReturnType<typeof exportJWK>>[] };
 beforeAll(async () => {
-  issuerPair = await generateKeyPair('ES384', { extractable: true });
-  outputPair = await generateKeyPair('ES384', { extractable: true });
+  issuerPair = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
+  outputPair = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
   jwks = {
     keys: [
-      { ...(await exportJWK(issuerPair.publicKey)), alg: 'ES384', use: 'sig', kid: 'path-test' },
+      { ...(await exportJWK(issuerPair.publicKey)), alg: 'PS256', use: 'sig', kid: 'path-test' },
     ],
   };
 });
@@ -98,26 +98,20 @@ function fixture(origin: string) {
       dst: 'internal',
       url: origin + path,
     })
-      .setProtectedHeader({ alg: 'ES384', typ: 'JWT', kid: 'path-test' })
+      .setProtectedHeader({ alg: 'PS256', typ: 'JWT', kid: 'path-test' })
       .sign(issuerPair.privateKey);
     return { response: await app.fetch(new Request(`${SERVICE_ORIGIN}/?rt=${token}`)), token };
   };
   return { request, sign, auditLog, issuer };
 }
 
-test('path denial covers exactly the twelve registered non-Palm origins', () => {
-  expect([...origins].sort()).toEqual(
-    Object.values(graph.nodes)
-      .filter((origin) => origin !== graph.nodes['palm-app-jp'])
-      .sort(),
-  );
-  expect(new Set(origins).size).toBe(12);
-  for (const origin of origins) expect(registry[origin]).toBeDefined();
+test('no route-specific denial remains configured', () => {
+  expect(PATH_DENYLIST).toEqual([]);
 });
 
 describe.each(origins)('path boundary at %s', (origin) => {
-  test.each(denied)('policy itself rejects equivalent route %s', (path) => {
-    expect(() => assertPathAllowed(origin, path)).toThrow();
+  test.each(formerLogoutPaths)('policy allows former logout route %s', (path) => {
+    expect(() => assertPathAllowed(origin, path)).not.toThrow();
   });
   test.each(ambiguous)(
     'syntax rejects ambiguous input %s before normalization hides it',
@@ -127,55 +121,55 @@ describe.each(origins)('path boundary at %s', (origin) => {
       ).toThrow();
     },
   );
-  test.each([...denied, ...ambiguous])(
-    'signed Hono request rejects %s without signing',
+  test.each(ambiguous)('signed Hono request rejects %s without signing', async (path) => {
+    const { request, sign, auditLog } = fixture(origin);
+    const { response, token } = await request(path);
+    expect(response.status).toBe(400);
+    expect(response.headers.get('Location')).toBeNull();
+    expect(sign).not.toHaveBeenCalled();
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(response.headers.get('Referrer-Policy')).toBe('no-referrer');
+    expect(response.headers.get('Content-Security-Policy')).toBeTruthy();
+    expect(response.headers.get('Set-Cookie')).toBeNull();
+    expect(await response.text()).not.toContain(token);
+    expect(auditLog).toHaveBeenCalledWith(
+      expect.objectContaining({ result: 'rejected', reason: 'invalid_url' }),
+    );
+    expect(JSON.stringify(auditLog.mock.calls)).not.toContain(token);
+    expect(JSON.stringify(auditLog.mock.calls)).not.toContain(origin + path);
+  });
+  test.each([...formerLogoutPaths, ...allowed])(
+    'signed Hono request preserves valid target %s',
     async (path) => {
-      const { request, sign, auditLog } = fixture(origin);
-      const { response, token } = await request(path);
-      expect(response.status).toBe(400);
-      expect(response.headers.get('Location')).toBeNull();
-      expect(sign).not.toHaveBeenCalled();
-      expect(response.headers.get('Cache-Control')).toBe('no-store');
-      expect(response.headers.get('Referrer-Policy')).toBe('no-referrer');
-      expect(response.headers.get('Content-Security-Policy')).toBeTruthy();
-      expect(response.headers.get('Set-Cookie')).toBeNull();
-      expect(await response.text()).not.toContain(token);
-      expect(auditLog).toHaveBeenCalledWith(
-        expect.objectContaining({ result: 'rejected', reason: 'invalid_url' }),
+      const { request, sign, issuer } = fixture(origin);
+      const { response } = await request(path);
+      expect(response.status).toBe(302);
+      expect(sign).toHaveBeenCalledTimes(1);
+      const location = new URL(assertDefined(response.headers.get('Location')));
+      expect(location.searchParams.getAll('rt')).toHaveLength(1);
+      const { payload } = await jwtVerify(
+        assertDefined(location.searchParams.get('rt')),
+        outputPair.publicKey,
+        {
+          issuer: SERVICE_ORIGIN,
+          audience: origin,
+          algorithms: ['PS256'],
+          typ: 'JWT',
+          currentDate: new Date(NOW * 1000),
+        },
       );
-      expect(JSON.stringify(auditLog.mock.calls)).not.toContain(token);
-      expect(JSON.stringify(auditLog.mock.calls)).not.toContain(origin + path);
+      location.searchParams.delete('rt');
+      const expected = new URL(origin + path);
+      expected.search = expected.searchParams.toString();
+      expect(location.href).toBe(expected.href);
+      expect(payload.url).toBe(expected.href);
+      expect(payload.src).toBe(issuer.iss);
+      expect(assertDefined(payload.exp) - assertDefined(payload.iat)).toBe(30);
+      expect(payload).toMatchObject({ schema: 1, rpl: 'reuse', dst: 'internal' });
+      for (const name of ['state', 'nonce', 'redirect_uri'])
+        expect(location.searchParams.get(name)).toBe(expected.searchParams.get(name));
     },
   );
-  test.each(allowed)('signed Hono request preserves valid target %s', async (path) => {
-    const { request, sign, issuer } = fixture(origin);
-    const { response } = await request(path);
-    expect(response.status).toBe(302);
-    expect(sign).toHaveBeenCalledTimes(1);
-    const location = new URL(assertDefined(response.headers.get('Location')));
-    expect(location.searchParams.getAll('rt')).toHaveLength(1);
-    const { payload } = await jwtVerify(
-      assertDefined(location.searchParams.get('rt')),
-      outputPair.publicKey,
-      {
-        issuer: SERVICE_ORIGIN,
-        audience: origin,
-        algorithms: ['ES384'],
-        typ: 'JWT',
-        currentDate: new Date(NOW * 1000),
-      },
-    );
-    location.searchParams.delete('rt');
-    const expected = new URL(origin + path);
-    expected.search = expected.searchParams.toString();
-    expect(location.href).toBe(expected.href);
-    expect(payload.url).toBe(expected.href);
-    expect(payload.src).toBe(issuer.iss);
-    expect(assertDefined(payload.exp) - assertDefined(payload.iat)).toBe(30);
-    expect(payload).toMatchObject({ schema: 1, rpl: 'reuse', dst: 'internal' });
-    for (const name of ['state', 'nonce', 'redirect_uri'])
-      expect(location.searchParams.get(name)).toBe(expected.searchParams.get(name));
-  });
 });
 
 test('format suffix matching remains opt-in, case-sensitive at the base path and origin-specific', () => {

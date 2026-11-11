@@ -14,14 +14,13 @@ and its normalized origin must be an allowed edge of the issuer. Only then are
 raw and normalized direct pathnames, origin-specific path rules and transfer
 query controls evaluated. No rule can add an edge. No destination is fetched.
 Accepted targets retain the signed query bytes, fresh outbound
-jti, ES384 and 30-second TTL, followed by one outbound RT and 302.
+jti, PS256 and 30-second TTL, followed by one outbound RT and 302.
 
 Direct pathnames reject empty interior segments, double slashes, raw or encoded
 backslashes/semicolons/controls, malformed percent sequences, encoded slash,
 encoded percent and dot segments (literal or encoded, including mixed forms).
 Trailing slash and UTF-8 paths are otherwise valid. Percent-encoded ordinary
-characters remain permitted; deny rules compare the once-decoded pathname, so
-`/sign/%6fut` cannot evade `/sign/out`. Suspicious input is refused, never repaired.
+characters remain permitted; deny rules compare the once-decoded pathname, without imposing a logout route deny rule. Suspicious input is refused, never repaired.
 This strict pathname syntax is never recursively applied to a query's URL path.
 Existing control and encoding restrictions remain in place for each URL component. Decoded
 backslash rejection applies to the direct pathname, not opaque query values.
@@ -40,15 +39,10 @@ path and its single trailing-slash variant. Subtree rules additionally match onl
 `path/` descendants, never `/foobar` for `/foo`. The root subtree denies every
 path at that exact origin. Invalid modes/settings fail at startup.
 
-The twelve Base, Core, Warp and Auth origins in the fixed graph deny `/sign/out`, its trailing slash and Rails implicit
-format suffixes with or without a terminal slash (for example `.html`, `.json/`,
-`.HTML/`, `.arbitrary/`). The comparison removes one terminal slash from a
-comparison-only value before checking the format suffix; it never rewrites the
-destination. Base paths remain case-sensitive. Descendants such as
-`/sign/out/edit` remain eligible under an exact rule. This denial targets the
-actual Base/Core/Warp GET completion action, which consumes logout notice state
-or continues a browser logout transaction, and Auth forwarding into that action; it is not an assertion of an unauthenticated
-Rails vulnerability. Route and deployment completeness remains a release gate.
+No route-specific path denials are currently configured. The owner retired the
+`/sign/out` denial on 2026-11-12 ahead of a logout redesign. These paths and their
+format variants follow the normal issuer allowlist and URL syntax checks.
+Source-to-self navigation remains prohibited, even if mistakenly allowlisted.
 
 ## Transfer query and domain defense
 
@@ -113,13 +107,6 @@ state/nonce, authorization-code binding and OAuth-client open-redirect defense
 belong to Rails. Its source has exact URI membership and request validation,
 but current runtime, integration, receiver TTL and complete live-route coverage
 are NOT VERIFIED. See the dated evidence and release closure gates.
-
-The inspected Palm GET `/sign/out` only renders a notice after transaction/state
-checks; POST starts logout. It is not included in this denylist. This is based on
-source review, not a claim that all deployed routes have been audited. Current
-Rails Auth helpers explicitly issue RTs to Base `/sign/out`: this legitimate
-logout flow will be refused by the candidate and requires coordinated issuer/
-receiver redesign or a separately proven route contract before release.
 
 The [path boundary design](security/jump-0-4-path-boundary-design.md) records the
 normalization threat, comparison rules, maintenance procedure and independent

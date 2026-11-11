@@ -5,7 +5,7 @@ Cloudflare production is the sole deployed target. Canonical settings:
 | Name                         | Contract                                            |
 | ---------------------------- | --------------------------------------------------- |
 | UMAXICA_JUMP_ORIGIN          | Required canonical HTTPS origin, no trailing slash  |
-| UMAXICA_JUMP_PRIVATE_KEY_PEM | One active ES384 PKCS#8 private secret              |
+| UMAXICA_JUMP_PRIVATE_KEY_PEM | One active PS256 PKCS#8 private secret              |
 | UMAXICA_JUMP_PRIVATE_KEY_KID | One opaque active kid, ≤128 characters              |
 | UMAXICA_JUMP_PUBLIC_JWKS     | Explicit valid public set containing active kid     |
 | JUMP_RATE_LIMITER            | Callable provider binding, 600/60s, namespace520900 |

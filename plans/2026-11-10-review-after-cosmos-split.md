@@ -33,8 +33,9 @@ Recorded in the Cosmos repositories' `adr/secure-jump-link-redirector.md`:
    denylist, return-token issuance, logging.
 2. Re-map approved edges and origin lists to the post-split hosts and repositories; remove or
    deprecate `.com` entries if the `.com` surfaces are retired.
-3. Check the `/sign/out` path denylist entries; the Base sign-out routes they protect were removed
-   from Access.
+3. Completed by owner instruction on 2026-11-12: remove the `/sign/out` path
+   denial ahead of the logout redesign. Keep allowlists and source-to-self
+   rejection; see adr/0008-retire-logout-path-denial.md.
 4. Enforce: destination is never Jump or Away; destination stays within the source's top-level
    domain.
 5. Record findings in this repository's `evidence/` and update its ADRs.
@@ -51,11 +52,10 @@ repositories, amended 2026-11-10 to cover Jump tokens). Jump must follow, with c
 Rails side and this Hono gateway:
 
 1. Prerequisite: the Cosmos signer component and KMS migration (planned after the split).
-2. Jump verifies inbound `rt` with PS256 as well as ES384, selected by `kid` from each issuer's JWKS;
-   Rails' `JumpRtReturnVerifier` does the same for Jump's return tokens.
-3. Issuers switch to PS256 (Rails for `rt`, Jump for return tokens; Jump publishes the new public
-   key in its JWKS first).
-4. Remove ES384 once no unexpired ES384 token can remain (return tokens live at most 30 seconds).
+2. Owner superseded the compatibility rollout: PS256 only, RSA 3072. ES384 is
+   rejected; there is no dual-algorithm transition (2026-11-12).
+3. Rails signs inbound tokens and verifies return tokens with PS256. Jump signs
+   return tokens with PS256; configure new keys before deployment.
 
 Decided (owner, 2026-11-10): Jump's signing key lives in Workers secrets and Jump signs with
 WebCrypto RSA-PSS. The private key is visible to Workers secret administrators; accepted, because

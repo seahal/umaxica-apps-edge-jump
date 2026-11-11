@@ -117,13 +117,14 @@ export class JwksCache {
     } else {
       this.observe?.({ issuer: issuer.iss, result: 'miss' });
     }
-    const loading = this.fetchAndCache(issuer, state, now, signal);
+    // Shared work has its own deadline; callers cancel only their wait.
+    const loading = this.fetchAndCache(issuer, state, now, AbortSignal.timeout(1000)).finally(
+      () => {
+        delete state.inFlight;
+      },
+    );
     state.inFlight = loading;
-    try {
-      return await raceAbort(loading, signal);
-    } finally {
-      delete state.inFlight;
-    }
+    return raceAbort(loading, signal);
   }
 
   private async fetchAndCache(
@@ -133,7 +134,7 @@ export class JwksCache {
     signal?: AbortSignal,
   ): Promise<CachedSet> {
     try {
-      const document = await this.fetchJwks(issuer, signal);
+      const document = await raceAbort(this.fetchJwks(issuer, signal), signal);
       throwIfAborted(signal);
       const keys = await importIssuerJwks(document);
       throwIfAborted(signal);
@@ -143,6 +144,10 @@ export class JwksCache {
       state.set = set;
       return set;
     } catch (error) {
+      if (signal?.aborted) {
+        state.outageUntil = Date.now() + this.negativeTtlMs;
+        throw new JumpError('jwks_unavailable', 'shared jwks fetch timed out');
+      }
       if (error instanceof JumpError && error.code === 'jwks_unavailable') {
         state.outageUntil = now + this.negativeTtlMs;
       } else if (error instanceof JumpError && error.code === 'jwks_bad_gateway') {

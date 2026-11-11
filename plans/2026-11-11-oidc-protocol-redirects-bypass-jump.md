@@ -1,7 +1,8 @@
 # OIDC Protocol Redirects Should Not Pass Through Jump (2026-11-11)
 
-Status: proposal from the Cosmos repositories; not decided. No code has changed here or in Cosmos.
-Owner adjusts and decides in this repository.
+Status: discarded for now by the owner on 2026-11-12. Do not implement this proposal.
+The proposal below is retained for historical context. This decision does not authorize any
+redirect behavior changes.
 
 ## Observed in `umaxica-apps-cosmos-access` (2026-11-11)
 
@@ -29,13 +30,13 @@ Owner adjusts and decides in this repository.
 
 ## Proposal
 
-| Navigation | Today | Proposed |
-| --- | --- | --- |
+| Navigation                                         | Today        | Proposed                                        |
+| -------------------------------------------------- | ------------ | ----------------------------------------------- |
 | Visa -> RP `redirect_uri` (authorization response) | through Jump | direct, exact match against the client registry |
-| Visa -> RP `post_logout_redirect_uri` | through Jump | direct, exact match |
-| RP -> Visa `/oauth/authorize` | varies by RP | direct |
-| Visa <-> Auth inside the OP | through Jump | unchanged for now (invisible to RPs) |
-| Other cross-site navigation | Jump / Away | unchanged |
+| Visa -> RP `post_logout_redirect_uri`              | through Jump | direct, exact match                             |
+| RP -> Visa `/oauth/authorize`                      | varies by RP | direct                                          |
+| Visa <-> Auth inside the OP                        | through Jump | unchanged for now (invisible to RPs)            |
+| Other cross-site navigation                        | Jump / Away  | unchanged                                       |
 
 Safety of the direct path: exact `redirect_uri` and `post_logout_redirect_uri` matching against the
 code-defined client registry, plus `state`, `nonce`, PKCE and `iss`, protect the same thing the

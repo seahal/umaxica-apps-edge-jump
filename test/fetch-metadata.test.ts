@@ -128,8 +128,8 @@ describe('Fetch Metadata classification', () => {
 });
 
 async function harness() {
-  const issuerKeys = await generateKeyPair('ES384');
-  const jumpKeys = await generateKeyPair('ES384');
+  const issuerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+  const jumpKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
   const registry: IssuerRegistry = {
     [ISSUER]: {
       iss: ISSUER,
@@ -138,7 +138,7 @@ async function harness() {
     },
   };
   const fetchJwks = vi.fn(async () => ({
-    keys: [{ ...(await exportJWK(issuerKeys.publicKey)), kid: 'kid-1', alg: 'ES384', use: 'sig' }],
+    keys: [{ ...(await exportJWK(issuerKeys.publicKey)), kid: 'kid-1', alg: 'PS256', use: 'sig' }],
   }));
   const sign = vi.fn((claim: Parameters<JoseOutboundSigner['sign']>[0]) =>
     new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test').sign(claim, 'JWT'),
@@ -165,7 +165,7 @@ async function harness() {
     dst: 'internal',
     url: 'https://docs.example.com/path',
   })
-    .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'kid-1' })
+    .setProtectedHeader({ typ: 'JWT', alg: 'PS256', kid: 'kid-1' })
     .sign(issuerKeys.privateKey);
   return { app, rt, fetchJwks, sign, audit };
 }
@@ -317,12 +317,12 @@ describe('Fetch Metadata policy behind the Cloudflare adapter', () => {
   });
 
   async function adapter(limit: () => Promise<{ success: boolean }>) {
-    const issuerKeys = await generateKeyPair('ES384');
-    const jumpKeys = await generateKeyPair('ES384', { extractable: true });
+    const issuerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+    const jumpKeys = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
     const jwksFetch = vi.fn(async () =>
       Response.json({
         keys: [
-          { ...(await exportJWK(issuerKeys.publicKey)), kid: 'issuer', alg: 'ES384', use: 'sig' },
+          { ...(await exportJWK(issuerKeys.publicKey)), kid: 'issuer', alg: 'PS256', use: 'sig' },
         ],
       }),
     );
@@ -342,7 +342,7 @@ describe('Fetch Metadata policy behind the Cloudflare adapter', () => {
       dst: 'internal',
       url: 'https://www.umaxica.app/',
     })
-      .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'issuer' })
+      .setProtectedHeader({ typ: 'JWT', alg: 'PS256', kid: 'issuer' })
       .sign(issuerKeys.privateKey);
     const env = {
       UMAXICA_JUMP_ORIGIN: ORIGIN,
@@ -352,7 +352,7 @@ describe('Fetch Metadata policy behind the Cloudflare adapter', () => {
       UMAXICA_JUMP_PRIVATE_KEY_KID: 'active',
       UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({
         keys: [
-          { ...(await exportJWK(jumpKeys.publicKey)), kid: 'active', alg: 'ES384', use: 'sig' },
+          { ...(await exportJWK(jumpKeys.publicKey)), kid: 'active', alg: 'PS256', use: 'sig' },
         ],
       }),
     };

@@ -3,7 +3,7 @@
   "schema": 1,
   "header": {
     "typ": "JWT",
-    "alg": "ES384",
+    "alg": "PS256",
     "kid_max_length": 128
   },
   "required_claims": [

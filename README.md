@@ -90,7 +90,10 @@ Read [protocol](docs/protocol.md), [receiver obligations](docs/receiver-contract
 
 ## Requirements
 
-Node `24.20.0` and pnpm `12.0.0`, as pinned in `package.json`. Other pnpm
+Use `mise trust` once in this repository, then `mise install` to install
+the tools pinned in `mise.toml`.
+
+Node `26.13.1` and pnpm `12.0.0`, as pinned in `package.json`. Other pnpm
 versions stop with `ERR_PNPM_BAD_PM_VERSION`.
 
 ## Checks
@@ -112,7 +115,7 @@ and Worker tests use nonproduction generated keys and the production validation
 rules. `test:worker` runs the built Worker under local workerd (Miniflare)
 against the production origin graph.
 
-Generate a nonproduction ES384 key pair into a new empty directory with
+Generate a nonproduction PS256 key pair into a new empty directory with
 `pnpm run keys:generate -- <directory> [kid]`.
 
 ## Deployment Verification
@@ -155,7 +158,7 @@ an approved edge. Nothing in the request can widen that decision.
 
 ### Signature and key handling
 
-- Only `ES384`, a `kid` of 1–128 characters without control characters, and
+- Only `PS256`, a `kid` of 1–128 characters without control characters, and
   the deployment's exact `typ` are accepted: `JWT` in production,
   `jump-request+jwt` in staging (outbound `jump-return+jwt`). The protected
   header may contain only `alg`, `kid` and `typ`; the claim set is closed.
@@ -163,11 +166,11 @@ an approved edge. Nothing in the request can widen that decision.
 - Each issuer's JWKS URL is fixed at `<origin>/.well-known/jwks.json`. No token
   value ever selects a network destination. JWKS fetches bypass caches, refuse
   redirects and non-200 answers, accept only JWK Set or JSON media types, and
-  stop reading at 64 KiB. A set must hold 1–4 ES384/P-384 `use: sig` keys or it
+  stop reading at 64 KiB. A set must hold 1–4 PS256/RSA-3072 `use: sig` keys or it
   is refused whole.
 - Unverified decoding is used only for shape checks and key lookup. No
   authorization decision precedes signature verification.
-- The Jump signing key is one active ES384 private key with an explicit public
+- The Jump signing key is one active PS256 private key with an explicit public
   JWKS. Public keysets containing private fields are rejected, the active pair
   is probe-checked, and missing or alias-only configuration fails with `503`.
 

@@ -97,8 +97,8 @@ describe('public error contract', () => {
   });
 
   test('different internal reasons in the same class produce identical public responses', async () => {
-    const issuerKeys = await generateKeyPair('ES384');
-    const jumpKeys = await generateKeyPair('ES384');
+    const issuerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+    const jumpKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
     const jwk = await exportJWK(issuerKeys.publicKey);
     const registry: IssuerRegistry = {
       'https://app.example.com': {
@@ -110,7 +110,7 @@ describe('public error contract', () => {
     const app = createApp({
       registry,
       jwksCache: new JwksCache(async () => ({
-        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
+        keys: [{ ...jwk, kid: 'kid-1', alg: 'PS256', use: 'sig' }],
       })),
       runtime: { edge: 'cloudflare', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
@@ -135,8 +135,8 @@ describe('public error contract', () => {
   });
 
   test('JWKS outage and an invalid JWT differ in status and public class', async () => {
-    const issuerKeys = await generateKeyPair('ES384');
-    const jumpKeys = await generateKeyPair('ES384');
+    const issuerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+    const jumpKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
     const registry: IssuerRegistry = {
       'https://app.example.com': {
         iss: 'https://app.example.com',
@@ -202,8 +202,8 @@ describe('structured security log allowlist', () => {
 
 describe('stateless jump contract', () => {
   test('explicit independent production app instances agree for one token', async () => {
-    const issuerKeys = await generateKeyPair('ES384');
-    const jumpKeys = await generateKeyPair('ES384');
+    const issuerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+    const jumpKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
     const jwk = await exportJWK(issuerKeys.publicKey);
     const shared = {
       registry: {
@@ -214,7 +214,7 @@ describe('stateless jump contract', () => {
         },
       },
       jwksCache: new JwksCache(async () => ({
-        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
+        keys: [{ ...jwk, kid: 'kid-1', alg: 'PS256', use: 'sig' }],
       })),
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       now: () => NOW,
@@ -236,8 +236,8 @@ describe('stateless jump contract', () => {
   });
 
   test('repeated evaluation of a valid token stays accepted', async () => {
-    const issuerKeys = await generateKeyPair('ES384');
-    const jumpKeys = await generateKeyPair('ES384');
+    const issuerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+    const jumpKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
     const jwk = await exportJWK(issuerKeys.publicKey);
     const app = createApp({
       registry: {
@@ -248,7 +248,7 @@ describe('stateless jump contract', () => {
         },
       },
       jwksCache: new JwksCache(async () => ({
-        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
+        keys: [{ ...jwk, kid: 'kid-1', alg: 'PS256', use: 'sig' }],
       })),
       runtime: { edge: 'cloudflare', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
@@ -395,6 +395,6 @@ describe('canonical origin is not request Host', () => {
 async function sign(privateKey: CryptoKey, claim: InboundJumpClaim) {
   const { SignJWT } = await import('jose');
   return new SignJWT({ ...claim })
-    .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'kid-1' })
+    .setProtectedHeader({ typ: 'JWT', alg: 'PS256', kid: 'kid-1' })
     .sign(privateKey);
 }

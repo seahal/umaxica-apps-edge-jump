@@ -19,7 +19,7 @@ then seek rollout approval. No typ production migration is included.
 
 ## Earlier 0.3.0 baseline
 
-Baseline service 0.3.0 retains JWT schema 1, JWT typ and ES384/P-384. Requiring exact
+The current contract retains JWT schema 1 and JWT typ, and requires PS256/RSA-3072. ES384 is rejected without compatibility support. Requiring exact
 string `rpl: "reuse"` was introduced by 0.2 as an approved intentional acceptance tightening. Missing,
 null, once, case variants and other types are rejected. 13 issuers/20 edges replace
 the earlier Auth/Base-only registry, old Palm and Edit destinations.
@@ -118,7 +118,7 @@ must be accepted by issuers and receivers before production is redeployed (see
   set; integer NumericDates (fractions are no longer accepted); `jti` ≤128
   printable ASCII; `url` ≤2048 characters.
 - Issuer JWKS: status 200 only; `application/jwk-set+json` or `application/json`
-  with at most `charset=utf-8`; 1–4 keys, every key ES384/P-384 with `use: sig`
+  with at most `charset=utf-8`; 1–4 keys, every key PS256/RSA-3072 with `use: sig`
   (absent `use` is no longer accepted) or the whole set is refused.
 - `dst: external` is refused for every issuer (ADR 0007 runtime phase).
 - Production `wrangler.jsonc` gains `UMAXICA_JUMP_ENVIRONMENT=production`; a

@@ -18,11 +18,11 @@ vi.mock('jose', async (importOriginal) => {
 const KID = 'cloudflare-active-2026-05';
 
 async function keyMaterial() {
-  const keys = await generateKeyPair('ES384', { extractable: true });
+  const keys = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
   const jwk = await exportJWK(keys.publicKey);
   return {
     pem: await exportPKCS8(keys.privateKey),
-    publicJwk: { ...jwk, kid: KID, alg: 'ES384', use: 'sig' } as JWK,
+    publicJwk: { ...jwk, kid: KID, alg: 'PS256', use: 'sig' } as JWK,
   };
 }
 

@@ -1,30 +1,27 @@
 {
   "keys": [
     {
-      "kty": "EC",
-      "x": "BtkYYRagLOFvW3uH7LpJ78VIKIWvs5hOty9Pa8ASxEHsFZeRQOowYxp5MLkKz8eM",
-      "y": "Gt_-EqyrGPswB55MZTCr13i0lToeBtQu0eCw5SBZP08sAknprDxdzh73RZrXWspk",
-      "crv": "P-384",
+      "kty": "RSA",
+      "n": "xI3g1PD_0ahpQZ5GwnaWMvZ3L_7BGkTnGlyO639NKHwupigLu3v6VOrOWq79X_GNiNVVxu3m9Nf3MLsBFjN56s1QSec3SCJbUjEI_P8oHAYf-fZEL2fRTAS0hkv6WlZgVPrrKgpQquZypME9F1uGrP6j8nM-BdvDwtAGqAReFeALi3YdPoiH1XS9Hp3PS8KxpRq9UOlfGFQlMcx02Mlh8tAGvdvlDd-YtUtn2CgzuHyl5WCRlvVKYtpcytORQuGs95tdJGHlVgT1lYXn2nuyfnSVtY5chT6Oci6XVh_cN7GGvVBs_FYOryQFGOCZPKONRyqaTaM52pEx_Ss23-DdAJE-ZIPsyC5l6pl-84WM_0hXsJvf1GvyJJMuF09vy7MCpY_zbWIp2rdXiBqNo7gBi1TfMxfgmE5YfodmwLrcZgbBQ0mt-s5qba5AA4zvcnkrQWM2HW15pmxk0Kd1ZtFxyrKsKOHAcfOamvE4i2bmgaI8YKLqeJ3mkaG5eNFcXmfR",
+      "e": "AQAB",
       "kid": "fastly-active-2026-05",
-      "alg": "ES384",
+      "alg": "PS256",
       "use": "sig"
     },
     {
-      "kty": "EC",
-      "x": "aVliHGIbfzOCH-_OHcko1TQuiVyBfpfcUdisWC_EvsEYSC3F5AVqxN-R6GgK6fnY",
-      "y": "mGwfPjzHLy_YedTy5EvmLD5VJC4TDhBQiVwoxlwRoPVEX_i86QB3e5RdgwwRBVux",
-      "crv": "P-384",
+      "kty": "RSA",
+      "n": "hh9sWdKjX1ADaM0buPR9YKfnQCzH9LVL68KlllUAC2AKrwsfouin39k_JSdslL5QRVywYYpsXwzpjzkV7BCpiP5975B9Coj0XMG3XF1DC8rseKVkOypsjNBkT9APuTlUKRBSCgPsTwoquUPMXPpFV_FVw12Iy920U2w0TjOlU3FA4eU6Hs08EfE2RK-KyRyyaDcymxYaFYuxKNg4wHEFR9SeXLIVj33iRALsI8gcSTxu4V0F4DaXVvVY-ufn9X2v9CfAJfU22EL01Bl8hHmiZv0d9cVPjo4uNv-CX_QUtiBbbaUPiYlF56MGVRHrCbsqqN6ClIQNUMfyoP5c_kNY4895bWnTXTiHQrfsPmmutx5bxWQRmf1xPZcXRks-xx_XdYsb7ihdv8E22YrPx1obhTEhZMmPp1Mw6ZrULkdzJEhAXyXGfKQnGxWUb1wjCQlbihe9pCf_bI0eg_23Mb3eoXmNtD2u1J-gqpp5ZeXxkCH6BX0h_EZ9yE9r9-zrGsDN",
+      "e": "AQAB",
       "kid": "cloudflare-active-2026-05",
-      "alg": "ES384",
+      "alg": "PS256",
       "use": "sig"
     },
     {
-      "kty": "EC",
-      "x": "XnzK4c8KL_Vxj7H4nkOCC3AhGj9Pwm7HqjpGxMhvaxs7QZ39MNGkBJWiQspJ8pcl",
-      "y": "78Ufg8ii8qbCjkPUotWNdoqd0tnORZ-GRvVZ5_xJacc7DsfNn9r-QolC9VVkn-Pd",
-      "crv": "P-384",
+      "kty": "RSA",
+      "n": "sgvXTxlXd3ieio8yz2gZwxpeU74Yyh9p7wbIqFYgvpOpzHecLHdobNLqJ--TZJJ7b07GCb-qce12F3aDzSqeSMOkqh8-WX158AMYHuoY3-cVgDPMjKH3X6VnrSWH-FXoLlhLaTusOqDnMcqzYjBTBqEEiSe_T3GXtmdnfrF-ydq2lXIaNim0cj7-vkqsqEtW7v9_Ez8TNqYyR1HT6h5z8ySp7n0ZKlNaA-yRhU8LeQMFFoSeYU01PfrE6DlBoiTVCQLMeNJvNocjEZ2Ffz48OfBq2NubV9VotxGyXqS4rc84n4FagROaf29BZM4HZ4rV_wu3pEsrgCAAkctilE3SSlXjdjeTk9sud6uGPdIrfjM7Si3a_WMeQ1s24X0897h0rW6qdX5R-cVESgvbCDDhkGcVwlRMv_uGMUGIq3UVz1dBORY-SQM-8Cn_yJ7KIyPTbnV5zkiubuiQWcbui-TmJSP0rSamw6_atdI9Yo6gFrrj5dWv7-5cntUyROMaoCPn",
+      "e": "AQAB",
       "kid": "fastly-grace-2026-04",
-      "alg": "ES384",
+      "alg": "PS256",
       "use": "sig"
     }
   ]

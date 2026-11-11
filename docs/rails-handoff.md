@@ -41,7 +41,7 @@ migration is scheduled. Requested:
 
 ## 3. Request token shape
 
-- Protected header: exactly `alg: ES384`, `kid`, `typ`. Any other member is
+- Protected header: exactly `alg: PS256`, `kid`, `typ`. Any other member is
   refused.
 - Claims: exactly `schema` (1), `rpl` (`reuse`), `iss`, `aud` (string, Jump
   origin), `sub` (`jump-redirect`), `iat`, `nbf`, `exp`, `jti`, `dst`
@@ -59,7 +59,7 @@ Confirm each, or report what differs.
   `application/json` (optionally `; charset=utf-8`). Any other type, parameter,
   status (including 204 and 3xx) or a body over 64 KiB is an unusable document;
   5xx and 429 are treated as temporary outages.
-- Publish 1–4 keys, each `kty: EC`, `crv: P-384`, `alg: ES384`, `use: sig`,
+- Publish 1–4 keys, each `kty: RSA`, `e: AQAB`, `alg: PS256`, `use: sig`,
   unique `kid` of 1–128 characters without control characters. A key that does
   not match (other algorithms, `use: enc`, absent `use`) refuses the whole set,
   so an issuer JWKS used for other purposes must be split.

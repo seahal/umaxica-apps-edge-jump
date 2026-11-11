@@ -34,8 +34,8 @@ function listen(server: Server, host: string) {
 }
 
 test.beforeAll(async () => {
-  issuerKeys = await generateKeyPair('ES384');
-  const jumpKeys = await generateKeyPair('ES384');
+  issuerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+  const jumpKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
   const app = createApp({
     registry: {
       [ISSUER]: {
@@ -45,7 +45,7 @@ test.beforeAll(async () => {
       },
     },
     fetchJwks: async () => ({
-      keys: [{ ...(await exportJWK(issuerKeys.publicKey)), kid: 'k', alg: 'ES384', use: 'sig' }],
+      keys: [{ ...(await exportJWK(issuerKeys.publicKey)), kid: 'k', alg: 'PS256', use: 'sig' }],
     }),
     config: { serviceOrigin: JUMP, environment: 'staging' },
     signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump'),
@@ -105,7 +105,7 @@ async function setup(page: Page) {
       dst: 'internal',
       url: `${DESTINATION}/arrived`,
     })
-      .setProtectedHeader({ typ: 'jump-request+jwt', alg: 'ES384', kid: 'k' })
+      .setProtectedHeader({ typ: 'jump-request+jwt', alg: 'PS256', kid: 'k' })
       .sign(issuerKeys.privateKey);
   };
   const jumpUrl = async () => `${jumpBase}/?rt=${await token()}`;
@@ -217,4 +217,15 @@ test.describe('browser navigation matrix on /?rt=', () => {
     for (const entry of seen) expect(entry).toMatchObject({ status: 400 });
     test.info().annotations.push({ type: 'prerender requests', description: JSON.stringify(seen) });
   });
+});
+
+test('bare entry reaches About while invalid tokens remain on an error page', async ({ page }) => {
+  await page.goto(`${jumpBase}/`);
+  await expect(page).toHaveURL(`${jumpBase}/about`);
+  for (const token of ['', 'abc.def', 'a.b.c']) {
+    const response = await page.goto(`${jumpBase}/?rt=${token}`);
+    expect(response?.status()).toBe(400);
+    expect(response?.headers()['location']).toBeUndefined();
+    await expect(page).toHaveURL(`${jumpBase}/?rt=${token}`);
+  }
 });

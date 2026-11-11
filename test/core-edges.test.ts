@@ -34,7 +34,7 @@ function deps(overrides: Partial<JumpDeps> = {}): JumpDeps {
 }
 
 async function signedToken() {
-  const keys = await generateKeyPair('ES384');
+  const keys = await generateKeyPair('PS256', { modulusLength: 3072 });
   const jwk = await exportJWK(keys.publicKey);
   const now = Math.floor(Date.now() / 1000);
   const token = await new SignJWT({
@@ -50,10 +50,10 @@ async function signedToken() {
     dst: 'internal',
     url: 'https://docs.example.com/path',
   })
-    .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'kid-1' })
+    .setProtectedHeader({ typ: 'JWT', alg: 'PS256', kid: 'kid-1' })
     .sign(keys.privateKey);
   const jwksCache = new JwksCache(async () => ({
-    keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
+    keys: [{ ...jwk, kid: 'kid-1', alg: 'PS256', use: 'sig' }],
   }));
   return { token, jwksCache };
 }
@@ -160,7 +160,7 @@ describe('jump jwks validation', () => {
     kty: 'EC',
     crv: 'P-384',
     kid: 'k',
-    alg: 'ES384',
+    alg: 'PS256',
     use: 'sig',
     x: 'A'.repeat(64),
     y: 'A'.repeat(64),
@@ -180,9 +180,9 @@ describe('jwks cache bounded state', () => {
   const keyset = async () => ({
     keys: [
       {
-        ...(await exportJWK((await generateKeyPair('ES384')).publicKey)),
+        ...(await exportJWK((await generateKeyPair('PS256', { modulusLength: 3072 })).publicKey)),
         kid: 'known',
-        alg: 'ES384',
+        alg: 'PS256',
         use: 'sig',
       },
     ],

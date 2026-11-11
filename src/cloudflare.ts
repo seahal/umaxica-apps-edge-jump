@@ -385,9 +385,9 @@ async function loadKeyMaterial(
   }
   let privateKey: Parameters<SignJWT['sign']>[0];
   try {
-    privateKey = await raceAbort(importPKCS8(pem, 'ES384', { extractable: false }), signal);
+    privateKey = await raceAbort(importPKCS8(pem, 'PS256', { extractable: false }), signal);
     // Every public key must import; only the active one is pair checked.
-    await raceAbort(Promise.all(jwks.keys.map((key) => importJWK(key, 'ES384'))), signal);
+    await raceAbort(Promise.all(jwks.keys.map((key) => importJWK(key, 'PS256'))), signal);
   } catch {
     throwIfAborted(signal);
     logSignerUnavailable({ ...context, reason: 'key_import_failed' });
@@ -476,10 +476,10 @@ async function assertPrivateKeyMatchesPublicJwk(
 ) {
   const now = Math.floor(Date.now() / 1000);
   const token = await new SignJWT({ probe: true, iat: now })
-    .setProtectedHeader({ typ: 'jump-key-pair-probe', alg: 'ES384', kid })
+    .setProtectedHeader({ typ: 'jump-key-pair-probe', alg: 'PS256', kid })
     .sign(privateKey);
-  await jwtVerify(token, await importJWK(publicJwk, 'ES384'), {
-    algorithms: ['ES384'],
+  await jwtVerify(token, await importJWK(publicJwk, 'PS256'), {
+    algorithms: ['PS256'],
     typ: 'jump-key-pair-probe',
     currentDate: new Date(now * 1000),
   });

@@ -9,7 +9,6 @@ export const MAX_ISSUER_JWKS_KEYS = 4;
 const MAX_KID_LENGTH = 128;
 
 const PRIVATE_JWK_FIELDS = ['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k'] as const;
-const P384_COORDINATE = /^[A-Za-z0-9_-]{64}$/;
 
 export type IssuerKeys = ReadonlyMap<string, CryptoKey>;
 
@@ -35,10 +34,9 @@ export function hasControlCharacter(value: string) {
 /**
  * Validates a fetched issuer JWK Set and imports every key.
  *
- * The set is accepted whole or not at all: every entry must be an ES384
- * signature verification key over P-384 whose coordinates import as a curve
- * point. Only `kty`, `crv`, `x` and `y` reach the importer, so remote-reference
- * or certificate members (`x5u`, `x5c`, `jku`, ...) are never dereferenced.
+ * The set is accepted whole or not at all: every entry must be a supported
+ * PS256/RSA-3072 verification key. Only public key parameters
+ * reach the importer; remote references are never dereferenced.
  */
 export async function importIssuerJwks(value: unknown): Promise<IssuerKeys> {
   if (!isRecord(value) || !Array.isArray(value.keys)) throw rejected('jwks shape rejected');
@@ -51,15 +49,9 @@ export async function importIssuerJwks(value: unknown): Promise<IssuerKeys> {
     if (PRIVATE_JWK_FIELDS.some((field) => Object.hasOwn(entry, field)))
       throw rejected('private jwk material rejected');
     if (
-      entry.kty !== 'EC' ||
-      entry.crv !== 'P-384' ||
-      entry.alg !== 'ES384' ||
+      !isSupportedPublicKey(entry) ||
       entry.use !== 'sig' ||
       !isValidKid(entry.kid) ||
-      typeof entry.x !== 'string' ||
-      !P384_COORDINATE.test(entry.x) ||
-      typeof entry.y !== 'string' ||
-      !P384_COORDINATE.test(entry.y) ||
       (entry.key_ops !== undefined &&
         (!Array.isArray(entry.key_ops) ||
           entry.key_ops.length !== 1 ||
@@ -70,8 +62,8 @@ export async function importIssuerJwks(value: unknown): Promise<IssuerKeys> {
     let key: CryptoKey;
     try {
       key = (await importJWK(
-        { kty: 'EC', crv: 'P-384', x: entry.x, y: entry.y },
-        'ES384',
+        { kty: 'RSA', n: entry.n as string, e: entry.e as string },
+        'PS256',
       )) as CryptoKey;
     } catch {
       throw rejected('jwk import rejected');
@@ -87,4 +79,17 @@ function rejected(message: string) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** RSA-3072 with exponent 65537; no legacy algorithms. */
+export function isSupportedPublicKey(value: Record<string, unknown>): boolean {
+  if (
+    value.alg !== 'PS256' ||
+    value.kty !== 'RSA' ||
+    value.e !== 'AQAB' ||
+    typeof value.n !== 'string' ||
+    !/^[A-Za-z0-9_-]{512}$/.test(value.n)
+  )
+    return false;
+  return (atob(value.n.replaceAll('-', '+').replaceAll('_', '/')).charCodeAt(0) & 128) !== 0;
 }

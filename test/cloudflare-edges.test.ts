@@ -5,11 +5,11 @@ import worker, { resetIsolateCachesForTest, type CloudflareEnv } from '../src/cl
 const ORIGIN = 'https://jump.example.net';
 
 async function keyPair(kid: string) {
-  const keys = await generateKeyPair('ES384', { extractable: true });
+  const keys = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
   return {
     kid,
     pem: await exportPKCS8(keys.privateKey),
-    jwk: { ...(await exportJWK(keys.publicKey)), kid, alg: 'ES384', use: 'sig' },
+    jwk: { ...(await exportJWK(keys.publicKey)), kid, alg: 'PS256', use: 'sig' },
   };
 }
 

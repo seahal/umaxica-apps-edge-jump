@@ -64,7 +64,7 @@ RailsコンテナはPodmanのread-only runtimeエラーで利用できず、Rail
 監査対象codecの条件に合わせると、ヘッダーは次の形となる。
 
 ```json
-{ "typ": "JWT", "alg": "ES384", "kid": "unknown-key-0001" }
+{ "typ": "JWT", "alg": "PS256", "kid": "unknown-key-0001" }
 ```
 
 payloadは解析可能なJSON object、署名部分は形式上解析できる無効な値とする。

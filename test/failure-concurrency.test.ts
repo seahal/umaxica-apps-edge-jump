@@ -35,13 +35,17 @@ describe('K: cancellation and isolated caches', () => {
       fetch.mockRestore();
     }
   });
-  test('one cancelled single-flight fails closed for waiters then recovers', async () => {
-    const pair = await generateKeyPair('ES384');
-    const keys = [{ ...(await exportJWK(pair.publicKey)), kid: 'k', alg: 'ES384', use: 'sig' }];
+  test('one cancelled caller leaves the shared fetch available to waiters', async () => {
+    const pair = await generateKeyPair('PS256', { modulusLength: 3072 });
+    const keys = [{ ...(await exportJWK(pair.publicKey)), kid: 'k', alg: 'PS256', use: 'sig' }];
     let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const cache = new JwksCache(async (_, signal) => {
       calls++;
-      if (calls === 1) await raceAbort(new Promise(() => {}), signal);
+      await raceAbort(gate, signal);
       return { keys };
     });
     const first = new AbortController();
@@ -49,14 +53,24 @@ describe('K: cancellation and isolated caches', () => {
     const other = cache.getKey(issuer, 'k');
     first.abort();
     await expect(waiting).rejects.toMatchObject({ code: 'deadline_exceeded' });
-    await expect(other).rejects.toMatchObject({ code: 'deadline_exceeded' });
+    const later = cache.getKey(issuer, 'k');
+    release();
+    await expect(other).resolves.toBeDefined();
+    await expect(later).resolves.toBeDefined();
     await expect(cache.getKey(issuer, 'k')).resolves.toBeDefined();
-    expect(calls).toBe(2);
+    expect(calls).toBe(1);
+  });
+  test('shared fetching has an independent deadline and caches upstream timeouts', async () => {
+    const fetch = vi.fn(async () => new Promise<unknown>(() => {}));
+    const cache = new JwksCache(fetch);
+    await expect(cache.getKey(issuer, 'k')).rejects.toMatchObject({ code: 'jwks_unavailable' });
+    await expect(cache.getKey(issuer, 'k')).rejects.toMatchObject({ code: 'jwks_unavailable' });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
   test('a revoked kid is rejected before a warm key is used', async () => {
-    const pair = await generateKeyPair('ES384');
+    const pair = await generateKeyPair('PS256', { modulusLength: 3072 });
     const fetch = vi.fn(async () => ({
-      keys: [{ ...(await exportJWK(pair.publicKey)), kid: 'k', alg: 'ES384', use: 'sig' }],
+      keys: [{ ...(await exportJWK(pair.publicKey)), kid: 'k', alg: 'PS256', use: 'sig' }],
     }));
     const cache = new JwksCache(fetch);
     await cache.getKey(issuer, 'k');
@@ -66,13 +80,13 @@ describe('K: cancellation and isolated caches', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
   test('same issuer/kid in independent keyset caches does not mix', async () => {
-    const a = await generateKeyPair('ES384');
-    const b = await generateKeyPair('ES384');
+    const a = await generateKeyPair('PS256', { modulusLength: 3072 });
+    const b = await generateKeyPair('PS256', { modulusLength: 3072 });
     const caches = await Promise.all(
       [a, b].map(
         async (pair) =>
           new JwksCache(async () => ({
-            keys: [{ ...(await exportJWK(pair.publicKey)), kid: 'same', alg: 'ES384', use: 'sig' }],
+            keys: [{ ...(await exportJWK(pair.publicKey)), kid: 'same', alg: 'PS256', use: 'sig' }],
           })),
       ),
     );

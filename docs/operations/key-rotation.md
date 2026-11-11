@@ -25,10 +25,10 @@ go directly to [Emergency: a private key may be compromised](#emergency-a-privat
 
 ## How the keys are created
 
-Generate a new P-384 key pair on a trusted offline machine:
+Generate a new RSA-3072 key pair on a trusted offline machine:
 
 ```text
-New P-384 key pair
+New RSA-3072 key pair
   ├── private key → UMAXICA_JUMP_PRIVATE_KEY_PEM
   └── public JWK → merge into UMAXICA_JUMP_PUBLIC_JWKS
 
@@ -39,8 +39,8 @@ The generator writes the private key and its matching public key together.
 The Worker does not derive a public key from its private secret. A public key
 cannot be used to recover the private key.
 
-Every public JWK must have `kty=EC`, `crv=P-384`, `alg=ES384`, `use=sig`, a unique
-nonempty `kid` of at most 128 characters, and valid public coordinates `x` and `y`.
+Every public JWK must have `kty=RSA`, `e=AQAB`, `alg=PS256`, `use=sig`, a unique
+nonempty `kid` of at most 128 characters, and a 3072-bit public modulus `n` and exponent `e=AQAB`.
 If `key_ops` is present, it must be exactly `["verify"]`. Private fields `d`, `p`,
 `q`, `dp`, `dq`, `qi`, `oth`, and `k` are rejected. Duplicate key IDs are rejected.
 Never put new key material under an old key ID.
@@ -106,7 +106,7 @@ keeps the output outside the repository.
 | `public-jwks.json`      | B's public JWK only                                  | Input for the merge in Phase 1                  |
 | `wrangler-secrets.json` | B's private PEM under `UMAXICA_JUMP_PRIVATE_KEY_PEM` | Secret; not a complete deployment configuration |
 
-Check the generator's result: `result=ok`, `algorithm=ES384`, `curve=P-384`,
+Check the generator's result: `result=ok`, `algorithm=PS256`, `modulus_bits=3072`,
 `pair_check_ok=true`, and the intended `kid`. Check the key ID against your key
 inventory; the generator does not know which IDs production has used before.
 
@@ -148,7 +148,7 @@ Protect B's private key from the moment it is generated.
    one at a time. Confirm the deployed version ID and traffic assignment.
 3. Confirm that the Worker's private/public pair check passes.
 4. Obtain a new RT through an approved test flow. Check that its header has
-   `alg=ES384` and `kid=B`. Confirm that each receiver verifies and accepts a B token.
+   `alg=PS256` and `kid=B`. Confirm that each receiver verifies and accepts a B token.
    Reading the header alone is not signature verification.
 5. Confirm that the public JWKS still contains A and B. During the overlap,
    confirm that an otherwise valid, unexpired A token remains verifiable.

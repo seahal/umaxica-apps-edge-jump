@@ -63,7 +63,7 @@ Preserve the 13-node production graph: 20 permitted edges and 149 denied ordered
 pairs. Existing production contracts are the baseline, not token byte snapshots.
 
 Verify 302 and Location origin/path/query semantics, exactly one outbound RT,
-ES384 signature/header, exact required claims, issuer/audience/source/destination,
+PS256 signature/header, exact required claims, issuer/audience/source/destination,
 canonical URL binding, schema 1, required dst, 30-second TTL and fresh jti.
 Timestamps and jti can vary without changing the contract.
 

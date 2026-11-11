@@ -55,29 +55,9 @@ export function validatePathRules(rules: readonly PathRule[]): readonly PathRule
   );
 }
 
-// Audited Base/Core/Warp GET completion consumes logout state; Auth re-forwards to Base. Callback and authorize
-// endpoints are deliberately not blanket-denied: they need owner integration proof.
-export const PATH_DENYLIST = validatePathRules(
-  [
-    'https://www.umaxica.app',
-    'https://www.umaxica.com',
-    'https://www.umaxica.org',
-    'https://jp.umaxica.app',
-    'https://jp.umaxica.com',
-    'https://jp.umaxica.org',
-    'https://www-jp.umaxica.app',
-    'https://www-jp.umaxica.com',
-    'https://www-jp.umaxica.org',
-    'https://auth.umaxica.app',
-    'https://auth.umaxica.com',
-    'https://auth.umaxica.org',
-  ].map((origin) => ({
-    origin,
-    pathname: '/sign/out',
-    mode: 'exact' as const,
-    formatSuffix: true as const,
-  })),
-);
+// No route-specific denials are currently configured. Destinations are governed
+// by issuer allowlists and the explicit source-to-self prohibition.
+export const PATH_DENYLIST = validatePathRules([]);
 
 export function assertPathAllowed(origin: string, pathname: string, rules = PATH_DENYLIST) {
   pathname = decodeURIComponent(pathname);

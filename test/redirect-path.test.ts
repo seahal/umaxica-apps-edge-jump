@@ -70,7 +70,7 @@ describe('static deny policy', () => {
       expect(() => assertPathAllowed('https://www.umaxica.app', path, rules)).toThrow();
     expect(() => assertPathAllowed('https://www.umaxica.app', '/foobar', rules)).not.toThrow();
     expect(() => assertPathAllowed('https://www.umaxica.com', '/foo', rules)).not.toThrow();
-    expect(() => target('/sign/out')).toThrow();
+    expect(() => target('/sign/out')).not.toThrow();
     expect(() => target('/sign/out/edit')).not.toThrow();
   });
   test.each(['http://www.umaxica.app', 'https://www.umaxica.app/'])(
@@ -86,17 +86,10 @@ describe('static deny policy', () => {
 });
 
 describe('adversarial policy edge cases', () => {
-  test.each([
-    '/a%3Bb',
-    '/sign/%6fut',
-    '/sign/out/',
-    '/a%00b',
-    '/a%7fb',
-    '/a/%FF',
-    '/a/%',
-    '/a/.%2E/b',
-    '/a/%2e./b',
-  ])('rejects %s', (path) => expect(() => target(path)).toThrow());
+  test.each(['/a%3Bb', '/a%00b', '/a%7fb', '/a/%FF', '/a/%', '/a/.%2E/b', '/a/%2e./b'])(
+    'rejects %s',
+    (path) => expect(() => target(path)).toThrow(),
+  );
   test.each([
     'redirect_uri=http%3A%2F%2F127.0.0.1%3A49152%2Fcallback',
     'redirect_uri=http%3A%2F%2F%5B%3A%3A1%5D%3A49152%2Fcallback',
@@ -116,8 +109,8 @@ describe('adversarial policy edge cases', () => {
 });
 
 test.each(['/sign/out.json', '/sign/out.html', '/sign/out%2ejson', '/sign/out.xml'])(
-  'denies Rails implicit format route %s',
-  (path) => expect(() => target(path)).toThrow(),
+  'allows former logout route %s',
+  (path) => expect(() => target(path)).not.toThrow(),
 );
 
 test.each(['/foo?x=1', '/foo#x', '/%66oo'])(

@@ -66,7 +66,7 @@ Obtain an actual immutable Worker version ID under separate authorization.
 Map it to exact 0.3.0 code, bundle/source hash, lock hash, configuration and secret
 version references. Verify every item below against that artifact:
 
-- schema 1, ES384/P-384, exact rpl=reuse, stateless; no DB/KV/Durable Object;
+- schema 1, PS256/RSA-3072, exact rpl=reuse, stateless; no DB/KV/Durable Object;
 - 13 canonical nodes / exactly 20 directed edges; production external redirects
   disabled while capability remains; test forbidden transitions too;
 - inbound structural TTL <=30 seconds and outbound exp-iat exactly 30 seconds;

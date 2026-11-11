@@ -7,7 +7,7 @@ validated identity. Core uses Web Standard URL, Request, Response, AbortSignal
 and Web Crypto through jose. No destination safety fetch is performed.
 
 Flow: configuration → Request origin binding → method/query/path → limiter →
-assets or Hono → compact JWT/header/issuer → pinned JWKS → ES384 verification →
+assets or Hono → compact JWT/header/issuer → pinned JWKS → PS256 verification →
 claims → URL → exact policy → new signed internal RT → common headers.
 The [plan](../plans/jump-0.3-hardening.md) defines status precedence.
 
@@ -50,8 +50,9 @@ it into a 400. There is no stale-key fallback: past the TTL the keyset is
 ignored and the outage answers 503 until the negative entry expires and the
 issuer is asked again. An invalid 200 document is not an outage and is never
 cached; a refresh-dependent request answers 400 and a warm keyset keeps serving
-requests that need no refresh. One aborted shared load can fail its waiters
-closed; it is cleared so a later request can retry.
+requests that need no refresh. Shared JWKS loads have an independent 1000 ms deadline. A caller aborts only
+its own wait; the load remains shared until it settles and may warm the cache
+for other callers. Shared fetch timeouts are temporary upstream outages.
 
 Signing material is cached per binding bundle (`env` reference), deployment
 revision and active kid for 300 seconds. It stays `env`-keyed on purpose: it is

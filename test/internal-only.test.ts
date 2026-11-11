@@ -16,8 +16,8 @@ let issuerKeys: Awaited<ReturnType<typeof generateKeyPair>>;
 let jumpKeys: Awaited<ReturnType<typeof generateKeyPair>>;
 
 beforeAll(async () => {
-  issuerKeys = await generateKeyPair('ES384');
-  jumpKeys = await generateKeyPair('ES384');
+  issuerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+  jumpKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
 });
 
 function claim(): InboundJumpClaim {
@@ -54,7 +54,7 @@ async function fixture() {
     registry,
     config: { serviceOrigin: jump },
     jwksCache: new JwksCache(async () => ({
-      keys: [{ ...publicJwk, kid: 'issuer-test', alg: 'ES384', use: 'sig' }],
+      keys: [{ ...publicJwk, kid: 'issuer-test', alg: 'PS256', use: 'sig' }],
     })),
     signer: { sign },
     auditLog,
@@ -66,7 +66,7 @@ async function fixture() {
     auditLog,
     request: async (payload: Record<string, unknown>) => {
       const rt = await new SignJWT(payload)
-        .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'issuer-test' })
+        .setProtectedHeader({ typ: 'JWT', alg: 'PS256', kid: 'issuer-test' })
         .sign(issuerKeys.privateKey);
       return app.request(`${jump}/?rt=${rt}`);
     },
@@ -101,10 +101,10 @@ describe('permanent internal-only gateway contract', () => {
     const verified = await jwtVerify(rt, jumpKeys.publicKey, {
       issuer: jump,
       audience: internal,
-      algorithms: ['ES384'],
+      algorithms: ['PS256'],
       currentDate: new Date(now * 1000),
     });
-    expect(verified.protectedHeader).toEqual({ typ: 'JWT', alg: 'ES384', kid: 'jump-test' });
+    expect(verified.protectedHeader).toEqual({ typ: 'JWT', alg: 'PS256', kid: 'jump-test' });
     expect(Object.keys(verified.payload).sort()).toEqual(
       [...receiverContract.required_claims].sort(),
     );

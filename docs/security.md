@@ -7,8 +7,8 @@ links even with an incorrectly permissive fixture. Prototype keys do not registe
 issuers. Jump is internal-only: `dst` must be `internal` (ADR 0007).
 
 Every compact JWT is limited to 4096 characters, checked before decoding, with
-three Base64URL segments and a 128-character ES384 signature. The protected
-header holds exactly `alg`, `kid` and `typ`: `alg` is fixed to ES384 and never
+three Base64URL segments and a 512-character PS256 signature. The protected
+header holds exactly `alg`, `kid` and `typ`: `alg` is fixed to PS256 and never
 read from the token, `kid` is 1–128 characters with no C0/DEL/C1 control
 character and is compared exactly, and `typ` must equal the deployment's value
 (`JWT` in production, `jump-request+jwt` in staging). Any other member — `crit`,
@@ -21,13 +21,14 @@ no skew allowance. Unverified decode only selects a registered issuer; no token
 value builds a network destination and no authorization precedes signature.
 
 Issuer JWKS come only from the registry URL, fetched with `cache: no-store`,
-`redirect: manual` and no credentials, inside the 1000 ms request deadline.
+`redirect: manual` and no credentials, with an independent 1000 ms fetch deadline. Caller cancellation stops only
+that caller’s wait and does not cancel the shared fetch.
 Only status 200 with `application/jwk-set+json` or `application/json` (optional
 `charset=utf-8`) is usable; 5xx/429 and network errors are temporary outages,
 everything else is an unusable document. The body is streamed and abandoned at
 64 KiB of decoded bytes regardless of `Content-Length`. A set holds 1–4 keys,
-each `kty: EC`, `crv: P-384`, `alg: ES384`, `use: sig`, a valid unique `kid` and
-coordinates that import as a P-384 point; private or symmetric members, a
+each `kty: RSA`, `e: AQAB`, `alg: PS256`, `use: sig`, a valid unique `kid` and
+a 3072-bit modulus and exponent 65537; private or symmetric members, a
 duplicate `kid` or any nonconforming key refuse the whole set. Only `kty`, `crv`,
 `x` and `y` reach the importer, so URL-bearing members are never dereferenced.
 

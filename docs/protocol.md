@@ -56,12 +56,12 @@ Inbound: exactly the claims schema 1 (number), rpl `reuse`, registered origin
 iss, aud string equal to the configured Jump identity, sub `jump-redirect`,
 iat/nbf/exp positive integers ≤ 4102444800, jti 1–128 printable ASCII, dst
 `internal`, url 1–2048 characters without control characters. Any other claim is
-refused. Protected header exactly {alg, kid, typ}: alg ES384, kid 1–128 without
+refused. Protected header exactly {alg, kid, typ}: alg PS256, kid 1–128 without
 control characters, typ `JWT` (production) or `jump-request+jwt` (staging).
-Compact token ≤4096 characters with a 128-character signature. Exp follows iat,
+Compact token ≤4096 characters with a 512-character signature. Exp follows iat,
 nbf≤exp, TTL≤30s; clock tolerance 5s affects now comparisons only.
 
-Internal output302: header {alg ES384, kid, typ `JWT` in production or
+Internal output302: header {alg PS256, kid, typ `JWT` in production or
 `jump-return+jwt` in staging}; schema1, rpl reuse, iss Jump identity, aud target origin,
 sub jump-redirect, src issuer origin, dst internal, url canonical validated target,
 iat=nbf=now, exp=now+30, fresh jti. One new rt is appended. The original query bytes are retained in the signed output url and Location;

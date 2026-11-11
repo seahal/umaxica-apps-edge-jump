@@ -25,13 +25,13 @@ const base = {
   url: 'https://www.umaxica.app/receive',
 };
 beforeAll(async () => {
-  pair = await generateKeyPair('ES384');
-  const key = { ...(await exportJWK(pair.publicKey)), kid: 'k', alg: 'ES384', use: 'sig' };
+  pair = await generateKeyPair('PS256', { modulusLength: 3072 });
+  const key = { ...(await exportJWK(pair.publicKey)), kid: 'k', alg: 'PS256', use: 'sig' };
   cache = new JwksCache(async () => ({ keys: [key] }));
 });
 async function check(changes: Record<string, unknown>) {
   const input = await new SignJWT({ ...base, ...changes })
-    .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'k' })
+    .setProtectedHeader({ typ: 'JWT', alg: 'PS256', kid: 'k' })
     .sign(pair.privateKey);
   return verifyJumpJwt(input, registry, cache, now, 'https://jump.umaxica.net');
 }
@@ -83,7 +83,7 @@ describe('F: deterministic clock BVA (seed fixed now)', () => {
     const lookup = vi.spyOn(cache, 'getKey');
     try {
       const input = await new SignJWT(base)
-        .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'k'.repeat(129) })
+        .setProtectedHeader({ typ: 'JWT', alg: 'PS256', kid: 'k'.repeat(129) })
         .sign(pair.privateKey);
       await expect(
         verifyJumpJwt(input, registry, cache, now, 'https://jump.umaxica.net'),
