@@ -2,7 +2,7 @@
 // schema 1 profile already satisfies. Boundaries covered elsewhere (clock skew,
 // TTL, audience arrays, token length) are not repeated here.
 import { exportJWK, generateKeyPair, type JWK } from 'jose';
-import { beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, test, vi } from 'vite-plus/test';
 import { JwksCache } from '../src/core/jwks_cache';
 import type { IssuerConfig, IssuerRegistry } from '../src/core/types';
 import { verifyJumpJwt } from './app-fixture';

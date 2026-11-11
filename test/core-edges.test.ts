@@ -1,5 +1,5 @@
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
-import { describe, expect, test, vi } from 'vitest';
+import { describe, expect, test, vi } from 'vite-plus/test';
 import { PRODUCTION_SERVICE_ORIGIN } from './app-fixture';
 import { raceAbort } from '../src/core/deadline';
 import { escapeHtml } from '../src/core/escape';

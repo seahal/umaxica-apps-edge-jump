@@ -8,7 +8,6 @@ export type NormalizedUrl = {
   hostname: string;
 };
 
-const FORBIDDEN_PROTOCOLS = new Set(['javascript:', 'data:', 'file:', 'blob:']);
 const METADATA_V4 = '169.254.169.254';
 
 function containsControlCharacter(input: string) {
@@ -54,13 +53,7 @@ export function normalizeUrl(
     throw new JumpError('invalid_url', 'url parse failed');
   }
 
-  if (FORBIDDEN_PROTOCOLS.has(parsed.protocol))
-    throw new JumpError('invalid_url', 'forbidden protocol');
   if (parsed.username || parsed.password) throw new JumpError('invalid_url', 'userinfo rejected');
-  if (parsed.protocol === 'http:') throw new JumpError('invalid_url', 'http rejected');
-  /* v8 ignore next -- URL only reaches this after explicit forbidden protocol checks */
-  if (!['https:', 'http:'].includes(parsed.protocol))
-    throw new JumpError('invalid_url', 'protocol rejected');
 
   const rawHost = parsed.hostname;
   if (rawHost.endsWith('.') || parsed.port) throw new JumpError('invalid_url');

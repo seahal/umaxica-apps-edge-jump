@@ -22,7 +22,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'node --import tsx e2e/server.ts',
+    command: 'node --import vite-plus/register e2e/server.ts',
     url: baseURL,
     reuseExistingServer: !isCI,
     timeout: 15_000,

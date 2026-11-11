@@ -1,7 +1,7 @@
 import { PRODUCTION_SERVICE_ORIGIN } from './app-fixture';
 import { readFileSync } from 'node:fs';
 import { exportJWK, generateKeyPair } from 'jose';
-import { describe, expect, test, vi } from 'vitest';
+import { describe, expect, test, vi } from 'vite-plus/test';
 import { createApp } from './app-fixture';
 import { createApp as productionApp } from '../src';
 import { registry as umaxicaRegistry } from '../src/config/registry.umaxica';

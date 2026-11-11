@@ -1,5 +1,5 @@
 import { assertDefined } from './assert-defined';
-import { describe, expect, test, vi } from 'vitest';
+import { describe, expect, test, vi } from 'vite-plus/test';
 import { exportJWK, generateKeyPair } from 'jose';
 import { fetchRegistryJwks } from '../src/core/fetch_jwks';
 import { JwksCache } from '../src/core/jwks_cache';

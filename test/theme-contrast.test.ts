@@ -1,5 +1,5 @@
 import { assertDefined } from './assert-defined';
-import { expect, test } from 'vitest';
+import { expect, test } from 'vite-plus/test';
 import { PRODUCT_PAGE_CSS, SPLASH_PAGE_CSS } from '../src/core/security_headers';
 
 function luminance(hex: string) {

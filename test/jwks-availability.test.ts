@@ -1,5 +1,5 @@
 import { exportJWK, generateKeyPair, SignJWT, type JWK } from 'jose';
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vite-plus/test';
 import { createApp } from '../src';
 import { raceAbort } from '../src/core/deadline';
 import { JwksCache } from '../src/core/jwks_cache';

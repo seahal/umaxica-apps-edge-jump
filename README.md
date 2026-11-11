@@ -93,7 +93,7 @@ Read [protocol](docs/protocol.md), [receiver obligations](docs/receiver-contract
 Use `mise trust` once in this repository, then `mise install` to install
 the tools pinned in `mise.toml`.
 
-Node `26.13.1` and pnpm `12.0.0`, as pinned in `package.json`. Other pnpm
+Node `26.13.1` and pnpm `12.18.0`, as pinned in `package.json`. Other pnpm
 versions stop with `ERR_PNPM_BAD_PM_VERSION`.
 
 ## Checks
@@ -281,3 +281,7 @@ implemented. See [redirect policy](docs/redirect-policy.md),
 [release closure](docs/operations/release-closure.md) and
 [dated evidence](evidence/2026-10-11-jump-0-4-candidate.md). Dormant external
 renderer removal and production/receiver verification remain gated by ADR 0007.
+
+Toolchain: Vite Plus 1.5.0 runs formatting, linting, and unit tests through
+`pnpm run format`, `pnpm run lint:check`, and `pnpm run test:cov`. Configuration
+is consolidated in `vite.config.ts`. Node and pnpm remain managed by mise.

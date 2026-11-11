@@ -9,7 +9,7 @@ import {
   jwtVerify,
   type JWK,
 } from 'jose';
-import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vite-plus/test';
 import { createApp, resolveJumpConfig } from '../src';
 import worker, { resetIsolateCachesForTest, type CloudflareEnv } from '../src/cloudflare';
 import { fetchRegistryJwks, MAX_JWKS_BYTES } from '../src/core/fetch_jwks';

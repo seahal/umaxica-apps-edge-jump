@@ -1,5 +1,5 @@
 import { assertDefined } from './assert-defined';
-import { afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, test, vi } from 'vite-plus/test';
 import { exportJWK, exportPKCS8, generateKeyPair, jwtVerify, SignJWT } from 'jose';
 import worker, { resetIsolateCachesForTest, type CloudflareEnv } from '../src/cloudflare';
 import { registry } from '../src/config/registry.umaxica';

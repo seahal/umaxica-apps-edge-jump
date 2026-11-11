@@ -1,6 +1,6 @@
 import { JwksCache } from '../src/core/jwks_cache';
 import { verifyJumpJwt } from '../src/core/verify_jwt';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test } from 'vite-plus/test';
 import { exportJWK, generateKeyPair, jwtVerify, SignJWT } from 'jose';
 import { importIssuerJwks } from '../src/core/issuer_jwks';
 import { validateJumpJwks } from '../src/core/jump_jwks';

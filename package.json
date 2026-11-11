@@ -4,16 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "format": "oxfmt . --write",
-    "format:check": "oxfmt . --check",
+    "format": "vp fmt . --write",
+    "format:check": "vp fmt . --check",
     "keys:generate": "node scripts/generate-jump-keypair.mjs",
     "cloudflare:check": "wrangler deploy --dry-run --outdir dist/cloudflare",
     "cloudflare:dev": "wrangler dev --local --ip 0.0.0.0 --port 5209",
-    "lint": "oxlint --type-aware --fix .",
-    "lint:check": "oxlint --type-aware .",
+    "lint": "vp lint --type-aware --fix .",
+    "lint:check": "vp lint --type-aware .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:cov": "vitest run --coverage",
+    "test": "vp test run",
+    "test:cov": "vp test run --coverage",
     "test:e2e": "playwright test",
     "test:worker": "node scripts/test-worker.mjs"
   },
@@ -28,20 +28,18 @@
     "@hono/node-server": "^2.1.6",
     "@playwright/test": "^1.65.0",
     "@types/node": "^26.6.6",
-    "@vitest/coverage-v8": "5.0.5",
+    "@vitest/coverage-v8": "catalog:",
     "esbuild": "0.28.2",
     "knip": "^6.44.2",
-    "oxfmt": "0.74.0",
-    "oxlint": "1.89.0",
-    "oxlint-tsgolint": "7.0.2005",
-    "tsx": "^4.23.15",
+    "miniflare": "5.20261104.0-beta",
     "typescript": "7.0.2",
-    "vite": "8.3.5",
-    "vitest": "5.0.5",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:",
     "wrangler": "^4.158.0"
   },
   "engines": {
     "node": "26.13.1"
   },
-  "packageManager": "pnpm@12.0.0+sha512.9e2e3dc3911995868dc94b8175c217c27e95408fa03b4a22749778f2b34f773b77cdd3b39ede8171b22fcd53be6a35342e9fac9948a68ef58df6488ce89a7e67"
+  "packageManager": "pnpm@12.18.0+sha512.9d7882d5dc82147ecfc4e062aa34834e0ad0296710a1837a1115ae012127d36b7109e321ac1598a1dd0a65597681b1e99917e12ed0d749eae91187943363beb"
 }

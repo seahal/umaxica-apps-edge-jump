@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test } from 'vite-plus/test';
 import { isRtKey, normalizeUrl, validateInternalTarget } from '../src/core/normalize_url';
 import contract from './fixtures/receiver-contract.json';
 

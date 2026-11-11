@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test, vi } from 'vitest';
+import { beforeAll, describe, expect, test, vi } from 'vite-plus/test';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { JwksCache } from '../src/core/jwks_cache';
 import { verifyJumpJwt } from './app-fixture';

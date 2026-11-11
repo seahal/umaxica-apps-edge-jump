@@ -1,5 +1,5 @@
 import { exportJWK, exportPKCS8, generateKeyPair, jwtVerify, SignJWT } from 'jose';
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vite-plus/test';
 import worker, { resetIsolateCachesForTest, type CloudflareEnv } from '../src/cloudflare';
 
 const ISSUER = 'https://auth.umaxica.app';

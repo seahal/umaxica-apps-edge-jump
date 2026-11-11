@@ -156,8 +156,8 @@ function renderDocument({
   product = false,
   splash = false,
 }: PageProps) {
-  const pageStyle = product ? PRODUCT_PAGE_CSS : splash ? SPLASH_PAGE_CSS : null;
-  const bodyClass = product ? 'product' : splash ? 'splash' : undefined;
+  const pageStyle = product ? PRODUCT_PAGE_CSS : SPLASH_PAGE_CSS;
+  const bodyClass = product ? 'product' : 'splash';
   const document = (
     <html lang={locale}>
       <head>
@@ -165,7 +165,7 @@ function renderDocument({
         <meta name="viewport" content="width=device-width,initial-scale=1" />
         <meta name="robots" content="noindex,nofollow,noarchive" />
         <title>{brandTitle(pageTitle)}</title>
-        {pageStyle ? <style>{raw(pageStyle)}</style> : null}
+        <style>{raw(pageStyle)}</style>
       </head>
       <body class={bodyClass}>
         {splash ? null : (

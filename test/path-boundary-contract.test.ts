@@ -1,5 +1,5 @@
 import { exportJWK, generateKeyPair, jwtVerify, SignJWT } from 'jose';
-import { beforeAll, describe, expect, test, vi } from 'vitest';
+import { beforeAll, describe, expect, test, vi } from 'vite-plus/test';
 import { createApp } from '../src';
 import { registry } from '../src/config/registry.umaxica';
 import { normalizeUrl, validateInternalTarget } from '../src/core/normalize_url';

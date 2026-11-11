@@ -1,11 +1,15 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test } from 'vite-plus/test';
 import { normalizeUrl, validateInternalTarget } from '../src/core/normalize_url';
+import { assertDirectPath } from '../src/core/redirect_policy';
 const runtime = { edge: 'cloudflare', production: true } as const;
 const target = (path: string) =>
   validateInternalTarget(
     normalizeUrl(`https://www.umaxica.app${path}`, runtime, 'https://jump.umaxica.net'),
   );
 describe('direct pathname security', () => {
+  test('direct path helper rejects malformed percent encoding', () => {
+    for (const path of ['/%', '/%FF']) expect(() => assertDirectPath(path)).toThrow();
+  });
   test.each(['/a//b', '/a/../b', '/a/%2e%2e/b', '/a/%2F/b', '/a/%5c/b', '/a/%25/b', '/a;b'])(
     'rejects %s',
     (path) => {
@@ -33,6 +37,7 @@ describe('transfer query boundary', () => {
     'redirect_uri=https%3A%2F%2Fexampe.dev%2Fcb',
     'redirect_uri=javascript%3Aalert(1)',
     'redirect_uri=%2Frelative',
+    'redirect_uri=',
     'redirect_uri=http%3A%2F%2Fclient.umaxica.com%2Fcb',
   ])('rejects %s', (query) => {
     expect(() => target(`/authorize?${query}`)).toThrow();
@@ -83,6 +88,28 @@ describe('static deny policy', () => {
       validatePathRules([{ origin: 'https://www.umaxica.app', pathname, mode: 'exact' }]),
     ).toThrow(),
   );
+  test('validates optional format suffix policy and route aliases', () => {
+    const origin = 'https://www.umaxica.app';
+    const rules = validatePathRules([
+      { origin, pathname: '/foo', mode: 'exact', formatSuffix: true },
+    ]);
+    expect(() => assertPathAllowed(origin, '/foo.json', rules)).toThrow();
+    expect(() => assertPathAllowed(origin, '/foo.json/nested', rules)).not.toThrow();
+    expect(() => assertPathAllowed(origin, '/other', rules)).not.toThrow();
+    expect(() =>
+      validatePathRules([{ origin, pathname: '/foo', mode: 'exact', formatSuffix: false as true }]),
+    ).toThrow();
+  });
+
+  test('validateInternalTarget falls back to parsed pathname when raw path is absent', () => {
+    const normalized = normalizeUrl(
+      'https://www.umaxica.app/path',
+      runtime,
+      'https://jump.umaxica.net',
+    );
+    const { rawPathname: _rawPathname, ...targetWithoutRawPath } = normalized;
+    expect(() => validateInternalTarget(targetWithoutRawPath)).not.toThrow();
+  });
 });
 
 describe('adversarial policy edge cases', () => {

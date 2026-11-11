@@ -1,6 +1,6 @@
 import { exportJWK, exportPKCS8, generateKeyPair, type JWK } from 'jose';
 import type * as Jose from 'jose';
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vite-plus/test';
 
 const importPkcs8Calls: Array<{ extractable: boolean | undefined }> = [];
 

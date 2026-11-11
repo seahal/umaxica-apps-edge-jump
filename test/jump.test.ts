@@ -13,7 +13,7 @@ import {
   SignJWT,
   type JWK,
 } from 'jose';
-import { describe, expect, test, vi } from 'vitest';
+import { describe, expect, test, vi } from 'vite-plus/test';
 import { registry as umaxicaRegistry } from '../src/config/registry.umaxica';
 import { createApp, type AppOptions } from './app-fixture';
 import { createApp as productionApp } from '../src';
@@ -2004,6 +2004,21 @@ describe('jump token validation', () => {
       jti: 'fixed-outbound-jti',
       exp: NOW + 7,
     });
+  });
+
+  test('rejects an oversized outbound token and preserves an empty query delimiter', async () => {
+    const oversized = await fixtureWithOptions({
+      signer: { sign: async () => 'x'.repeat(8193) },
+    });
+    const rejected = await jump(oversized.app, await oversized.signToken({ dst: 'internal' }));
+    expect(rejected.status).toBe(400);
+    expect(rejected.headers.get('Location')).toBeNull();
+
+    const { app, signToken } = await fixture();
+    const token = await signToken({ dst: 'internal', url: 'https://docs.example.com/path?' });
+    const response = await jump(app, token);
+    expect(response.status).toBe(302);
+    expect(response.headers.get('Location')).toMatch(/^https:\/\/docs\.example\.com\/path\?rt=/);
   });
 
   test('JWKS cache avoids repeated fetch and negative cache rejects missing kid', async () => {

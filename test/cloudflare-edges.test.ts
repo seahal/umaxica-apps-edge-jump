@@ -1,5 +1,5 @@
 import { exportJWK, exportPKCS8, generateKeyPair } from 'jose';
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vite-plus/test';
 import worker, { resetIsolateCachesForTest, type CloudflareEnv } from '../src/cloudflare';
 
 const ORIGIN = 'https://jump.example.net';

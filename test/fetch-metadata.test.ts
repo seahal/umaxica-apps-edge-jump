@@ -1,5 +1,5 @@
 import { exportJWK, exportPKCS8, generateKeyPair, SignJWT } from 'jose';
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vite-plus/test';
 import { createApp } from '../src';
 import worker, { resetIsolateCachesForTest } from '../src/cloudflare';
 import { isNonNavigationRequest } from '../src/core/fetch_metadata';

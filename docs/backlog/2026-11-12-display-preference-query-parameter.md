@@ -17,10 +17,12 @@ look can change abruptly. The owner asks that Jump follow the person's chosen th
 ## Proposed ADR (draft 0008: Display Preference Query Parameter)
 
 ### Context
+
 Jump verifies a signed token from Cosmos and must not trust anything else in the request. A theme is a
 display hint with no security meaning.
 
 ### Decision (proposed)
+
 1. Jump accepts one optional query parameter, `theme`, with the values `light` and `dark`.
 2. The parameter is untrusted and display-only. It never affects token verification, issuer,
    audience, purpose or destination checks, routing, or any other decision. The signed token and its
@@ -32,12 +34,14 @@ display hint with no security meaning.
 5. Adding another preference (for example language) requires amending this record.
 
 ### Consequences
+
 - Consistent look across Cosmos and Jump for people who chose a theme.
 - A tampered parameter changes only the look; a tampered token is still refused.
 - Cosmos must amend its `adr/secure-jump-link-redirector.md` ("no raw values next to `rt`") with
   this display-only exception.
 
 ### Tests (when adopted)
+
 Parameter omitted for `sys`; each valid value applied; invalid, repeated and unknown values
 ignored; tampered token still refused regardless of the parameter; no value in logs.
 

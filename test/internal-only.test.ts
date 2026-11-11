@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test, vi } from 'vitest';
+import { beforeAll, describe, expect, test, vi } from 'vite-plus/test';
 import { exportJWK, generateKeyPair, jwtVerify, SignJWT } from 'jose';
 import { createApp } from '../src';
 import { JwksCache } from '../src/core/jwks_cache';

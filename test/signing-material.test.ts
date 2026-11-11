@@ -1,5 +1,5 @@
 import { assertDefined } from './assert-defined';
-import { beforeAll, afterEach, expect, test, vi } from 'vitest';
+import { beforeAll, afterEach, expect, test, vi } from 'vite-plus/test';
 import { exportJWK, exportPKCS8, generateKeyPair, importJWK, jwtVerify, SignJWT } from 'jose';
 import worker, { resetIsolateCachesForTest, type CloudflareEnv } from '../src/cloudflare';
 import { normalizeUrl, validateServiceOrigin } from '../src/core/normalize_url';
