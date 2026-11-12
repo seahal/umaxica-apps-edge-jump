@@ -174,6 +174,41 @@ Removing A from the published JWKS does not immediately erase it from caches.
 Normal retirement relies on correct token expiry checks as well as the agreed
 waiting period. Emergency revocation has different completion checks below.
 
+## Pre-launch rotation: close, replace, verify, reopen
+
+Use this procedure **only while Jump carries no real traffic** (before launch), for example to
+change the key algorithm. It skips prepublication and grace because no receiver depends on old
+tokens. Once Jump is in real use, follow the normal rotation above.
+
+Lesson recorded on 2026-11-12: a key was changed while Jump stayed open, and a version whose private
+key did not match its public JWKS served 503 on `/.well-known/jwks.json`
+(`evidence/2026-11-12-key-rotation-ps256.md`). Close Jump first.
+
+1. **Close.** Put a Cloudflare Access application on `jump.umaxica.net` that admits only the
+   operators. The Worker keeps running, so the checks in step 5 can still be made through Access.
+   Confirm that a request without Access is refused.
+2. **Private key.** Generate B (see "How the keys are created") and add its private PEM to a new
+   Worker version with `wrangler versions secret put UMAXICA_JUMP_PRIVATE_KEY_PEM` reading the file
+   through stdin. Nothing is deployed by this step.
+3. **Public values.** Add `UMAXICA_JUMP_PRIVATE_KEY_KID` and `UMAXICA_JUMP_PUBLIC_JWKS` for B as Worker
+   secrets to the same new version (`wrangler versions secret put`, or all three together with
+   `wrangler versions secret bulk`). Check that the JWKS `kid` equals the active `kid` and that the
+   key matches the algorithm the code signs with (`kty=RSA`, `alg=PS256`).
+4. **Deploy one consistent version.** Deploy the code that signs with B's algorithm together with
+   the values from step 3; the secret from step 2 carries over. Record the version ID. Never deploy
+   a version where only some of the three values are new.
+5. **Verify on Cloudflare** (through Access):
+   - `GET /.well-known/jwks.json` returns 200 (a 503 means the private and public keys do not form a
+     pair) and lists exactly B with the expected `kid`, `kty` and `alg`.
+   - `GET /health` returns OK.
+   - An approved test request makes Jump issue an RT whose header has the expected `alg` and
+     `kid=B`, and the signature verifies with B's public key.
+   - Workers Observability shows no 503 and no `invalid_signature` for these requests.
+6. **Reopen.** Remove the Access application and confirm the public checks again without Access.
+
+Record each step's result, the version IDs and the times in the operation record. If step 5 fails,
+stay closed, fix the version, and repeat steps 4 and 5.
+
 ## How long to wait
 
 There are two separate waiting periods:
