@@ -1,0 +1,12 @@
+{
+  "keys": [
+    {
+      "kty": "RSA",
+      "n": "pNb6NJk9v-FAhdEuxIsKSVEmIkXDxas7XRvbwSReWHA6k7Vg4GA559WYisEsLF0f_yA0htBvF3e1wXQiUKeiGY6zRI-dGAn6hfK-qKUzNO7lGhMuCo8-jJgf3UJgqv19egXNm6G5mDq1uvTloD6cgD1twdMOGcjFsr1hpFAq8mFdwN-eY6eazpbDgY1UiwBiFzJQuej7Q_YJCVQZk-0DAkS5wVYX5qlM8tX4d_XQk-_HIK67Yb6FapajIPUj1lfGhloKXV_p0GfqhbVxbnfy9heGQFsxp71cYcmqYk_ZGd2ki6MNXWzuSX5kzPx4DK6IbuBbuC9rqDbU_tPV2udbiz2HFd6n2aZnX1skHpXjKC7DVKO1a0QFrbAkcjvtkVQvsnntxmev6s1PvI9wswPBoceKf6dsVWI3Ko4GnMb_rrfMAM3R9CTf83c5r7HwE0GbKkVo5kKr2AhNL63q7I2zDEvlcIxJSU80QjRHMDg1vqOWopqzDgXgwaXwJf0I-dJ9",
+      "e": "AQAB",
+      "kid": "jump-prod-2026-11-14-ps256-b9126160",
+      "alg": "PS256",
+      "use": "sig"
+    }
+  ]
+}
