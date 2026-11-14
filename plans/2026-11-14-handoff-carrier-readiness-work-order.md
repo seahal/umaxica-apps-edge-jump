@@ -44,6 +44,7 @@ Pending owner decision: Governance receives its own namespace, issuer and JWKS (
 an alias of Auth or Visa. The host names for the APP and ORG realms will be supplied by the owner.
 
 Prepare:
+
 - Report how `src/config/registry.umaxica.ts` and the lane rules represent Access today, and the
   exact additions needed for Governance: issuer namespaces, issuer origins, JWKS URL (one per
   repository, served by every host of that repository), permitted destinations, and the directed
@@ -67,6 +68,7 @@ expected to exceed 2,048. The real maximum will be measured on the Access side a
 the decision.
 
 Prepare:
+
 - Report every place that enforces or assumes a URL or token length (Jump code, tests, docs,
   Cloudflare limits for request line and headers, known browser limits) and which one binds first.
 - State the relation between the two constants: the `rt` embeds the destination URL, so give the

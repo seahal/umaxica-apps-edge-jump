@@ -58,6 +58,15 @@ specific contract gaps. See [release closure](operations/release-closure.md).
 
 ## Candidate service 0.4.0
 
+For Base App -> Visa authorization, the receiver owns validation of the OIDC
+query and any embedded state or Handoff JWS/JWE. Jump treats these values as
+opaque and preserves the destination query bytes before appending `rt`.
+The source is the Base origin (`https://www.umaxica.app` for APP), even though
+Governance now owns that surface. The existing realm-specific registry edges
+apply; no dedicated Governance issuer origin has been added.
+Local carrier tests do not prove the real Base signer, Visa receiver or their
+JWKS endpoints interoperable. Verify those in the owning repositories.
+
 The fixture service version is 0.4.0; JWT schema is still 1. Canonical query
 serialization and 30-second outbound TTL are unchanged. The
 [redirect policy](redirect-policy.md) tightens target acceptance before signing.
