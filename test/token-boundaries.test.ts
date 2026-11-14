@@ -1,7 +1,7 @@
-import { beforeAll, describe, expect, test, vi } from 'vitest';
+import { beforeAll, describe, expect, test, vi } from 'vite-plus/test';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { JwksCache } from '../src/core/jwks_cache';
-import { verifyJumpJwt } from '../src/core/verify_jwt';
+import { verifyJumpJwt } from './app-fixture';
 const now = 1800000000;
 let pair: Awaited<ReturnType<typeof generateKeyPair>>;
 let cache: JwksCache;
@@ -9,7 +9,6 @@ const issuer = {
   iss: 'https://auth.umaxica.app',
   jwks_uri: 'https://auth.umaxica.app/.well-known/jwks.json',
   allowed_dst_internal: ['https://www.umaxica.app'],
-  allowed_dst_external: false as const,
 };
 const registry = { [issuer.iss]: issuer };
 const base = {
@@ -26,13 +25,13 @@ const base = {
   url: 'https://www.umaxica.app/receive',
 };
 beforeAll(async () => {
-  pair = await generateKeyPair('ES384');
-  const key = { ...(await exportJWK(pair.publicKey)), kid: 'k', alg: 'ES384', use: 'sig' };
+  pair = await generateKeyPair('PS256', { modulusLength: 3072 });
+  const key = { ...(await exportJWK(pair.publicKey)), kid: 'k', alg: 'PS256', use: 'sig' };
   cache = new JwksCache(async () => ({ keys: [key] }));
 });
 async function check(changes: Record<string, unknown>) {
   const input = await new SignJWT({ ...base, ...changes })
-    .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'k' })
+    .setProtectedHeader({ typ: 'JWT', alg: 'PS256', kid: 'k' })
     .sign(pair.privateKey);
   return verifyJumpJwt(input, registry, cache, now, 'https://jump.umaxica.net');
 }
@@ -69,19 +68,22 @@ describe('F: deterministic clock BVA (seed fixed now)', () => {
         check({ iat: now - 30, nbf: now - 30, exp: now - offset }),
       ).rejects.toMatchObject({ code: 'expired' });
   });
-  test('fractional NumericDates remain accepted', async () => {
-    await expect(check({ iat: now - 0.5, nbf: now - 0.5, exp: now + 29.5 })).resolves.toBeDefined();
-  });
-  test.each([30, 30.001, 31, 35])('structural TTL %s has no clock leeway', async (ttl) => {
-    const result = check({ iat: now - 0.5, nbf: now - 0.5, exp: now - 0.5 + ttl });
-    if (ttl === 30) await expect(result).resolves.toBeDefined();
+  test.each([{ iat: now - 0.5 }, { nbf: now - 0.5 }, { exp: now + 29.5 }])(
+    'fractional NumericDate %o is rejected',
+    async (dates) => {
+      await expect(check(dates)).rejects.toMatchObject({ code: 'invalid_claim' });
+    },
+  );
+  test.each([29, 30, 31, 35])('structural TTL %s has no clock leeway', async (ttl) => {
+    const result = check({ iat: now - 1, nbf: now - 1, exp: now - 1 + ttl });
+    if (ttl <= 30) await expect(result).resolves.toBeDefined();
     else await expect(result).rejects.toMatchObject({ code: 'invalid_claim' });
   });
   test('kid over 128 rejects before verification key lookup', async () => {
     const lookup = vi.spyOn(cache, 'getKey');
     try {
       const input = await new SignJWT(base)
-        .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'k'.repeat(129) })
+        .setProtectedHeader({ typ: 'JWT', alg: 'PS256', kid: 'k'.repeat(129) })
         .sign(pair.privateKey);
       await expect(
         verifyJumpJwt(input, registry, cache, now, 'https://jump.umaxica.net'),

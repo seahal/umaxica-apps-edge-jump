@@ -13,7 +13,7 @@ import {
   SignJWT,
   type JWK,
 } from 'jose';
-import { describe, expect, test, vi } from 'vitest';
+import { describe, expect, test, vi } from 'vite-plus/test';
 import { registry as umaxicaRegistry } from '../src/config/registry.umaxica';
 import { createApp, type AppOptions } from './app-fixture';
 import { createApp as productionApp } from '../src';
@@ -28,7 +28,8 @@ import { normalizeOrigin, normalizeUrl } from './app-fixture';
 import { brandTitle, renderHealthPage } from '../src/core/page';
 import { assertDestinationPolicy } from '../src/core/policy';
 import {
-  CUSHION_INLINE_SCRIPT,
+  SPLASH_INLINE_SCRIPT,
+  SPLASH_INLINE_SCRIPT_SHA256,
   PRODUCT_PAGE_CSS,
   PRODUCT_PAGE_CSS_SHA256,
   SPLASH_PAGE_CSS,
@@ -56,6 +57,7 @@ const cloudflareWorker = {
     if (!env) {
       env = {
         UMAXICA_JUMP_ORIGIN: PRODUCTION_SERVICE_ORIGIN,
+        UMAXICA_JUMP_ENVIRONMENT: 'production',
         JUMP_RATE_LIMITER: { limit: async () => ({ success: true }) },
         ...settings,
       };
@@ -96,19 +98,18 @@ async function fixture(): Promise<Fixture> {
 }
 
 async function fixtureWithOptions(options: AppOptions = {}): Promise<Fixture> {
-  const issuerKeys = await generateKeyPair('ES384');
-  const jumpKeys = await generateKeyPair('ES384', { extractable: true });
+  const issuerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+  const jumpKeys = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
   const issuerJwk = await exportJWK(issuerKeys.publicKey);
   const jumpJwk = await exportJWK(jumpKeys.publicKey);
-  const publicJwk: JWK = { ...issuerJwk, kid: 'kid-1', alg: 'ES384', use: 'sig' };
-  const jumpPublicJwk: JWK = { ...jumpJwk, kid: 'jump-test', alg: 'ES384', use: 'sig' };
+  const publicJwk: JWK = { ...issuerJwk, kid: 'kid-1', alg: 'PS256', use: 'sig' };
+  const jumpPublicJwk: JWK = { ...jumpJwk, kid: 'jump-test', alg: 'PS256', use: 'sig' };
   let fetches = 0;
   const registry: IssuerRegistry = {
     'https://app.example.com': {
       iss: 'https://app.example.com',
       jwks_uri: 'https://app.example.com/.well-known/jwks.json',
       allowed_dst_internal: ['https://docs.example.com'],
-      allowed_dst_external: ['https://example.org'],
     },
   };
   const app = createApp({
@@ -163,18 +164,12 @@ async function signPayload(
   header: Record<string, unknown> = {},
 ) {
   return new SignJWT(payload)
-    .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'kid-1', ...header })
+    .setProtectedHeader({ typ: 'JWT', alg: 'PS256', kid: 'kid-1', ...header })
     .sign(privateKey);
 }
 
 async function jump(app: Fixture['app'], rt: string) {
   return app.request(`https://jump.example.net/?rt=${rt}`);
-}
-
-async function jumpEn(app: Fixture['app'], rt: string) {
-  return app.request(`https://jump.example.net/?rt=${rt}`, {
-    headers: { 'Accept-Language': 'en' },
-  });
 }
 
 async function fetchCloudflareWorker(
@@ -206,15 +201,15 @@ async function cloudflareHandshakeFixture(options: {
   // fixture's verification key and reject this fixture's token.
   resetIsolateCachesForTest();
   const previousFetch = globalThis.fetch;
-  const issuerKeys = await generateKeyPair('ES384');
-  const jumpKeys = await generateKeyPair('ES384', { extractable: true });
+  const issuerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+  const jumpKeys = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
   const issuerJwk = await exportJWK(issuerKeys.publicKey);
   const jumpJwk = await exportJWK(jumpKeys.publicKey);
-  const issuerPublicJwk: JWK = { ...issuerJwk, kid: options.issuerKid, alg: 'ES384', use: 'sig' };
+  const issuerPublicJwk: JWK = { ...issuerJwk, kid: options.issuerKid, alg: 'PS256', use: 'sig' };
   const jumpPublicJwk: JWK = {
     ...jumpJwk,
     kid: 'cloudflare-active-2026-05',
-    alg: 'ES384',
+    alg: 'PS256',
     use: 'sig',
   };
   globalThis.fetch = vi.fn(async () => Response.json({ keys: [issuerPublicJwk] })) as typeof fetch;
@@ -254,7 +249,7 @@ describe('jump gateway routes', () => {
   });
 
   test('production registration rejects aliases, edit and future regions', () => {
-    expect(Object.keys(umaxicaRegistry)).toHaveLength(13);
+    expect(Object.keys(umaxicaRegistry)).toHaveLength(15);
     for (const origin of [
       'https://edit.umaxica.org',
       'https://palm.umaxica.app',
@@ -265,7 +260,6 @@ describe('jump gateway routes', () => {
       expect(Object.hasOwn(umaxicaRegistry, origin)).toBe(false);
     for (const issuer of Object.values(umaxicaRegistry)) {
       expect(issuer.jwks_uri).toBe(`${issuer.iss}/.well-known/jwks.json`);
-      expect(issuer.allowed_dst_external).toBe(false);
       expect(issuer.revoked_kids).toEqual([]);
       for (const dst of issuer.allowed_dst_internal)
         expect(new URL(dst).hostname.split('.').at(-1)).toBe(
@@ -287,22 +281,22 @@ describe('jump gateway routes', () => {
       expect(issuer.allowed_dst_internal, issuer.iss).not.toContain(issuer.iss);
     }
 
-    const issuerKeys = await generateKeyPair('ES384');
-    const jumpKeys = await generateKeyPair('ES384');
+    const issuerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+    const jumpKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
     const jwk = await exportJWK(issuerKeys.publicKey);
     const app = createApp({
       registry: umaxicaRegistry,
       jwksCache: new JwksCache(async () => ({
-        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
+        keys: [{ ...jwk, kid: 'kid-1', alg: 'PS256', use: 'sig' }],
       })),
-      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
+      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN, environment: 'production' },
       runtime: { edge: 'cloudflare', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       now: () => NOW,
     });
 
-    // behavioural: every one of the 14 hosts is refused a jump back to itself
-    expect(fqdns).toHaveLength(13);
+    // behavioural: every registered host is refused a jump back to itself
+    expect(fqdns).toHaveLength(15);
     for (const host of fqdns) {
       const res = await jump(
         app,
@@ -316,7 +310,7 @@ describe('jump gateway routes', () => {
       expect(res.headers.get('X-Jump-Error'), host).toBe('invalid_request');
     }
 
-    // the broker is the 15th fqdn: no issuer may redirect back into Jump itself
+    // No issuer may redirect back into Jump itself.
     for (const iss of Object.keys(umaxicaRegistry)) {
       const res = await jump(
         app,
@@ -336,21 +330,21 @@ describe('jump gateway routes', () => {
       new URL('./production-contract.test.ts', import.meta.url),
       'utf8',
     );
-    expect(contract).toContain('169 ordered pairs');
-    expect(contract).toContain('20 allow / 149 deny');
+    expect(contract).toContain('225 ordered pairs');
+    expect(contract).toContain('38 allow / 187 deny');
     expect(contract).toContain('same-kid');
   });
 
   test('umaxica registry rejects cross-tld hops at runtime', async () => {
-    const issuerKeys = await generateKeyPair('ES384');
-    const jumpKeys = await generateKeyPair('ES384');
+    const issuerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+    const jumpKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
     const jwk = await exportJWK(issuerKeys.publicKey);
     const app = createApp({
       registry: umaxicaRegistry,
       jwksCache: new JwksCache(async () => ({
-        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
+        keys: [{ ...jwk, kid: 'kid-1', alg: 'PS256', use: 'sig' }],
       })),
-      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
+      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN, environment: 'production' },
       runtime: { edge: 'cloudflare', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       now: () => NOW,
@@ -384,11 +378,11 @@ describe('jump gateway routes', () => {
 
   test('registry jwks fetcher uses issuer jwks uri', async () => {
     const previousFetch = globalThis.fetch;
-    const { publicKey } = await generateKeyPair('ES384');
+    const { publicKey } = await generateKeyPair('PS256', { modulusLength: 3072 });
     const publicJwk: JWK = {
       ...(await exportJWK(publicKey)),
       kid: 'kid-1',
-      alg: 'ES384',
+      alg: 'PS256',
       use: 'sig',
     };
     const fetchMock = vi.fn(async () => Response.json({ keys: [publicJwk] }));
@@ -403,8 +397,9 @@ describe('jump gateway routes', () => {
       expect(fetchMock).toHaveBeenCalledWith(
         'https://auth.umaxica.app/.well-known/jwks.json',
         expect.objectContaining({
-          headers: { Accept: 'application/json' },
+          headers: { Accept: 'application/jwk-set+json, application/json' },
           redirect: 'manual',
+          cache: 'no-store',
         }),
       );
     } finally {
@@ -432,6 +427,7 @@ describe('jump gateway routes', () => {
 
     expect(res.status).toBe(400);
     expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
+    expect(res.headers.get('Location')).toBeNull();
   });
 
   test('health JSON and HTML include runtime data', async () => {
@@ -442,7 +438,7 @@ describe('jump gateway routes', () => {
     expect(await json.json()).toMatchObject({
       status: 'OK',
       service: 'jump',
-      version: '0.3.0',
+      version: '0.4.0',
       edge: 'cloudflare',
     });
     const html = await app.request('https://jump.example.net/health.html');
@@ -453,7 +449,7 @@ describe('jump gateway routes', () => {
     expect(healthHtml).toContain('<h1>status</h1>');
     expect(healthHtml).toContain('<dt>status</dt><dd>OK</dd>');
     expect(healthHtml).toContain('<dt>service</dt><dd>jump</dd>');
-    expect(healthHtml).toContain('<dt>version</dt><dd>0.3.0</dd>');
+    expect(healthHtml).toContain('<dt>version</dt><dd>0.4.0</dd>');
     expect(healthHtml).toContain('<dt>edge</dt><dd>cloudflare</dd>');
     expect(healthHtml).toContain('<dt>time</dt><dd>');
     expect(healthHtml).toContain('<footer>© 2026 UMAXICA</footer>');
@@ -563,7 +559,7 @@ describe('jump gateway routes', () => {
     expect(await res.json()).toMatchObject({
       status: 'OK',
       edge: 'cloudflare',
-      version: '0.3.0',
+      version: '0.4.0',
     });
   });
 
@@ -577,11 +573,11 @@ describe('jump gateway routes', () => {
     expect(html).toContain('<dt>edge</dt><dd>cloudflare</dd>');
   });
 
-  test('cloudflare worker uses configured production origin for about output', async () => {
+  test('cloudflare worker does not show the service origin on about', async () => {
     const res = await fetchCloudflareWorker('/about', {});
 
     expect(res.status).toBe(200);
-    expect(await res.text()).toContain('https://jump.umaxica.net');
+    expect(await res.text()).not.toContain('https://jump.umaxica.net');
   });
 
   test('cloudflare worker serves configured Jump public jwks binding', async () => {
@@ -602,11 +598,11 @@ describe('jump gateway routes', () => {
 
   test('cloudflare worker never publishes a public key that mismatches its signer', async () => {
     const setup = await cloudflareInternalRedirectFixture();
-    const wrongKeys = await generateKeyPair('ES384');
+    const wrongKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
     const wrongJwk: JWK = {
       ...(await exportJWK(wrongKeys.publicKey)),
       kid: 'cloudflare-active-2026-05',
-      alg: 'ES384',
+      alg: 'PS256',
       use: 'sig',
     };
     try {
@@ -701,7 +697,7 @@ describe('jump gateway routes', () => {
       const verified = await jwtVerify(returnedRt ?? '', setup.jumpPublicKey, {
         issuer: 'https://jump.umaxica.net',
         audience: 'https://jp.umaxica.app',
-        algorithms: ['ES384'],
+        algorithms: ['PS256'],
         typ: 'JWT',
         currentDate: new Date(),
       });
@@ -750,7 +746,7 @@ describe('jump gateway routes', () => {
       const returnedRt = locationUrl.searchParams.get('rt') ?? '';
       expect(decodeProtectedHeader(returnedRt)).toEqual({
         typ: 'JWT',
-        alg: 'ES384',
+        alg: 'PS256',
         kid: 'cloudflare-active-2026-05',
       });
 
@@ -760,17 +756,17 @@ describe('jump gateway routes', () => {
       expect(jwks.keys).toHaveLength(1);
       expect(jwks.keys[0]).toMatchObject({
         kid: 'cloudflare-active-2026-05',
-        kty: 'EC',
-        crv: 'P-384',
-        alg: 'ES384',
+        kty: 'RSA',
+        e: 'AQAB',
+        alg: 'PS256',
         use: 'sig',
       });
       expect(jwks.keys[0]).not.toHaveProperty('d');
 
-      const verified = await jwtVerify(returnedRt, await importJWK(jwks.keys[0] ?? {}, 'ES384'), {
+      const verified = await jwtVerify(returnedRt, await importJWK(jwks.keys[0] ?? {}, 'PS256'), {
         issuer: 'https://jump.umaxica.net',
         audience: 'https://jp.umaxica.app',
-        algorithms: ['ES384'],
+        algorithms: ['PS256'],
         typ: 'JWT',
         currentDate: new Date(),
       });
@@ -825,7 +821,7 @@ describe('jump gateway routes', () => {
         const returnedRt = locationUrl.searchParams.get('rt') ?? '';
         expect(decodeProtectedHeader(returnedRt)).toEqual({
           typ: 'JWT',
-          alg: 'ES384',
+          alg: 'PS256',
           kid: 'cloudflare-active-2026-05',
         });
 
@@ -835,17 +831,17 @@ describe('jump gateway routes', () => {
         expect(jwks.keys).toHaveLength(1);
         expect(jwks.keys[0]).toMatchObject({
           kid: 'cloudflare-active-2026-05',
-          kty: 'EC',
-          crv: 'P-384',
-          alg: 'ES384',
+          kty: 'RSA',
+          e: 'AQAB',
+          alg: 'PS256',
           use: 'sig',
         });
         expect(jwks.keys[0]).not.toHaveProperty('d');
 
-        const verified = await jwtVerify(returnedRt, await importJWK(jwks.keys[0] ?? {}, 'ES384'), {
+        const verified = await jwtVerify(returnedRt, await importJWK(jwks.keys[0] ?? {}, 'PS256'), {
           issuer: 'https://jump.umaxica.net',
           audience: destination,
-          algorithms: ['ES384'],
+          algorithms: ['PS256'],
           typ: 'JWT',
           currentDate: new Date(),
         });
@@ -920,7 +916,7 @@ describe('jump gateway routes', () => {
     expect(JSON.parse(body)).toMatchObject({
       status: 'OK',
       edge: 'cloudflare',
-      version: '0.3.0',
+      version: '0.4.0',
     });
     expect(body).not.toContain('cloudflare-revision-123');
     expect(body).not.toContain('deploy-tag');
@@ -940,31 +936,28 @@ describe('jump gateway routes', () => {
     expect(html).toContain('<dt>version</dt><dd></dd>');
   });
 
-  test('about and cushion carry product styles; health does not; errors splash', async () => {
-    const { app, signToken } = await fixture();
+  test('about and health carry product styles; errors splash', async () => {
+    const { app } = await fixture();
     const about = await (await app.request('https://jump.example.net/about')).text();
     const health = await (await app.request('https://jump.example.net/health')).text();
     const error = await (await app.request('https://jump.example.net/?rt=not-a-jwt')).text();
-    const cushion = await (
-      await jump(app, await signToken({ dst: 'external', url: 'https://example.org/a' }))
-    ).text();
 
     expect(about).toContain('<body class="product">');
     expect(about).toContain(`<style>${PRODUCT_PAGE_CSS}</style>`);
-    expect(about).toContain('class="origin"');
-    expect(cushion).toContain('<body class="product">');
-    expect(cushion).toContain(`<style>${PRODUCT_PAGE_CSS}</style>`);
-    expect(cushion).toContain('class="continue"');
-    expect(cushion).toContain('class="host"');
-    expect(health).not.toContain('class="product"');
+    expect(about).not.toContain('class="origin"');
+    expect(health).toContain('class="product"');
     expect(health).not.toContain('class="splash"');
-    expect(health).not.toContain('<style>');
-    expect(health).toContain('<body>');
+    expect(health).toContain(`<style>${PRODUCT_PAGE_CSS}</style>`);
+    expect(health).toContain('<body class="product">');
     expect(error).toContain('<body class="splash">');
     expect(error).toContain(`<style>${SPLASH_PAGE_CSS}</style>`);
     expect(error).toContain('href="/about"');
-    expect(error).toContain('reload');
-    expect(error).toContain('再読み込みでは直りません');
+    expect(error).toContain('元のページからもう一度お試しください');
+    expect(error).toContain(
+      '<button class="back" type="button" aria-label="戻る" title="戻る" hidden="">',
+    );
+    expect(error).toContain(`<script>${SPLASH_INLINE_SCRIPT}</script>`);
+    expect(error).not.toContain('reload');
     expect(error).not.toContain('class="product"');
     expect(error).not.toContain('<header>');
   });
@@ -991,8 +984,8 @@ describe('jump gateway routes', () => {
     expect(createHash('sha256').update(SPLASH_PAGE_CSS).digest('base64')).toBe(
       SPLASH_PAGE_CSS_SHA256,
     );
-    expect(createHash('sha256').update(CUSHION_INLINE_SCRIPT).digest('base64')).toBe(
-      '8A+3er73YJf04rRHGhbZwZQACPiiipi9EPduIeAAIDk=',
+    expect(createHash('sha256').update(SPLASH_INLINE_SCRIPT).digest('base64')).toBe(
+      SPLASH_INLINE_SCRIPT_SHA256,
     );
   });
 
@@ -1049,23 +1042,21 @@ describe('jump gateway routes', () => {
     ).toThrow(JumpError);
   });
 
-  test('security headers are applied to invalid token and cushion responses', async () => {
+  test('security headers are applied to invalid token and external rejection responses', async () => {
     const { app, signToken } = await fixture();
     const invalid = await jump(app, 'abc.def');
     expectSecurityHeaders(invalid);
     const invalidHtml = await invalid.text();
     expect(invalidHtml).toContain('<body class="splash">');
     expect(invalidHtml).toContain('href="/about"');
-    expect(invalidHtml).toContain('secondary reload');
+    expect(invalidHtml).not.toContain('reload');
     expect(invalidHtml).not.toContain('<header>');
-    const cushion = await jump(
+    const external = await jump(
       app,
-      await signToken({ dst: 'external', url: 'https://example.org/a?b=1' }),
+      await signToken({ dst: 'external' as 'internal', url: 'https://example.org/a?b=1' }),
     );
-    expectSecurityHeaders(cushion);
-    const cushionHtml = await cushion.text();
-    expect(cushionHtml).toContain('<header><a href="/">UMAXICA</a></header>');
-    expect(cushionHtml).toContain('<footer>© 2026 UMAXICA</footer>');
+    expect(external.status).toBe(400);
+    expectSecurityHeaders(external);
   });
 
   test('request logs expose only allowlisted paths', async () => {
@@ -1097,7 +1088,7 @@ describe('jump gateway routes', () => {
   });
 
   test('signer unavailable maps to 503 for internal redirects', async () => {
-    const issuerKeys = await generateKeyPair('ES384');
+    const issuerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
     const jwk = await exportJWK(issuerKeys.publicKey);
     const noSigner = createApp({
       registry: {
@@ -1105,11 +1096,10 @@ describe('jump gateway routes', () => {
           iss: 'https://app.example.com',
           jwks_uri: 'https://app.example.com/.well-known/jwks.json',
           allowed_dst_internal: ['https://docs.example.com'],
-          allowed_dst_external: false,
         },
       },
       jwksCache: new JwksCache(async () => {
-        return { keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }] };
+        return { keys: [{ ...jwk, kid: 'kid-1', alg: 'PS256', use: 'sig' }] };
       }),
       config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
       runtime: { edge: 'cloudflare', production: true },
@@ -1185,17 +1175,18 @@ describe('jump token validation', () => {
     expect(method.headers.get('Allow')).toBe('GET, HEAD');
   });
 
-  test('HEAD jump matches GET status, location, and security headers without a body', async () => {
-    const { app, signToken } = await fixtureWithOptions({ randomJti: () => 'stable-output' });
-    const token = await signToken();
-    const get = await app.request(`https://jump.example.net/?rt=${token}`);
-    const head = await app.request(`https://jump.example.net/?rt=${token}`, { method: 'HEAD' });
-    expect(head.status).toBe(get.status);
-    expect(new URL(head.headers.get('Location') ?? '').origin).toBe(
-      new URL(get.headers.get('Location') ?? '').origin,
-    );
+  test('HEAD on the token entry is 405 with Allow GET, before any JWKS fetch or signing', async () => {
+    const { app, signToken, fetchCount } = await fixture();
+    const head = await app.request(`https://jump.example.net/?rt=${await signToken()}`, {
+      method: 'HEAD',
+    });
+    expect(head.status).toBe(405);
+    expect(head.headers.get('Allow')).toBe('GET');
+    expect(head.headers.get('X-Jump-Error')).toBe('method_not_allowed');
+    expect(head.headers.get('Location')).toBeNull();
     expectSecurityHeaders(head);
     expect(await head.text()).toBe('');
+    expect(fetchCount()).toBe(0);
   });
 
   test('malformed reject', async () => {
@@ -1209,7 +1200,7 @@ describe('jump token validation', () => {
     const { app } = await fixtureWithOptions({
       auditLog: (entry) => entries.push(entry),
     });
-    const token = 'not-a-compact-jwt-with-secret-like-content';
+    const token = 'not-a.compact-jwt.with-secret-like-content';
     const res = await jump(app, token);
 
     expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
@@ -1246,9 +1237,9 @@ describe('jump token validation', () => {
           auditLog: (entry) => entries.push(entry),
         });
         const header =
-          part === 'header' ? json : JSON.stringify({ typ: 'JWT', alg: 'ES384', kid: 'kid-1' });
+          part === 'header' ? json : JSON.stringify({ typ: 'JWT', alg: 'PS256', kid: 'kid-1' });
         const payload = part === 'payload' ? json : JSON.stringify(baseClaim());
-        const token = [b64(header), b64(payload), 'dummy-signature'].join('.');
+        const token = [b64(header), b64(payload), 'A'.repeat(512)].join('.');
 
         const res = await jump(app, token);
 
@@ -1311,7 +1302,7 @@ describe('jump token validation', () => {
     expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
-  test('non-ES384 signed tokens reject before key lookup', async () => {
+  test('non-PS256 signed tokens reject before key lookup', async () => {
     const { app } = await fixture();
     const algorithms = [
       { alg: 'ES256', keyPair: await generateKeyPair('ES256') },
@@ -1352,13 +1343,13 @@ describe('jump token validation', () => {
       (
         await jump(
           app,
-          replaceHeader(token, { typ: 'JWT', alg: 'ES384', kid: 'kid-1', crit: ['exp'] }),
+          replaceHeader(token, { typ: 'JWT', alg: 'PS256', kid: 'kid-1', crit: ['exp'] }),
         )
       ).headers.get('X-Jump-Error'),
     ).toBe('invalid_request');
     expect(
       (
-        await jump(app, replaceHeader(token, { typ: 'JWT', alg: 'ES384', kid: 'kid-1', jwk: {} }))
+        await jump(app, replaceHeader(token, { typ: 'JWT', alg: 'PS256', kid: 'kid-1', jwk: {} }))
       ).headers.get('X-Jump-Error'),
     ).toBe('invalid_request');
     expect(
@@ -1367,7 +1358,7 @@ describe('jump token validation', () => {
           app,
           replaceHeader(token, {
             typ: 'JWT',
-            alg: 'ES384',
+            alg: 'PS256',
             kid: 'kid-1',
             x5u: 'https://evil.example/cert',
           }),
@@ -1484,11 +1475,13 @@ describe('jump token validation', () => {
     const parts = token.split('.');
     const payload = b64(JSON.stringify({ ...baseClaim(), jti: 'tampered' }));
     const res = await jump(app, [parts[0], payload, parts[2]].join('.'));
+    expect(res.status).toBe(400);
+    expect(res.headers.get('Location')).toBeNull();
     expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
   });
 
-  test('wrong elliptic curve key rejects for ES384', async () => {
-    const { privateKey } = await generateKeyPair('ES384');
+  test('wrong elliptic curve key rejects for PS256', async () => {
+    const { privateKey } = await generateKeyPair('PS256', { modulusLength: 3072 });
     const wrongCurveKeys = await generateKeyPair('ES256');
     const wrongCurveJwk = await exportJWK(wrongCurveKeys.publicKey);
     const registry: IssuerRegistry = {
@@ -1496,7 +1489,6 @@ describe('jump token validation', () => {
         iss: 'https://app.example.com',
         jwks_uri: 'https://app.example.com/.well-known/jwks.json',
         allowed_dst_internal: ['https://docs.example.com'],
-        allowed_dst_external: false,
       },
     };
     const token = await signPayload(privateKey, baseClaim());
@@ -1506,7 +1498,7 @@ describe('jump token validation', () => {
         token,
         registry,
         new JwksCache(async () => ({
-          keys: [{ ...wrongCurveJwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
+          keys: [{ ...wrongCurveJwk, kid: 'kid-1', alg: 'PS256', use: 'sig' }],
         })),
         NOW,
       ),
@@ -1514,8 +1506,8 @@ describe('jump token validation', () => {
   });
 
   test('signature verification retries against refreshed JWKS', async () => {
-    const staleKeys = await generateKeyPair('ES384');
-    const freshKeys = await generateKeyPair('ES384');
+    const staleKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+    const freshKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
     const staleJwk = await exportJWK(staleKeys.publicKey);
     const freshJwk = await exportJWK(freshKeys.publicKey);
     let fetches = 0;
@@ -1524,7 +1516,6 @@ describe('jump token validation', () => {
         iss: 'https://app.example.com',
         jwks_uri: 'https://app.example.com/.well-known/jwks.json',
         allowed_dst_internal: ['https://docs.example.com'],
-        allowed_dst_external: false,
       },
     };
     const claim = baseClaim();
@@ -1539,7 +1530,7 @@ describe('jump token validation', () => {
             {
               ...(fetches === 1 ? staleJwk : freshJwk),
               kid: 'kid-1',
-              alg: 'ES384',
+              alg: 'PS256',
               use: 'sig',
             },
           ],
@@ -1552,18 +1543,17 @@ describe('jump token validation', () => {
   });
 
   test('the default issuer JWKS cache expires after 30 seconds', async () => {
-    const { publicKey } = await generateKeyPair('ES384');
+    const { publicKey } = await generateKeyPair('PS256', { modulusLength: 3072 });
     const jwk: JWK = {
       ...(await exportJWK(publicKey)),
       kid: 'kid-1',
-      alg: 'ES384',
+      alg: 'PS256',
       use: 'sig',
     };
     const issuer = {
       iss: 'https://app.example.com',
       jwks_uri: 'https://app.example.com/.well-known/jwks.json',
       allowed_dst_internal: ['https://docs.example.com'],
-      allowed_dst_external: false,
     } satisfies IssuerRegistry[string];
     let fetches = 0;
     const cache = new JwksCache(async () => {
@@ -1573,13 +1563,13 @@ describe('jump token validation', () => {
     const now = vi.spyOn(Date, 'now');
     try {
       now.mockReturnValue(1_000_000);
-      await cache.getKey(issuer, 'kid-1', 'ES384');
+      await cache.getKey(issuer, 'kid-1');
       now.mockReturnValue(1_029_999);
-      await cache.getKey(issuer, 'kid-1', 'ES384');
+      await cache.getKey(issuer, 'kid-1');
       expect(fetches).toBe(1);
 
       now.mockReturnValue(1_030_000);
-      await cache.getKey(issuer, 'kid-1', 'ES384');
+      await cache.getKey(issuer, 'kid-1');
       expect(fetches).toBe(2);
     } finally {
       now.mockRestore();
@@ -1587,8 +1577,8 @@ describe('jump token validation', () => {
   });
 
   test('signature failures cannot force repeated JWKS refreshes during cooldown', async () => {
-    const trustedKeys = await generateKeyPair('ES384');
-    const attackerKeys = await generateKeyPair('ES384');
+    const trustedKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+    const attackerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
     const trustedJwk = await exportJWK(trustedKeys.publicKey);
     let fetches = 0;
     const registry: IssuerRegistry = {
@@ -1596,12 +1586,11 @@ describe('jump token validation', () => {
         iss: 'https://app.example.com',
         jwks_uri: 'https://app.example.com/.well-known/jwks.json',
         allowed_dst_internal: ['https://docs.example.com'],
-        allowed_dst_external: false,
       },
     };
     const cache = new JwksCache(async () => {
       fetches += 1;
-      return { keys: [{ ...trustedJwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }] };
+      return { keys: [{ ...trustedJwk, kid: 'kid-1', alg: 'PS256', use: 'sig' }] };
     });
     const invalidToken = await signPayload(attackerKeys.privateKey, baseClaim());
 
@@ -1615,8 +1604,8 @@ describe('jump token validation', () => {
   });
 
   test('a failed forced refresh also starts the JWKS cooldown', async () => {
-    const trustedKeys = await generateKeyPair('ES384');
-    const attackerKeys = await generateKeyPair('ES384');
+    const trustedKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+    const attackerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
     const trustedJwk = await exportJWK(trustedKeys.publicKey);
     let fetches = 0;
     const registry: IssuerRegistry = {
@@ -1624,13 +1613,12 @@ describe('jump token validation', () => {
         iss: 'https://app.example.com',
         jwks_uri: 'https://app.example.com/.well-known/jwks.json',
         allowed_dst_internal: ['https://docs.example.com'],
-        allowed_dst_external: false,
       },
     };
     const cache = new JwksCache(async () => {
       fetches += 1;
       if (fetches > 1) throw new Error('issuer unavailable');
-      return { keys: [{ ...trustedJwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }] };
+      return { keys: [{ ...trustedJwk, kid: 'kid-1', alg: 'PS256', use: 'sig' }] };
     });
     const invalidToken = await signPayload(attackerKeys.privateKey, baseClaim());
 
@@ -1644,22 +1632,21 @@ describe('jump token validation', () => {
   });
 
   test('concurrent cache misses share JWKS fetches', async () => {
-    const trustedKeys = await generateKeyPair('ES384');
+    const trustedKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
     const trustedJwk = await exportJWK(trustedKeys.publicKey);
     let fetches = 0;
     const issuer = {
       iss: 'https://app.example.com',
       jwks_uri: 'https://app.example.com/.well-known/jwks.json',
       allowed_dst_internal: ['https://docs.example.com'],
-      allowed_dst_external: false,
     } satisfies IssuerRegistry[string];
     const cache = new JwksCache(async () => {
       fetches += 1;
       await Promise.resolve();
-      return { keys: [{ ...trustedJwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }] };
+      return { keys: [{ ...trustedJwk, kid: 'kid-1', alg: 'PS256', use: 'sig' }] };
     });
 
-    await Promise.all(Array.from({ length: 10 }, () => cache.getKey(issuer, 'kid-1', 'ES384')));
+    await Promise.all(Array.from({ length: 10 }, () => cache.getKey(issuer, 'kid-1')));
 
     expect(fetches).toBe(1);
   });
@@ -1733,15 +1720,13 @@ describe('jump token validation', () => {
     }
   });
 
-  test('IDN hostnames expose Unicode alongside punycode', () => {
+  test('IDN hostnames retain canonical ASCII identity', () => {
     const normalized = normalizeUrl('https://xn--r8jz45g.example/path', {
       edge: 'cloudflare',
       production: true,
     });
     expect(normalized).toMatchObject({
       hostname: 'xn--r8jz45g.example',
-      unicodeHostname: '例え.example',
-      hasNonAsciiHostname: true,
     });
   });
 
@@ -1880,22 +1865,21 @@ describe('jump token validation', () => {
     const rejected = await jump(app, await signToken({ url: 'https://app.example.com:444/path' }));
     expect(rejected.headers.get('X-Jump-Error')).toBe('invalid_request');
 
-    const issuerKeys = await generateKeyPair('ES384');
-    const jumpKeys = await generateKeyPair('ES384');
+    const issuerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+    const jumpKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
     const jwk = await exportJWK(issuerKeys.publicKey);
     const registry: IssuerRegistry = {
       'https://app.example.com': {
         iss: 'https://app.example.com',
         jwks_uri: 'https://app.example.com/.well-known/jwks.json',
         allowed_dst_internal: ['https://app.example.com:444'],
-        allowed_dst_external: false,
       },
     };
     expect(() =>
       createApp({
         registry,
         jwksCache: new JwksCache(async () => ({
-          keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
+          keys: [{ ...jwk, kid: 'kid-1', alg: 'PS256', use: 'sig' }],
         })),
         config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
         runtime: { edge: 'cloudflare', production: true },
@@ -1905,124 +1889,18 @@ describe('jump token validation', () => {
     ).toThrow(JumpError);
   });
 
-  test('external cushion renders continue URL and replaceState', async () => {
-    const { app, signToken } = await fixture();
-    const res = await jump(
-      app,
-      await signToken({ dst: 'external', url: 'https://example.org/a?b=1' }),
-    );
-    const html = await res.text();
-    expect(res.status).toBe(200);
-    expect(html).toContain('history.replaceState');
-    expect(html).toContain('href="https://example.org/a?b=1"');
-    expect(html).toContain('rel="noopener noreferrer"');
-  });
-
-  test('umaxica issuer renders external cushion only when external origin is allowlisted', async () => {
-    const issuerKeys = await generateKeyPair('ES384');
-    const jumpKeys = await generateKeyPair('ES384');
-    const jwk = await exportJWK(issuerKeys.publicKey);
-    const umaxicaIssuer = umaxicaRegistry['https://auth.umaxica.app'];
-    if (!umaxicaIssuer) throw new Error('missing Umaxica test issuer');
-    const registry: IssuerRegistry = {
-      ...umaxicaRegistry,
-      'https://auth.umaxica.app': {
-        ...umaxicaIssuer,
-        allowed_dst_external: ['https://example.com'],
-      },
-    };
-    const app = createApp({
-      registry,
-      jwksCache: new JwksCache(async () => ({
-        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
-      })),
-      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
-      runtime: { edge: 'cloudflare', production: true },
-      signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
-      now: () => NOW,
-    });
-    const token = await signPayload(issuerKeys.privateKey, {
-      ...baseClaim(),
-      iss: 'https://auth.umaxica.app',
-      dst: 'external',
-      url: 'https://example.com/jump/end?ok=1',
-    });
-
-    const res = await jumpEn(app, token);
-    const html = await res.text();
-
-    expect(res.status).toBe(200);
-    expect(html).toContain('Continue to external site');
-    expect(html).toContain('href="https://example.com/jump/end?ok=1"');
-    expect(html).toContain('<dt>host</dt><dd class="host">example.com</dd>');
-  });
-
-  test('external cushion truncates long displayed URLs while preserving href', async () => {
-    const registry: IssuerRegistry = {
-      'https://app.example.com': {
-        iss: 'https://app.example.com',
-        jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-        allowed_dst_internal: ['https://docs.example.com'],
-        allowed_dst_external: ['https://example.org'],
-      },
-    };
-    const issuerKeys = await generateKeyPair('ES384');
-    const jumpKeys = await generateKeyPair('ES384');
-    const jwk = await exportJWK(issuerKeys.publicKey);
-    const app = createApp({
-      registry,
-      jwksCache: new JwksCache(async () => ({
-        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
-      })),
-      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
-      runtime: { edge: 'cloudflare', production: true },
-      signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
-      now: () => NOW,
-    });
-    const longUrl = `https://example.org/${'a'.repeat(220)}`;
-    const token = await signPayload(issuerKeys.privateKey, {
-      ...baseClaim(),
-      dst: 'external',
-      url: longUrl,
-    });
-    const html = await (await jump(app, token)).text();
-    expect(html).toContain(`href="${longUrl}"`);
-    expect(html).toContain('...');
-  });
-
-  test('cushion shows non-ASCII warning when hostname is punycode', async () => {
-    const registry: IssuerRegistry = {
-      'https://app.example.com': {
-        iss: 'https://app.example.com',
-        jwks_uri: 'https://app.example.com/.well-known/jwks.json',
-        allowed_dst_internal: ['https://docs.example.com'],
-        allowed_dst_external: ['https://xn--r8jz45g.example'],
-      },
-    };
-    const issuerKeys = await generateKeyPair('ES384');
-    const jumpKeys = await generateKeyPair('ES384');
-    const jwk = await exportJWK(issuerKeys.publicKey);
-    const app = createApp({
-      registry,
-      jwksCache: new JwksCache(async () => ({
-        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
-      })),
-      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
-      runtime: { edge: 'cloudflare', production: true },
-      signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
-      now: () => NOW,
-    });
-    const token = await signToken(issuerKeys.privateKey, {
-      dst: 'external',
-      url: 'https://xn--r8jz45g.example/path',
-    });
-    const res = await jump(app, token);
-    const html = await res.text();
-    expect(html).toContain('非 ASCII');
-    expect(html).toContain('例え.example');
-    expect(html).toContain('xn--r8jz45g.example');
-    expect(html).toContain('このページを再読み込みすると、移動先は消えます。');
-    expect(html).toContain('href="/about"');
+  test('external destinations are rejected even for registered issuers (ADR 0007)', async () => {
+    const { app, signToken, fetchCount } = await fixture();
+    for (const url of ['https://example.org/a?b=1', 'https://docs.example.com/']) {
+      const res = await jump(app, await signToken({ dst: 'external' as 'internal', url }));
+      expect(res.status).toBe(400);
+      expect(res.headers.get('X-Jump-Error')).toBe('invalid_request');
+      expect(res.headers.get('Location')).toBeNull();
+      const html = await res.text();
+      expect(html).not.toContain('class="continue"');
+      expect(html).not.toContain('history.replaceState');
+    }
+    expect(fetchCount()).toBe(1);
   });
 
   test('internal redirect carries outbound rt signed by jump', async () => {
@@ -2037,7 +1915,7 @@ describe('jump token validation', () => {
     const verified = await jwtVerify(rt ?? '', jumpPublicKey, {
       issuer: PRODUCTION_SERVICE_ORIGIN,
       audience: 'https://docs.example.com',
-      algorithms: ['ES384'],
+      algorithms: ['PS256'],
       typ: 'JWT',
       currentDate: new Date(NOW * 1000),
     });
@@ -2087,10 +1965,10 @@ describe('jump token validation', () => {
     const jwks = (await jwksRes.json()) as { keys: JWK[] };
     const jumpKey = jwks.keys.find((key) => key.kid === 'jump-test');
     expect(jumpKey).toBeTruthy();
-    const verified = await jwtVerify(returnedRt ?? '', await importJWK(jumpKey ?? {}, 'ES384'), {
+    const verified = await jwtVerify(returnedRt ?? '', await importJWK(jumpKey ?? {}, 'PS256'), {
       issuer: 'https://jump.umaxica.net',
       audience: 'https://docs.example.com',
-      algorithms: ['ES384'],
+      algorithms: ['PS256'],
       typ: 'JWT',
       currentDate: new Date(NOW * 1000),
     });
@@ -2118,7 +1996,7 @@ describe('jump token validation', () => {
     const verified = await jwtVerify(rt ?? '', jumpPublicKey, {
       issuer: PRODUCTION_SERVICE_ORIGIN,
       audience: 'https://docs.example.com',
-      algorithms: ['ES384'],
+      algorithms: ['PS256'],
       typ: 'JWT',
       currentDate: new Date(NOW * 1000),
     });
@@ -2126,6 +2004,21 @@ describe('jump token validation', () => {
       jti: 'fixed-outbound-jti',
       exp: NOW + 7,
     });
+  });
+
+  test('rejects an oversized outbound token and preserves an empty query delimiter', async () => {
+    const oversized = await fixtureWithOptions({
+      signer: { sign: async () => 'x'.repeat(8193) },
+    });
+    const rejected = await jump(oversized.app, await oversized.signToken({ dst: 'internal' }));
+    expect(rejected.status).toBe(400);
+    expect(rejected.headers.get('Location')).toBeNull();
+
+    const { app, signToken } = await fixture();
+    const token = await signToken({ dst: 'internal', url: 'https://docs.example.com/path?' });
+    const response = await jump(app, token);
+    expect(response.status).toBe(302);
+    expect(response.headers.get('Location')).toMatch(/^https:\/\/docs\.example\.com\/path\?rt=/);
   });
 
   test('JWKS cache avoids repeated fetch and negative cache rejects missing kid', async () => {
@@ -2138,8 +2031,8 @@ describe('jump token validation', () => {
   });
 
   test('JWKS fetch outages are negatively cached at the existing negative TTL', async () => {
-    const issuerKeys = await generateKeyPair('ES384');
-    const jumpKeys = await generateKeyPair('ES384');
+    const issuerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+    const jumpKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
     const token = await signToken(issuerKeys.privateKey, { jti: 'outage' });
     vi.useFakeTimers({ now: NOW * 1000 });
     try {
@@ -2150,7 +2043,6 @@ describe('jump token validation', () => {
             iss: 'https://app.example.com',
             jwks_uri: 'https://app.example.com/.well-known/jwks.json',
             allowed_dst_internal: ['https://docs.example.com'],
-            allowed_dst_external: false,
           },
         },
         jwksCache: new JwksCache(async () => {
@@ -2178,21 +2070,20 @@ describe('jump token validation', () => {
   });
 
   test('a valid token remains usable while claims remain valid', async () => {
-    const issuerKeys = await generateKeyPair('ES384');
-    const jumpKeys = await generateKeyPair('ES384');
+    const issuerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+    const jumpKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
     const jwk = await exportJWK(issuerKeys.publicKey);
     const registry: IssuerRegistry = {
       'https://app.example.com': {
         iss: 'https://app.example.com',
         jwks_uri: 'https://app.example.com/.well-known/jwks.json',
         allowed_dst_internal: ['https://docs.example.com'],
-        allowed_dst_external: false,
       },
     };
     const app = createApp({
       registry,
       jwksCache: new JwksCache(async () => ({
-        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
+        keys: [{ ...jwk, kid: 'kid-1', alg: 'PS256', use: 'sig' }],
       })),
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
@@ -2213,17 +2104,16 @@ describe('jump token validation', () => {
       iss: 'https://app.example.com',
       jwks_uri: 'https://app.example.com/.well-known/jwks.json',
       allowed_dst_internal: ['https://docs.example.com'],
-      allowed_dst_external: false as const,
     };
-    const externalClaim: InboundJumpClaim = { ...baseClaim(), dst: 'external' };
+    const externalClaim: InboundJumpClaim = { ...baseClaim(), dst: 'external' as 'internal' };
     const unknownClaim: InboundJumpClaim = { ...baseClaim(), dst: 'other' as 'internal' };
     expect(() => assertDestinationPolicy(externalClaim, issuer, target)).toThrow(JumpError);
     expect(() => assertDestinationPolicy(unknownClaim, issuer, target)).toThrow(JumpError);
   });
 
   test('handleJump uses current time and default outbound ttl when deps omit optional hooks', async () => {
-    const issuerKeys = await generateKeyPair('ES384');
-    const jumpKeys = await generateKeyPair('ES384');
+    const issuerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+    const jumpKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
     const jwk = await exportJWK(issuerKeys.publicKey);
     const now = Math.floor(Date.now() / 1000);
     const token = await signPayload(issuerKeys.privateKey, {
@@ -2238,13 +2128,12 @@ describe('jump token validation', () => {
           iss: 'https://app.example.com',
           jwks_uri: 'https://app.example.com/.well-known/jwks.json',
           allowed_dst_internal: ['https://docs.example.com'],
-          allowed_dst_external: false,
         },
       },
       jwksCache: new JwksCache(async () => ({
-        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
+        keys: [{ ...jwk, kid: 'kid-1', alg: 'PS256', use: 'sig' }],
       })),
-      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
+      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN, environment: 'production' },
       runtime: { edge: 'cloudflare', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
     });
@@ -2252,8 +2141,8 @@ describe('jump token validation', () => {
   });
 
   test('app route can validate tokens without a test clock override', async () => {
-    const issuerKeys = await generateKeyPair('ES384');
-    const jumpKeys = await generateKeyPair('ES384');
+    const issuerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+    const jumpKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
     const jwk = await exportJWK(issuerKeys.publicKey);
     const now = Math.floor(Date.now() / 1000);
     const app = createApp({
@@ -2262,13 +2151,12 @@ describe('jump token validation', () => {
           iss: 'https://app.example.com',
           jwks_uri: 'https://app.example.com/.well-known/jwks.json',
           allowed_dst_internal: ['https://docs.example.com'],
-          allowed_dst_external: false,
         },
       },
       jwksCache: new JwksCache(async () => ({
-        keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
+        keys: [{ ...jwk, kid: 'kid-1', alg: 'PS256', use: 'sig' }],
       })),
-      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
+      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN, environment: 'production' },
       runtime: { edge: 'cloudflare', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
     });
@@ -2290,22 +2178,21 @@ describe('jump token validation', () => {
 
   test('jwks cache rejects revoked and negative cached kids', async () => {
     const { signToken } = await fixture();
-    const issuerKeys = await generateKeyPair('ES384');
+    const issuerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
     const jwk = await exportJWK(issuerKeys.publicKey);
     const issuer = {
       iss: 'https://app.example.com',
       jwks_uri: 'https://app.example.com/.well-known/jwks.json',
       allowed_dst_internal: ['https://docs.example.com'],
-      allowed_dst_external: false as const,
       revoked_kids: ['revoked'],
     };
     const cache = new JwksCache(async () => ({
-      keys: [{ ...jwk, kid: 'kid-1', alg: 'ES384', use: 'sig' }],
+      keys: [{ ...jwk, kid: 'kid-1', alg: 'PS256', use: 'sig' }],
     }));
 
-    await expect(cache.getKey(issuer, 'revoked', 'ES384')).rejects.toThrow(JumpError);
-    await expect(cache.getKey(issuer, 'missing', 'ES384')).rejects.toThrow(JumpError);
-    await expect(cache.getKey(issuer, 'missing', 'ES384')).rejects.toThrow(JumpError);
+    await expect(cache.getKey(issuer, 'revoked')).rejects.toThrow(JumpError);
+    await expect(cache.getKey(issuer, 'missing')).rejects.toThrow(JumpError);
+    await expect(cache.getKey(issuer, 'missing')).rejects.toThrow(JumpError);
     expect(await signToken()).toBeTruthy();
   });
 
@@ -2314,27 +2201,30 @@ describe('jump token validation', () => {
   });
 
   test('PKCS8 PEM can create JoseOutboundSigner', async () => {
-    const keys = await generateKeyPair('ES384', { extractable: true });
-    const privateKey = await importPKCS8(await exportPKCS8(keys.privateKey), 'ES384');
+    const keys = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
+    const privateKey = await importPKCS8(await exportPKCS8(keys.privateKey), 'PS256');
     const signer = new JoseOutboundSigner(privateKey, 'cloudflare-active-2026-05');
-    const token = await signer.sign({
-      schema: 1,
-      rpl: 'reuse',
-      iss: 'https://jump.umaxica.net',
-      aud: 'https://www.umaxica.app',
-      sub: 'jump-redirect',
-      iat: NOW,
-      nbf: NOW,
-      exp: NOW + 30,
-      jti: 'pkcs8-signer-test',
-      src: 'https://www.umaxica.app',
-      dst: 'internal',
-      url: 'https://www.umaxica.app/',
-    });
+    const token = await signer.sign(
+      {
+        schema: 1,
+        rpl: 'reuse',
+        iss: 'https://jump.umaxica.net',
+        aud: 'https://www.umaxica.app',
+        sub: 'jump-redirect',
+        iat: NOW,
+        nbf: NOW,
+        exp: NOW + 30,
+        jti: 'pkcs8-signer-test',
+        src: 'https://www.umaxica.app',
+        dst: 'internal',
+        url: 'https://www.umaxica.app/',
+      },
+      'JWT',
+    );
 
     expect(decodeProtectedHeader(token)).toMatchObject({
       typ: 'JWT',
-      alg: 'ES384',
+      alg: 'PS256',
       kid: 'cloudflare-active-2026-05',
     });
   });
@@ -2351,8 +2241,11 @@ function replaceHeader(token: string, header: Record<string, unknown>) {
 
 function expectSecurityHeaders(res: Response) {
   expect(res.headers.get('Content-Security-Policy')).toContain("default-src 'none'");
-  expect(res.headers.get('Content-Security-Policy')).toContain(
+  expect(res.headers.get('Content-Security-Policy')).not.toContain(
     "'sha256-8A+3er73YJf04rRHGhbZwZQACPiiipi9EPduIeAAIDk='",
+  );
+  expect(res.headers.get('Content-Security-Policy')).toContain(
+    `'sha256-${SPLASH_INLINE_SCRIPT_SHA256}'`,
   );
   expect(res.headers.get('Content-Security-Policy')).toContain(
     `'sha256-${PRODUCT_PAGE_CSS_SHA256}'`,
@@ -2440,7 +2333,7 @@ describe('request deadline', () => {
     return { signals, fetchJwks };
   }
 
-  test('a jump that outruns the deadline answers 504 and aborts the JWKS fetch', async () => {
+  test('a jump deadline answers 504 without aborting the shared JWKS fetch', async () => {
     const { signals, fetchJwks } = hangingJwks();
     const { app, signToken } = await fixtureWithOptions({
       jwksCache: new JwksCache(fetchJwks),
@@ -2451,10 +2344,9 @@ describe('request deadline', () => {
 
     expect(res.status).toBe(504);
     expect(res.headers.get('X-Jump-Error')).toBe('deadline_exceeded');
-    // The signal must be the real one handed to the fetch layer, and it must
-    // actually have fired — not merely have been checked before the call.
+    // The shared fetch has a separate deadline from this caller.
     expect(signals).toHaveLength(1);
-    expect(signals[0]?.aborted).toBe(true);
+    expect(signals[0]?.aborted).toBe(false);
     expectSecurityHeaders(res);
   });
 
@@ -2473,16 +2365,16 @@ describe('request deadline', () => {
     expect(res.headers.get('Set-Cookie')).toBeNull();
   });
 
-  test('a forced refresh shares the first fetch deadline instead of restarting it', async () => {
+  test('a forced refresh has an independent fetch deadline while the caller stays bounded', async () => {
     // First fetch answers with a well-formed keyset for the right kid but the
     // wrong key, so verification fails and drives a forced refresh. The refresh
-    // then hangs. If the refresh started a fresh deadline it would get a full
-    // new budget; sharing one deadline means it gets the same signal object.
-    const wrongKeys = await generateKeyPair('ES384');
+    // then hangs. Each shared fetch has its own budget, while the caller's
+    // original deadline still limits the response.
+    const wrongKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
     const wrongJwk: JWK = {
       ...(await exportJWK(wrongKeys.publicKey)),
       kid: 'kid-1',
-      alg: 'ES384',
+      alg: 'PS256',
       use: 'sig',
     };
     const signals: (AbortSignal | undefined)[] = [];
@@ -2509,17 +2401,17 @@ describe('request deadline', () => {
 
     expect(res.status).toBe(504);
     expect(signals).toHaveLength(2);
-    expect(signals[1]).toBe(signals[0]);
-    expect(signals[0]?.aborted).toBe(true);
+    expect(signals[1]).not.toBe(signals[0]);
+    expect(signals[0]?.aborted).toBe(false);
   });
 
   test('work that finishes after the deadline cannot replace the 504', async () => {
     let release: ((keys: { keys: JWK[] }) => void) | undefined;
-    const { publicKey } = await generateKeyPair('ES384');
+    const { publicKey } = await generateKeyPair('PS256', { modulusLength: 3072 });
     const publicJwk: JWK = {
       ...(await exportJWK(publicKey)),
       kid: 'kid-1',
-      alg: 'ES384',
+      alg: 'PS256',
       use: 'sig',
     };
     const fetchJwks: FetchJwks = () =>
@@ -2594,11 +2486,11 @@ describe('issuer JWKS transport hardening', () => {
   }
 
   async function validJwk(overrides: Partial<JWK> = {}): Promise<JWK> {
-    const { publicKey } = await generateKeyPair('ES384');
+    const { publicKey } = await generateKeyPair('PS256', { modulusLength: 3072 });
     return {
       ...(await exportJWK(publicKey)),
       kid: 'kid-1',
-      alg: 'ES384',
+      alg: 'PS256',
       use: 'sig',
       ...overrides,
     };
@@ -2732,44 +2624,58 @@ describe('issuer JWKS transport hardening', () => {
     }
   });
 
+  function expectKeysetRejection() {
+    return async () => {
+      if (!issuer) throw new Error('missing test issuer');
+      const cache = new JwksCache(fetchRegistryJwks);
+      await expect(cache.getKey(issuer, 'kid-1')).rejects.toMatchObject({
+        code: 'jwks_bad_gateway',
+      });
+    };
+  }
+
   test('private key material anywhere in an issuer keyset rejects the whole set', async () => {
-    const { privateKey } = await generateKeyPair('ES384', { extractable: true });
-    const privateJwk = { ...(await exportJWK(privateKey)), kid: 'kid-2', alg: 'ES384', use: 'sig' };
+    const { privateKey } = await generateKeyPair('PS256', {
+      extractable: true,
+      modulusLength: 3072,
+    });
+    const privateJwk = { ...(await exportJWK(privateKey)), kid: 'kid-2', alg: 'PS256', use: 'sig' };
     expect(privateJwk.d).toBeTruthy();
     const keys = [await validJwk(), privateJwk];
-    await withFetch(() => Response.json({ keys }), expectRejection('jwks_bad_gateway'));
+    await withFetch(() => Response.json({ keys }), expectKeysetRejection());
   });
 
   test('a duplicate kid rejects the whole set rather than letting the first win', async () => {
     const keys = [await validJwk({ kid: 'dup' }), await validJwk({ kid: 'dup' })];
-    await withFetch(() => Response.json({ keys }), expectRejection('jwks_bad_gateway'));
+    await withFetch(() => Response.json({ keys }), expectKeysetRejection());
   });
 
-  test('keys that cannot verify an ES384 jump token are dropped, not trusted', async () => {
-    const usable = await validJwk({ kid: 'good' });
+  test.each([
+    ['use enc', (key: JWK) => ({ ...key, use: 'enc' })],
+    ['missing use', ({ use: _use, ...key }: JWK) => key],
+    ['alg ES256', (key: JWK) => ({ ...key, alg: 'ES256' })],
+  ])(
+    'a key that cannot verify an PS256 jump token (%s) rejects the whole set',
+    async (_l, edit) => {
+      const keys = [await validJwk(), edit(await validJwk({ kid: 'other' }))];
+      await withFetch(() => Response.json({ keys }), expectKeysetRejection());
+    },
+  );
+
+  test('a P-256 key labelled P-384 rejects the whole set', async () => {
     const p256 = await generateKeyPair('ES256');
     const keys = [
-      usable,
-      await validJwk({ kid: 'enc-key', use: 'enc' }),
-      { ...(await exportJWK(p256.publicKey)), kid: 'wrong-curve', alg: 'ES384', use: 'sig' },
-      { ...(await exportJWK(p256.publicKey)), kid: 'wrong-alg', alg: 'ES256', use: 'sig' },
+      await validJwk(),
+      { ...(await exportJWK(p256.publicKey)), kid: 'wrong-curve', alg: 'PS256', use: 'sig' },
     ];
-    await withFetch(
-      () => Response.json({ keys }),
-      async () => {
-        if (!issuer) throw new Error('missing test issuer');
-        // An issuer publishing unrelated keys must not take its redirects down;
-        // only the usable key survives.
-        await expect(fetchRegistryJwks(issuer)).resolves.toEqual({ keys: [usable] });
-      },
-    );
+    await withFetch(() => Response.json({ keys }), expectKeysetRejection());
   });
 
   test('a keyset with no usable key is an upstream protocol violation', async () => {
-    await withFetch(() => Response.json({ keys: [] }), expectRejection('jwks_bad_gateway'));
+    await withFetch(() => Response.json({ keys: [] }), expectKeysetRejection());
     await withFetch(
       () => Response.json({ keys: [{ kty: 'oct', k: 'AAAA', kid: 'x' }] }),
-      expectRejection('jwks_bad_gateway'),
+      expectKeysetRejection(),
     );
   });
 });
@@ -2809,7 +2715,7 @@ describe('route, rate limit, and request id contracts', () => {
     const { jump, env } = limiterEnv();
     const ip = { 'CF-Connecting-IP': '203.0.113.9' };
 
-    await workerFetch('/?rt=abc', env, ip);
+    await workerFetch('/?rt=a.b.c', env, ip);
     await workerFetch('/.well-known/jwks.json', env, ip);
     await workerFetch('/about', env, ip);
     await workerFetch('/health', env, ip);
@@ -2821,7 +2727,7 @@ describe('route, rate limit, and request id contracts', () => {
 
   test('a client cannot redirect its rate limit onto another address', async () => {
     const { jump, env } = limiterEnv();
-    await workerFetch('/?rt=abc', env, {
+    await workerFetch('/?rt=a.b.c', env, {
       'CF-Connecting-IP': '203.0.113.9',
       'X-Forwarded-For': '198.51.100.7',
       'X-Real-IP': '198.51.100.7',
@@ -2843,7 +2749,7 @@ describe('route, rate limit, and request id contracts', () => {
       JUMP_RATE_LIMITER: { limit: async () => ({ success: false }) },
       UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({ keys: [] }),
     };
-    const res = await workerFetch('/?rt=abc', denied, { 'CF-Connecting-IP': '203.0.113.9' });
+    const res = await workerFetch('/?rt=a.b.c', denied, { 'CF-Connecting-IP': '203.0.113.9' });
     expect(res.status).toBe(429);
     expect(res.headers.get('X-Request-ID')).toBeTruthy();
     expect(res.headers.get('Cache-Control')).toBe('no-store');
@@ -2854,7 +2760,7 @@ describe('route, rate limit, and request id contracts', () => {
   test('a missing client IP fails closed', async () => {
     const { jump: limiter, env } = limiterEnv();
     const res = await actualWorker.fetch(
-      new Request('https://jump.umaxica.net/?rt=abc'),
+      new Request('https://jump.umaxica.net/?rt=a.b.c'),
       { ...env, UMAXICA_JUMP_ORIGIN: PRODUCTION_SERVICE_ORIGIN },
       {} as ExecutionContext,
     );
@@ -2868,7 +2774,7 @@ describe('route, rate limit, and request id contracts', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const res = await workerFetch(
-        '/?rt=abc',
+        '/?rt=a.b.c',
         { JUMP_RATE_LIMITER: { limit: async () => Promise.reject(new TypeError('secret')) } },
         { 'CF-Connecting-IP': '203.0.113.9' },
       );
@@ -2924,12 +2830,12 @@ describe('route, rate limit, and request id contracts', () => {
   test('a repeated jti is accepted, because a jump token is reusable within exp', async () => {
     // Jump does not consume jti. Repeating a valid token must not depend on
     // isolate-local or provider storage.
-    const issuerKeys = await generateKeyPair('ES384');
-    const jumpKeys = await generateKeyPair('ES384', { extractable: true });
+    const issuerKeys = await generateKeyPair('PS256', { modulusLength: 3072 });
+    const jumpKeys = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
     const publicJwk: JWK = {
       ...(await exportJWK(issuerKeys.publicKey)),
       kid: 'kid-1',
-      alg: 'ES384',
+      alg: 'PS256',
       use: 'sig',
     };
     const app = createApp({
@@ -2938,11 +2844,10 @@ describe('route, rate limit, and request id contracts', () => {
           iss: 'https://app.example.com',
           jwks_uri: 'https://app.example.com/.well-known/jwks.json',
           allowed_dst_internal: ['https://docs.example.com'],
-          allowed_dst_external: false,
         },
       },
       jwksCache: new JwksCache(async () => ({ keys: [publicJwk] })),
-      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
+      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN, environment: 'production' },
       runtime: { edge: 'cloudflare', production: true },
       signer: new JoseOutboundSigner(jumpKeys.privateKey, 'jump-test'),
       now: () => NOW,
@@ -2961,7 +2866,6 @@ describe('route, rate limit, and request id contracts', () => {
           iss: 'https://app.example.com',
           jwks_uri: 'https://app.example.com/.well-known/jwks.json',
           allowed_dst_internal: ['https://docs.example.com'],
-          allowed_dst_external: false,
           revoked_kids: ['kid-1'],
         },
       };
@@ -2986,7 +2890,7 @@ describe('outbound token contract', () => {
     expect(res.status).toBe(302);
     const rt = new URL(res.headers.get('Location') ?? '').searchParams.get('rt');
     const { payload } = await jwtVerify(rt ?? '', jumpPublicKey, {
-      algorithms: ['ES384'],
+      algorithms: ['PS256'],
       typ: 'JWT',
       currentDate: new Date(NOW * 1000),
     });
@@ -3060,7 +2964,6 @@ describe('UMAXICA title contract', () => {
       'errorTitle',
       'rateLimitTitle',
       'unavailableTitle',
-      'cushionTitle',
     ] as const;
     for (const locale of ['ja', 'en'] as const) {
       for (const key of titleKeys) {
@@ -3073,11 +2976,7 @@ describe('UMAXICA title contract', () => {
   });
 
   test('rendered HTML responses satisfy the title contract', async () => {
-    const { app, signToken } = await fixture();
-    const externalToken = await signToken({
-      dst: 'external',
-      url: 'https://example.org/landing',
-    });
+    const { app } = await fixture();
 
     const cases: Array<{
       name: string;
@@ -3096,13 +2995,6 @@ describe('UMAXICA title contract', () => {
         path: '/health.html',
         ja: 'サーバー状態',
         en: 'Health status',
-        status: 200,
-      },
-      {
-        name: 'cushion',
-        path: `/?rt=${externalToken}`,
-        ja: '外部サイトへ移動',
-        en: 'Continue to external site',
         status: 200,
       },
       {
@@ -3139,14 +3031,14 @@ describe('UMAXICA title contract', () => {
   test('cloudflare rate limit response is HTML with a contract title', async () => {
     const rateLimiter = { limit: async () => ({ success: false }) };
     const ja = await cloudflareWorker.fetch(
-      new Request('https://jump.example.net/?rt=abc', {
+      new Request('https://jump.example.net/?rt=a.b.c', {
         headers: { 'CF-Connecting-IP': '192.0.2.1' },
       }),
       { JUMP_RATE_LIMITER: rateLimiter },
       {} as ExecutionContext,
     );
     const en = await cloudflareWorker.fetch(
-      new Request('https://jump.example.net/?rt=abc', {
+      new Request('https://jump.example.net/?rt=a.b.c', {
         headers: { 'Accept-Language': 'en-US', 'CF-Connecting-IP': '192.0.2.1' },
       }),
       { JUMP_RATE_LIMITER: rateLimiter },
@@ -3166,7 +3058,7 @@ describe('UMAXICA title contract', () => {
   // the in-app HTML routes use, so the two paths cannot drift apart.
   test('rate limit HTML carries the same protections as in-app HTML', async () => {
     const limited = await cloudflareWorker.fetch(
-      new Request('https://jump.example.net/?rt=abc', {
+      new Request('https://jump.example.net/?rt=a.b.c', {
         headers: { 'CF-Connecting-IP': '192.0.2.1' },
       }),
       { JUMP_RATE_LIMITER: { limit: async () => ({ success: false }) } },
@@ -3263,11 +3155,11 @@ describe('UMAXICA title contract', () => {
     expect(obs.redact_query_string).toBe(true);
     expect(obs.logs).toMatchObject({
       enabled: true,
-      head_sampling_rate: 1,
+      head_sampling_rate: 0.1,
       invocation_logs: true,
       persist: true,
     });
-    expect(obs.traces).toMatchObject({ enabled: true, head_sampling_rate: 1, persist: true });
+    expect(obs.traces).toMatchObject({ enabled: true, head_sampling_rate: 0.02, persist: true });
     expect(obs.logs.destinations ?? []).toEqual([]);
     expect(obs.traces.destinations ?? []).toEqual([]);
   });
@@ -3319,16 +3211,8 @@ describe('UMAXICA title contract', () => {
     const jwks = JSON.parse(parsed.vars?.UMAXICA_JUMP_PUBLIC_JWKS ?? '{}') as {
       keys?: Array<{ alg?: string; crv?: string; kid?: string; kty?: string; use?: string }>;
     };
-    expect(activeKid).toBeTruthy();
-    expect(jwks.keys).toEqual([
-      expect.objectContaining({
-        alg: 'ES384',
-        crv: 'P-384',
-        kid: activeKid,
-        kty: 'EC',
-        use: 'sig',
-      }),
-    ]);
+    expect(activeKid).toBeUndefined();
+    expect(jwks.keys).toBeUndefined();
   });
 
   test('a warm isolate reuses the JWKS cache and the imported signer across requests', async () => {
@@ -3355,11 +3239,16 @@ describe('UMAXICA title contract', () => {
         .filter((line) => line.includes('"signer_configured":true'));
       expect(signerConfigured).toHaveLength(1);
 
-      // A fresh `env` object stands in for a new isolate handing over a new
-      // reference: separate binding bundles have separate caches.
+      // A fresh `env` reference in the same isolate: the issuer JWKS is still
+      // shared, while the secret-derived signer stays bound to its own `env`.
       const third = await fetchCloudflareWorker(`/?rt=${setup.inboundToken}`, { ...env });
       expect(third.status).toBe(302);
-      expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+      expect(
+        info.mock.calls
+          .map(([message]) => String(message))
+          .filter((line) => line.includes('"signer_configured":true')),
+      ).toHaveLength(2);
     } finally {
       setup.restore();
       info.mockRestore();

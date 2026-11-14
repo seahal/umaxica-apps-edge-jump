@@ -8,6 +8,7 @@ import {
   type JumpDeps,
   type JumpAuditLogEntry,
 } from './core/handle_jump';
+import { isNonNavigationRequest } from './core/fetch_metadata';
 import { healthJson, renderHealthHtml, wantsJson } from './core/health';
 import { asLocale, type Locale } from './core/i18n';
 import { JwksCache, type FetchJwks } from './core/jwks_cache';
@@ -18,9 +19,10 @@ import { renderErrorPage } from './core/page';
 import { renderAbout } from './core/render_about';
 import { renderRobots, renderSitemap } from './core/render_discovery';
 import { jumpSecureHeaders, responseHygiene } from './core/security_headers';
-import { validateServiceOrigin, normalizeOrigin, isRtKey } from './core/normalize_url';
+import { validateServiceOrigin, normalizeOrigin, hasMalformedRtQuery } from './core/normalize_url';
 import { throwIfAborted } from './core/deadline';
 import { NoopOutboundSigner, type OutboundSigner } from './core/sign_outbound';
+import { isJumpEnvironment } from './core/token_profile';
 import { JumpError, type JumpConfig, type IssuerRegistry, type RuntimeInfo } from './core/types';
 
 type RequestVariables = LanguageVariables & {
@@ -79,43 +81,55 @@ export function createApp(options: AppOptions = {}) {
   app.use('*', jumpSecureHeaders());
   app.use('*', requestDeadline(options.deadlineMs ?? 1000));
   app.use('*', async (c, next) => {
-    const url = new URL(c.req.url);
     if (c.req.method !== 'GET' && c.req.method !== 'HEAD') {
       const response = publicErrorResponse('method_not_allowed', requestLocale(c));
       response.headers.set('Allow', 'GET, HEAD');
       return response;
     }
-    if (
-      (url.pathname !== '/' && [...url.searchParams.keys()].some(isRtKey)) ||
-      (url.pathname === '/' &&
-        url.search &&
-        ([...url.searchParams.keys()].some((key) => key !== 'rt') ||
-          url.searchParams.getAll('rt').length !== 1 ||
-          !url.searchParams.get('rt')))
-    )
+    if (hasMalformedRtQuery(new URL(c.req.url)))
       return publicErrorResponse('malformed', requestLocale(c));
     await next();
   });
   app.use('*', trimSlashExceptRoot());
 
   app.on(['GET', 'HEAD'], '/', async (c) => {
-    if (c.req.query('rt') === undefined) return c.redirect('/about');
+    if (!new URL(c.req.url).search) return c.redirect('/about');
     const locale = requestLocale(c);
+    // The token entry is a top-level document navigation, which is always GET.
+    if (c.req.method !== 'GET') {
+      const rejected = withoutBody(publicErrorResponse('method_not_allowed', locale));
+      rejected.headers.set('Allow', 'GET');
+      return rejected;
+    }
+    // Defense in depth, after method/query validation and the adapter's rate
+    // limiter, before any token decoding, JWKS fetch or signing.
+    if (isNonNavigationRequest(c.req.raw.headers)) {
+      const rejected = publicErrorResponse('non_navigation_request', locale);
+      (options.auditLog ?? auditLog)({
+        level: 'warn',
+        event: 'jump_reject',
+        result: 'rejected',
+        reason: 'non_navigation_request',
+        request_id: c.get('requestId'),
+        ...cfRayFields(c.req.header('CF-Ray')),
+        status: rejected.status,
+      });
+      return rejected;
+    }
     const signal = c.get('deadlineSignal');
-    const requestSigner = options.signerForRequest?.(c.env, signal) ?? signer;
+    let pendingAudit: JumpAuditLogEntry | undefined;
     const deps: JumpDeps = {
       registry,
       jwksCache,
       runtime,
-      signer: requestSigner,
+      signer: options.signerForRequest?.(c.env, signal) ?? signer,
       config,
       signal,
+      locale,
+      auditLog: (entry) => {
+        pendingAudit = entry;
+      },
     };
-    let pendingAudit: JumpAuditLogEntry | undefined;
-    deps.auditLog = (entry) => {
-      pendingAudit = entry;
-    };
-    deps.locale = locale;
     if (options.now) deps.now = options.now;
     if (options.randomJti) deps.randomJti = options.randomJti;
     if (options.outboundTtl !== undefined) deps.outboundTtl = options.outboundTtl;
@@ -131,7 +145,7 @@ export function createApp(options: AppOptions = {}) {
       status: response.status,
       latency_ms: Math.round(performance.now() - started),
     });
-    return c.req.method === 'HEAD' ? withoutBody(response) : response;
+    return response;
   });
 
   /* v8 ignore start -- defensive: the method middleware rejects non-GET/HEAD first */
@@ -145,19 +159,16 @@ export function createApp(options: AppOptions = {}) {
   );
   /* v8 ignore stop */
 
-  app.get('/about', (c) =>
-    html(c, renderAbout(requestLocale(c), config.serviceOrigin), requestLocale(c)),
+  const healthHtml = (c: Context<AppEnv>) => {
+    const locale = requestLocale(c);
+    return html(c, renderHealthHtml(runtime, locale), locale);
+  };
+  app.get('/about', (c) => html(c, renderAbout(requestLocale(c)), requestLocale(c)));
+  app.get('/health', (c) =>
+    wantsJson(c.req.header('Accept') ?? null) ? json(c, healthJson(runtime)) : healthHtml(c),
   );
-  app.get('/health', (c) => {
-    if (wantsJson(c.req.header('Accept') ?? null)) return json(c, healthJson(runtime));
-    const locale = requestLocale(c);
-    return html(c, renderHealthHtml(runtime, locale), locale);
-  });
   app.get('/health.json', (c) => json(c, healthJson(runtime)));
-  app.get('/health.html', (c) => {
-    const locale = requestLocale(c);
-    return html(c, renderHealthHtml(runtime, locale), locale);
-  });
+  app.get('/health.html', healthHtml);
   // Cloudflare dispatches this path through the Worker first; cloudflare.ts
   // delegates to the ASSETS binding. Direct core tests use this fallback route.
   app.get('/favicon.ico', (c) => c.body(null, 204));
@@ -217,8 +228,11 @@ export function resolveJumpConfig(
   _runtime: RuntimeInfo,
   config: Partial<JumpConfig> = {},
 ): JumpConfig {
+  const environment = config.environment ?? 'production';
+  if (!isJumpEnvironment(environment)) throw new JumpError('signer_unavailable');
   return {
     serviceOrigin: validateServiceOrigin(config.serviceOrigin),
+    environment,
   };
 }
 
@@ -268,11 +282,7 @@ function safeLogPath(pathname: string) {
 }
 
 function auditLog(entry: JumpAuditLogEntry) {
-  emitSecurityLog({ ...entry, runtime: runtimeEdgeHint() });
-}
-
-function runtimeEdgeHint() {
-  return 'cloudflare';
+  emitSecurityLog({ ...entry, runtime: 'cloudflare' });
 }
 
 function internalRequestId() {
@@ -382,12 +392,7 @@ function validateRegistry(registry: IssuerRegistry, runtime: RuntimeInfo, servic
     if (issuerUrl.username || issuerUrl.password || issuerUrl.port || issuerUrl.pathname !== '/')
       throw new Error('issuer must be an exact origin');
     /* v8 ignore stop */
-    if (issuer.allowed_dst_external !== false && !Array.isArray(issuer.allowed_dst_external))
-      throw new Error('external destination policy rejected');
-    for (const destination of [
-      ...issuer.allowed_dst_internal,
-      ...(Array.isArray(issuer.allowed_dst_external) ? issuer.allowed_dst_external : []),
-    ]) {
+    for (const destination of issuer.allowed_dst_internal) {
       normalizeOrigin(destination, runtime, serviceOrigin);
       /* v8 ignore start -- normalizeOrigin above already rejects these */
       const url = new URL(destination);

@@ -1,9 +1,9 @@
 {
-  "service_version": "0.3.0",
+  "service_version": "0.4.0",
   "schema": 1,
   "header": {
     "typ": "JWT",
-    "alg": "ES384",
+    "alg": "PS256",
     "kid_max_length": 128
   },
   "required_claims": [

@@ -25,10 +25,10 @@ go directly to [Emergency: a private key may be compromised](#emergency-a-privat
 
 ## How the keys are created
 
-Generate a new P-384 key pair on a trusted offline machine:
+Generate a new RSA-3072 key pair on a trusted offline machine:
 
 ```text
-New P-384 key pair
+New RSA-3072 key pair
   ├── private key → UMAXICA_JUMP_PRIVATE_KEY_PEM
   └── public JWK → merge into UMAXICA_JUMP_PUBLIC_JWKS
 
@@ -39,8 +39,8 @@ The generator writes the private key and its matching public key together.
 The Worker does not derive a public key from its private secret. A public key
 cannot be used to recover the private key.
 
-Every public JWK must have `kty=EC`, `crv=P-384`, `alg=ES384`, `use=sig`, a unique
-nonempty `kid` of at most 128 characters, and valid public coordinates `x` and `y`.
+Every public JWK must have `kty=RSA`, `e=AQAB`, `alg=PS256`, `use=sig`, a unique
+nonempty `kid` of at most 128 characters, and a 3072-bit public modulus `n` and exponent `e=AQAB`.
 If `key_ops` is present, it must be exactly `["verify"]`. Private fields `d`, `p`,
 `q`, `dp`, `dq`, `qi`, `oth`, and `k` are rejected. Duplicate key IDs are rejected.
 Never put new key material under an old key ID.
@@ -106,7 +106,7 @@ keeps the output outside the repository.
 | `public-jwks.json`      | B's public JWK only                                  | Input for the merge in Phase 1                  |
 | `wrangler-secrets.json` | B's private PEM under `UMAXICA_JUMP_PRIVATE_KEY_PEM` | Secret; not a complete deployment configuration |
 
-Check the generator's result: `result=ok`, `algorithm=ES384`, `curve=P-384`,
+Check the generator's result: `result=ok`, `algorithm=PS256`, `modulus_bits=3072`,
 `pair_check_ok=true`, and the intended `kid`. Check the key ID against your key
 inventory; the generator does not know which IDs production has used before.
 
@@ -148,7 +148,7 @@ Protect B's private key from the moment it is generated.
    one at a time. Confirm the deployed version ID and traffic assignment.
 3. Confirm that the Worker's private/public pair check passes.
 4. Obtain a new RT through an approved test flow. Check that its header has
-   `alg=ES384` and `kid=B`. Confirm that each receiver verifies and accepts a B token.
+   `alg=PS256` and `kid=B`. Confirm that each receiver verifies and accepts a B token.
    Reading the header alone is not signature verification.
 5. Confirm that the public JWKS still contains A and B. During the overlap,
    confirm that an otherwise valid, unexpired A token remains verifiable.
@@ -173,6 +173,41 @@ private key until their separate conditions below are met.
 Removing A from the published JWKS does not immediately erase it from caches.
 Normal retirement relies on correct token expiry checks as well as the agreed
 waiting period. Emergency revocation has different completion checks below.
+
+## Pre-launch rotation: close, replace, verify, reopen
+
+Use this procedure **only while Jump carries no real traffic** (before launch), for example to
+change the key algorithm. It skips prepublication and grace because no receiver depends on old
+tokens. Once Jump is in real use, follow the normal rotation above.
+
+Lesson recorded on 2026-11-12: a key was changed while Jump stayed open, and a version whose private
+key did not match its public JWKS served 503 on `/.well-known/jwks.json`
+(`evidence/2026-11-12-key-rotation-ps256.md`). Close Jump first.
+
+1. **Close.** Put a Cloudflare Access application on `jump.umaxica.net` that admits only the
+   operators. The Worker keeps running, so the checks in step 5 can still be made through Access.
+   Confirm that a request without Access is refused.
+2. **Private key.** Generate B (see "How the keys are created") and add its private PEM to a new
+   Worker version with `wrangler versions secret put UMAXICA_JUMP_PRIVATE_KEY_PEM` reading the file
+   through stdin. Nothing is deployed by this step.
+3. **Public values.** Add `UMAXICA_JUMP_PRIVATE_KEY_KID` and `UMAXICA_JUMP_PUBLIC_JWKS` for B as Worker
+   secrets to the same new version (`wrangler versions secret put`, or all three together with
+   `wrangler versions secret bulk`). Check that the JWKS `kid` equals the active `kid` and that the
+   key matches the algorithm the code signs with (`kty=RSA`, `alg=PS256`).
+4. **Deploy one consistent version.** Deploy the code that signs with B's algorithm together with
+   the values from step 3; the secret from step 2 carries over. Record the version ID. Never deploy
+   a version where only some of the three values are new.
+5. **Verify on Cloudflare** (through Access):
+   - `GET /.well-known/jwks.json` returns 200 (a 503 means the private and public keys do not form a
+     pair) and lists exactly B with the expected `kid`, `kty` and `alg`.
+   - `GET /health` returns OK.
+   - An approved test request makes Jump issue an RT whose header has the expected `alg` and
+     `kid=B`, and the signature verifies with B's public key.
+   - Workers Observability shows no 503 and no `invalid_signature` for these requests.
+6. **Reopen.** Remove the Access application and confirm the public checks again without Access.
+
+Record each step's result, the version IDs and the times in the operation record. If step 5 fails,
+stay closed, fix the version, and repeat steps 4 and 5.
 
 ## How long to wait
 

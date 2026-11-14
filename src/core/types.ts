@@ -1,6 +1,6 @@
 export const SERVICE = {
   name: 'jump',
-  version: '0.3.0',
+  version: '0.4.0',
 } as const;
 
 type EdgeName = 'cloudflare';
@@ -10,21 +10,26 @@ export type RuntimeInfo = {
   production: true;
 };
 
+/**
+ * Deployment the Worker runs as. It selects only the JOSE `typ` pair: staging
+ * enforces the explicit types, production keeps schema-1 `JWT` until the
+ * coordinated Rails migration. Each deployment accepts exactly one value.
+ */
+export type JumpEnvironment = 'production' | 'staging';
+
 export type JumpConfig = {
   serviceOrigin: string;
+  environment: JumpEnvironment;
 };
 
 export type IssuerConfig = {
   iss: string;
   jwks_uri: string;
   allowed_dst_internal: string[];
-  allowed_dst_external: false | readonly string[];
   revoked_kids?: string[];
 };
 
 export type IssuerRegistry = Record<string, IssuerConfig>;
-
-type JumpDst = 'internal' | 'external';
 
 export type InboundJumpClaim = {
   schema: 1;
@@ -36,7 +41,7 @@ export type InboundJumpClaim = {
   nbf: number;
   exp: number;
   jti: string;
-  dst: JumpDst;
+  dst: 'internal';
   url: string;
 };
 
@@ -63,6 +68,7 @@ export type JumpErrorCode =
   | 'expired'
   | 'invalid_dst'
   | 'invalid_url'
+  | 'non_navigation_request'
   | 'signer_unavailable'
   | 'jwks_bad_gateway'
   | 'jwks_unavailable'

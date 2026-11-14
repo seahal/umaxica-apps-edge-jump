@@ -66,7 +66,7 @@ Obtain an actual immutable Worker version ID under separate authorization.
 Map it to exact 0.3.0 code, bundle/source hash, lock hash, configuration and secret
 version references. Verify every item below against that artifact:
 
-- schema 1, ES384/P-384, exact rpl=reuse, stateless; no DB/KV/Durable Object;
+- schema 1, PS256/RSA-3072, exact rpl=reuse, stateless; no DB/KV/Durable Object;
 - 13 canonical nodes / exactly 20 directed edges; production external redirects
   disabled while capability remains; test forbidden transitions too;
 - inbound structural TTL <=30 seconds and outbound exp-iat exactly 30 seconds;
@@ -116,7 +116,7 @@ CLOSED: Rails revision, fixture hash, complete case results and actual receiver
 integration results attached and approved by receiver owner. Hono fixture passes
 alone do not close this gate. The read-only review inspected Rails feature
 `7c308e49831c2a906781ddd875a8cb78a6780ddd`; this local follow-up changes no Rails
-code. Use the [Rails handoff](rails-receiver-followup.md) for the exact gaps.
+code. The exact gaps are listed in the sections below.
 
 ## Rails TTL contract — Rails receiver owner
 
@@ -136,3 +136,9 @@ ROLLOUT_STATUS remains BLOCKED_FOR_ROLLOUT until every gate above is CLOSED with
 candidate-specific evidence. The release owner signs the packet with the exact
 candidate SHA, immutable recovery/version IDs and linked receiver/protection/CI
 records. This document contains no claim of production readiness.
+
+## 0.4.0 candidate
+
+The [0.4.0 gate packet](jump-0-4-release-gates.md) preserves all fifteen required
+conditions and records RELEASE_BLOCKED. Local implementation/coverage do not
+close candidate CI, browser/workerd, dependency, production or Rails gates.

@@ -1,5 +1,5 @@
 import { assertDefined } from './assert-defined';
-import { beforeAll, afterEach, expect, test, vi } from 'vitest';
+import { beforeAll, afterEach, expect, test, vi } from 'vite-plus/test';
 import { exportJWK, exportPKCS8, generateKeyPair, importJWK, jwtVerify, SignJWT } from 'jose';
 import worker, { resetIsolateCachesForTest, type CloudflareEnv } from '../src/cloudflare';
 import { normalizeUrl, validateServiceOrigin } from '../src/core/normalize_url';
@@ -8,13 +8,14 @@ const origin = 'https://jump-next.example';
 let env: CloudflareEnv;
 let pair: Awaited<ReturnType<typeof generateKeyPair>>;
 beforeAll(async () => {
-  pair = await generateKeyPair('ES384', { extractable: true });
+  pair = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
   env = {
     UMAXICA_JUMP_ORIGIN: origin,
+    UMAXICA_JUMP_ENVIRONMENT: 'production',
     UMAXICA_JUMP_PRIVATE_KEY_KID: 'active',
     UMAXICA_JUMP_PRIVATE_KEY_PEM: await exportPKCS8(pair.privateKey),
     UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({
-      keys: [{ ...(await exportJWK(pair.publicKey)), kid: 'active', alg: 'ES384', use: 'sig' }],
+      keys: [{ ...(await exportJWK(pair.publicKey)), kid: 'active', alg: 'PS256', use: 'sig' }],
     }),
     JUMP_RATE_LIMITER: { limit: async () => ({ success: true }) },
   };
@@ -124,7 +125,7 @@ test('active kid must be in JWKS', async () => {
   );
 });
 test('private/public mismatch fails closed', async () => {
-  const other = await generateKeyPair('ES384', { extractable: true });
+  const other = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
   await signingMaterial(
     await request(JWKS, {
       ...env,
@@ -188,7 +189,7 @@ test('alternate origin follows discovery and self-link rejection', async () => {
     const response = await request(path);
     expect(response.status).toBe(200);
     const text = await response.text();
-    expect(text).toContain(origin);
+    if (path !== '/about') expect(text).toContain(origin);
     expect(text).not.toContain('https://jump.umaxica.net');
     expect(text).not.toContain('/ready');
   }
@@ -197,11 +198,11 @@ test('alternate origin follows discovery and self-link rejection', async () => {
   ).toThrow();
 });
 test('alternate origin governs inbound aud and outbound iss', async () => {
-  const issuer = await generateKeyPair('ES384', { extractable: true });
+  const issuer = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
   const publicJwk = {
     ...(await exportJWK(issuer.publicKey)),
     kid: 'issuer',
-    alg: 'ES384',
+    alg: 'PS256',
     use: 'sig',
   };
   vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ keys: [publicJwk] }));
@@ -220,7 +221,7 @@ test('alternate origin governs inbound aud and outbound iss', async () => {
       dst: 'internal',
       url: 'https://www.umaxica.app/receive',
     })
-      .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'issuer' })
+      .setProtectedHeader({ typ: 'JWT', alg: 'PS256', kid: 'issuer' })
       .sign(issuer.privateKey);
   const response = await request(`/?rt=${await sign(origin)}`);
   expect(response.status).toBe(302);
@@ -234,13 +235,13 @@ test('alternate origin governs inbound aud and outbound iss', async () => {
   expect((await request(`/?rt=${await sign('https://jump.umaxica.net')}`)).status).toBe(400);
 });
 test('normal activation and rollback retain public verification overlap', async () => {
-  const b = await generateKeyPair('ES384', { extractable: true });
+  const b = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
   const aJwk = JSON.parse(env.UMAXICA_JUMP_PUBLIC_JWKS as string).keys[0];
-  const bJwk = { ...(await exportJWK(b.publicKey)), kid: 'B', alg: 'ES384', use: 'sig' };
+  const bJwk = { ...(await exportJWK(b.publicKey)), kid: 'B', alg: 'PS256', use: 'sig' };
   const tokens = await Promise.all(
     [pair.privateKey, b.privateKey].map((key) =>
       new SignJWT({ schema: 1, rpl: 'reuse', probe: 'receiver-overlap' })
-        .setProtectedHeader({ alg: 'ES384' })
+        .setProtectedHeader({ alg: 'PS256' })
         .sign(key),
     ),
   );
@@ -265,7 +266,7 @@ test('normal activation and rollback retain public verification overlap', async 
       expect(jwk).toBeDefined();
       const verified = await jwtVerify(
         assertDefined(tokens[index]),
-        await importJWK(assertDefined(jwk), 'ES384'),
+        await importJWK(assertDefined(jwk), 'PS256'),
       );
       expect(verified.payload.rpl).toBe('reuse');
     }

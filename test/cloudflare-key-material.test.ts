@@ -1,6 +1,6 @@
 import { exportJWK, exportPKCS8, generateKeyPair, type JWK } from 'jose';
 import type * as Jose from 'jose';
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vite-plus/test';
 
 const importPkcs8Calls: Array<{ extractable: boolean | undefined }> = [];
 
@@ -18,11 +18,11 @@ vi.mock('jose', async (importOriginal) => {
 const KID = 'cloudflare-active-2026-05';
 
 async function keyMaterial() {
-  const keys = await generateKeyPair('ES384', { extractable: true });
+  const keys = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
   const jwk = await exportJWK(keys.publicKey);
   return {
     pem: await exportPKCS8(keys.privateKey),
-    publicJwk: { ...jwk, kid: KID, alg: 'ES384', use: 'sig' } as JWK,
+    publicJwk: { ...jwk, kid: KID, alg: 'PS256', use: 'sig' } as JWK,
   };
 }
 
@@ -35,6 +35,7 @@ async function jwksRequest(env: Record<string, unknown>) {
     }),
     {
       UMAXICA_JUMP_ORIGIN: 'https://jump.example.net',
+      UMAXICA_JUMP_ENVIRONMENT: 'production',
       JUMP_RATE_LIMITER: { limit: async () => ({ success: true }) },
       ...env,
     } as Parameters<typeof worker.fetch>[1],

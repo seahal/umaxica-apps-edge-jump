@@ -1,6 +1,6 @@
 # Dependency trust and audit policy
 
-Use pnpm 12.0.0 from packageManager, CI frozen installation and the checked-in
+Use pnpm 12.18.0 from packageManager, CI frozen installation and the checked-in
 lockfile. `pmOnFail: error` refuses mismatched versions without downloading or
 switching package managers. `ignoreScripts: true` denies lifecycle scripts;
 `allowBuilds` retains explicit esbuild/workerd denial. Unknown dependency builds

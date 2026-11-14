@@ -55,7 +55,6 @@ Pre-deployment acceptance is `USER_REPORTED_COMPLETE`, accepted as the user's
 premise and not rerun. Its tested revision and detailed cases were not supplied
 here. The separately identified Rails URL/TTL contract gaps and rollback artifact
 gate are not closed by that general report. See the
-[Rails handoff](../docs/operations/rails-receiver-followup.md) and
 [release closure](../docs/operations/release-closure.md).
 
 ## Findings disposition

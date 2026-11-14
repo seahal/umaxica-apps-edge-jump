@@ -1,15 +1,15 @@
 import { exportJWK, exportPKCS8, generateKeyPair } from 'jose';
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vite-plus/test';
 import worker, { resetIsolateCachesForTest, type CloudflareEnv } from '../src/cloudflare';
 
 const ORIGIN = 'https://jump.example.net';
 
 async function keyPair(kid: string) {
-  const keys = await generateKeyPair('ES384', { extractable: true });
+  const keys = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });
   return {
     kid,
     pem: await exportPKCS8(keys.privateKey),
-    jwk: { ...(await exportJWK(keys.publicKey)), kid, alg: 'ES384', use: 'sig' },
+    jwk: { ...(await exportJWK(keys.publicKey)), kid, alg: 'PS256', use: 'sig' },
   };
 }
 
@@ -18,6 +18,7 @@ function request(env: CloudflareEnv, path = '/.well-known/jwks.json', method = '
     new Request(`${ORIGIN}${path}`, { method, headers: { 'CF-Connecting-IP': '203.0.113.7' } }),
     {
       UMAXICA_JUMP_ORIGIN: ORIGIN,
+      UMAXICA_JUMP_ENVIRONMENT: 'production',
       JUMP_RATE_LIMITER: { limit: async () => ({ success: true }) },
       ...env,
     },
@@ -53,6 +54,7 @@ describe('cloudflare adapter edges', () => {
     };
     const fullEnv = {
       UMAXICA_JUMP_ORIGIN: ORIGIN,
+      UMAXICA_JUMP_ENVIRONMENT: 'production',
       JUMP_RATE_LIMITER: { limit: async () => ({ success: true }) },
       ...env,
     };

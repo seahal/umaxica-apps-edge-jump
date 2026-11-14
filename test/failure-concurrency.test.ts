@@ -1,5 +1,5 @@
 import { assertDefined } from './assert-defined';
-import { describe, expect, test, vi } from 'vitest';
+import { describe, expect, test, vi } from 'vite-plus/test';
 import { exportJWK, generateKeyPair } from 'jose';
 import { fetchRegistryJwks } from '../src/core/fetch_jwks';
 import { JwksCache } from '../src/core/jwks_cache';
@@ -10,7 +10,6 @@ const issuer: IssuerConfig = {
   iss: 'https://auth.umaxica.app',
   jwks_uri: 'https://auth.umaxica.app/.well-known/jwks.json',
   allowed_dst_internal: ['https://www.umaxica.app'],
-  allowed_dst_external: false,
 };
 describe('K: cancellation and isolated caches', () => {
   test('aborted JWKS stream cancels reader and releases its lock', async () => {
@@ -36,49 +35,63 @@ describe('K: cancellation and isolated caches', () => {
       fetch.mockRestore();
     }
   });
-  test('one cancelled single-flight fails closed for waiters then recovers', async () => {
-    const pair = await generateKeyPair('ES384');
-    const keys = [{ ...(await exportJWK(pair.publicKey)), kid: 'k', alg: 'ES384', use: 'sig' }];
+  test('one cancelled caller leaves the shared fetch available to waiters', async () => {
+    const pair = await generateKeyPair('PS256', { modulusLength: 3072 });
+    const keys = [{ ...(await exportJWK(pair.publicKey)), kid: 'k', alg: 'PS256', use: 'sig' }];
     let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const cache = new JwksCache(async (_, signal) => {
       calls++;
-      if (calls === 1) await raceAbort(new Promise(() => {}), signal);
+      await raceAbort(gate, signal);
       return { keys };
     });
     const first = new AbortController();
-    const waiting = cache.getKey(issuer, 'k', 'ES384', false, first.signal);
-    const other = cache.getKey(issuer, 'k', 'ES384');
+    const waiting = cache.getKey(issuer, 'k', false, first.signal);
+    const other = cache.getKey(issuer, 'k');
     first.abort();
     await expect(waiting).rejects.toMatchObject({ code: 'deadline_exceeded' });
-    await expect(other).rejects.toMatchObject({ code: 'deadline_exceeded' });
-    await expect(cache.getKey(issuer, 'k', 'ES384')).resolves.toBeDefined();
-    expect(calls).toBe(2);
+    const later = cache.getKey(issuer, 'k');
+    release();
+    await expect(other).resolves.toBeDefined();
+    await expect(later).resolves.toBeDefined();
+    await expect(cache.getKey(issuer, 'k')).resolves.toBeDefined();
+    expect(calls).toBe(1);
+  });
+  test('shared fetching has an independent deadline and caches upstream timeouts', async () => {
+    const fetch = vi.fn(async () => new Promise<unknown>(() => {}));
+    const cache = new JwksCache(fetch);
+    await expect(cache.getKey(issuer, 'k')).rejects.toMatchObject({ code: 'jwks_unavailable' });
+    await expect(cache.getKey(issuer, 'k')).rejects.toMatchObject({ code: 'jwks_unavailable' });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
   test('a revoked kid is rejected before a warm key is used', async () => {
-    const pair = await generateKeyPair('ES384');
+    const pair = await generateKeyPair('PS256', { modulusLength: 3072 });
     const fetch = vi.fn(async () => ({
-      keys: [{ ...(await exportJWK(pair.publicKey)), kid: 'k', alg: 'ES384', use: 'sig' }],
+      keys: [{ ...(await exportJWK(pair.publicKey)), kid: 'k', alg: 'PS256', use: 'sig' }],
     }));
     const cache = new JwksCache(fetch);
-    await cache.getKey(issuer, 'k', 'ES384');
-    await expect(
-      cache.getKey({ ...issuer, revoked_kids: ['k'] }, 'k', 'ES384'),
-    ).rejects.toMatchObject({ code: 'invalid_signature' });
+    await cache.getKey(issuer, 'k');
+    await expect(cache.getKey({ ...issuer, revoked_kids: ['k'] }, 'k')).rejects.toMatchObject({
+      code: 'invalid_signature',
+    });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
   test('same issuer/kid in independent keyset caches does not mix', async () => {
-    const a = await generateKeyPair('ES384');
-    const b = await generateKeyPair('ES384');
+    const a = await generateKeyPair('PS256', { modulusLength: 3072 });
+    const b = await generateKeyPair('PS256', { modulusLength: 3072 });
     const caches = await Promise.all(
       [a, b].map(
         async (pair) =>
           new JwksCache(async () => ({
-            keys: [{ ...(await exportJWK(pair.publicKey)), kid: 'same', alg: 'ES384', use: 'sig' }],
+            keys: [{ ...(await exportJWK(pair.publicKey)), kid: 'same', alg: 'PS256', use: 'sig' }],
           })),
       ),
     );
-    const ka = await assertDefined(caches[0]).getKey(issuer, 'same', 'ES384');
-    const kb = await assertDefined(caches[1]).getKey(issuer, 'same', 'ES384');
+    const ka = await assertDefined(caches[0]).getKey(issuer, 'same');
+    const kb = await assertDefined(caches[1]).getKey(issuer, 'same');
     expect(await exportJWK(ka)).not.toEqual(await exportJWK(kb));
   });
   test('invalid escaped control/UTF8 URL partitions reject before signing', () => {
