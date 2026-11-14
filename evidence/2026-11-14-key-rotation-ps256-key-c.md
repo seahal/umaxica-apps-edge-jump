@@ -23,10 +23,11 @@ compatibility/grace period. No private key material is recorded here or in the r
   `kty=RSA`, `alg=PS256`, `use=sig`, kid as above, no private members; `n` compared equal to the
   committed public JWKS, 3072 bits, `e=AQAB`.
 
+- Reopen: owner removed Access; owner's `curl /health.json` without Access returned 200 with no
+  redirect.
+
 ## Not done / open
 
-- `/health.json` 200 through Access: not reported.
 - Valid-RT 302 / forged-RT refusal / forbidden-edge 400 checks: NOT_VERIFIED (no issuer key here).
-- Reopen (remove Access) and public re-checks: pending.
 - Step 7 (old versions holding keys A/B, backlog/handoff updates, Cosmos receivers to trust the
   new kid at `https://jump.umaxica.net/.well-known/jwks.json`): pending.
