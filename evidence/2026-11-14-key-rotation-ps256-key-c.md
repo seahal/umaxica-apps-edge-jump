@@ -24,7 +24,8 @@ compatibility/grace period. No private key material is recorded here or in the r
   committed public JWKS, 3072 bits, `e=AQAB`.
 
 - Reopen: owner removed Access; owner's `curl /health.json` without Access returned 200 with no
-  redirect.
+  redirect. Owner's `curl /.well-known/jwks.json` without Access returned the same single key C
+  (same `n`, `e=AQAB`, kid, `alg=PS256`, `use=sig`) as the committed public JWKS.
 
 ## Not done / open
 
