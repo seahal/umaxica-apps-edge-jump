@@ -37,6 +37,10 @@ export function normalizeUrl(
   if (!rawParts) throw new JumpError('invalid_url');
   const [, authority = '', rawPathname = '', query = '', fragment = ''] = rawParts;
   if (/\\/.test(authority) || /\\/.test(rawPathname)) throw new JumpError('invalid_url');
+  // The query is copied raw into Location, which only carries ASCII; the path is
+  // re-serialized by URL and stays percent-encoded.
+  if (/[^\x20-\x7e]/.test(query) || /[^\x20-\x7e]/.test(fragment))
+    throw new JumpError('invalid_url');
   try {
     // Validate encoding/controls component by component, without treating opaque
     // OAuth values as paths or using decoded values to construct the destination.

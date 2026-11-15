@@ -367,6 +367,18 @@ describe('special-use destinations', () => {
     expect(() => normalizeUrl('javascript:alert(1)', runtime)).toThrow(JumpError);
     expect(() => normalizeUrl('not a url', runtime)).toThrow(JumpError);
   });
+
+  test('non-ASCII query characters reject instead of failing the Location header', () => {
+    for (const url of [
+      'https://docs.example.com/path?q=日本',
+      'https://docs.example.com/path?q=\u00e9',
+    ]) {
+      expect(() => normalizeUrl(url, runtime)).toThrow(JumpError);
+    }
+    expect(normalizeUrl('https://docs.example.com/path?q=%E6%97%A5', runtime).href).toBe(
+      'https://docs.example.com/path?q=%E6%97%A5',
+    );
+  });
 });
 
 describe('canonical origin is not request Host', () => {
