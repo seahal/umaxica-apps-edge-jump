@@ -1,5 +1,7 @@
 # Use mise for runtime versions
 
+> **Superseded 2026-11-17** by [0013-use-vite-plus-for-node-and-pnpm](0013-use-vite-plus-for-node-and-pnpm.md): Vite+ now installs Node.js and pnpm; this repository has no `mise.toml`.
+
 Date: 2026-11-16
 Status: accepted by the owner
 

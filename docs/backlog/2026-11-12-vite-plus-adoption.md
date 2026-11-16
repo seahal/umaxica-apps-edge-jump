@@ -1,5 +1,7 @@
 # Jump の Vite+ 採用検討
 
+> **2026-11-17 更新:** Node と pnpm は mise ではなく Vite+（`vp env`）で管理する方針に変わった（adr/0013-use-vite-plus-for-node-and-pnpm.md）。以下の「mise で管理」の記述は当時の計画。
+
 記録日: 2026-11-12
 状態: バックログ。採用・移行は未実施
 

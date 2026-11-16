@@ -90,11 +90,11 @@ Read [protocol](docs/protocol.md), [receiver obligations](docs/receiver-contract
 
 ## Requirements
 
-Use `mise trust` once in this repository, then `mise install` to install
-the tools pinned in `mise.toml`.
-
-Node `26.13.1` and pnpm `12.18.0`, as pinned in `package.json`. Other pnpm
-versions stop with `ERR_PNPM_BAD_PM_VERSION`.
+Vite+ (`vp env`, the global CLI) installs Node and pnpm from `package.json`:
+`engines.node` (`26.13.1`) and `packageManager` (pnpm `12.21.0`), the same fields
+CI reads (adr/0013-use-vite-plus-for-node-and-pnpm.md). Other pnpm versions stop
+with `ERR_PNPM_BAD_PM_VERSION`. Shell environment variables come from direnv
+(`.envrc`).
 
 ## Checks
 
@@ -284,4 +284,4 @@ renderer removal and production/receiver verification remain gated by ADR 0007.
 
 Toolchain: Vite Plus 1.5.0 runs formatting, linting, and unit tests through
 `pnpm run format`, `pnpm run lint:check`, and `pnpm run test:cov`. Configuration
-is consolidated in `vite.config.ts`. Node and pnpm remain managed by mise.
+is consolidated in `vite.config.ts`. Vite+ also installs Node and pnpm.
