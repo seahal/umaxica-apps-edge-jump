@@ -18,8 +18,10 @@ lets versions drift between machines and repositories.
 - A developer runs `mise install` after cloning and after each change to `mise.toml`.
 - mise handles runtimes and tools only. Environment variables stay with direnv, as decided
   in the direnv ADR.
-- When a version is also declared elsewhere (for example `package.json`, `.ruby-version`, or
-  CI configuration), it is kept the same as the version in `mise.toml`.
+- mise is the only installer of Node.js and pnpm on a developer machine; `package.json` has no
+  `devEngines` (owner decision 2026-11-17).
+- `package.json` keeps `packageManager` because CI installs pnpm from it, and `engines.node`
+  for the Node.js version CI selects. Both match `mise.toml`. CI does not use mise.
 
 ## Consequences
 
