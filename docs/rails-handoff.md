@@ -11,6 +11,15 @@ and [receiver obligations](receiver-contract.md).
 
 ## 1. Every hop to Jump is a top-level GET navigation (Inertia/Turbo)
 
+As supplied by the owner on 2026-11-14, Governance serves Base App
+(`https://www.umaxica.app`) and Access serves Visa/Auth. The existing registry
+already permits Base App -> Visa App `/oauth/authorize`, and the reverse
+origin edge. The ORG realm has equivalent edges; APP -> ORG is refused.
+The Base App `POST /sign` must navigate the browser to Jump with a PS256 RT;
+Jump itself accepts only the top-level GET. The OIDC bypass proposal remains
+discarded. This mapping is owner-supplied context, not a Rails runtime check.
+See [the carrier review](../evidence/2026-11-14-base-app-authorize-edge.md).
+
 `/?rt=` answers 400 `invalid_request` to browser requests that are not a
 coherent top-level document navigation, and 405 to `HEAD`.
 

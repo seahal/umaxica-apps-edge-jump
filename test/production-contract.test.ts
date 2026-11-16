@@ -799,6 +799,98 @@ describe('F/K: remaining validation partitions', () => {
   });
 });
 
+describe('Governance Base App authorization carrier', () => {
+  async function authorizationUrl(origin = nodes['visa-app-ww'] as string) {
+    // Test-only state and issuer keys; no production key or live ceremony.
+    const state = await token(
+      { purpose: 'authorize-state-canary', nonce: 'state-canary', padding: 'x'.repeat(40) },
+      nodes['base-app-ww'],
+    );
+    const query = [
+      'response_type=code',
+      'client_id=base-app-client-canary',
+      'redirect_uri=https%3a%2f%2fwww.umaxica.app%2fsign%2fcallback',
+      `code_challenge=${'C'.repeat(43)}`,
+      'code_challenge_method=S256',
+      `state=${state}`,
+      'nonce=nonce-canary%2Bopaque',
+      'scope=openid%20profile+email',
+      'ri=ri-canary%2f%2F%7e~',
+    ].join('&');
+    return `${origin}/oauth/authorize?${query}`;
+  }
+
+  async function exercise(url: string, status: number, keyOrigin = nodes['base-app-ww'] as string) {
+    mockJwks();
+    const sinks = (['log', 'info', 'warn', 'error', 'debug'] as const).map((method) =>
+      vi.spyOn(console, method).mockImplementation(() => {}),
+    );
+    const input = await token({ ...claim('base-app-ww', 'visa-app-ww'), url }, keyOrigin);
+    const response = await request(`/?rt=${input}`);
+    expect(response.status).toBe(status);
+    hygiene(response);
+    const body = await response.text();
+    const output = JSON.stringify(sinks.flatMap((sink) => sink.mock.calls));
+    const values = [...new URL(url).searchParams.values()];
+    for (const value of [input, url, ...values.filter((value) => value.length > 12)]) {
+      expect(output.includes(value)).toBe(false);
+      expect(body.includes(value)).toBe(false);
+    }
+    if (status !== 302) expect(response.headers.get('location')).toBeNull();
+    return response;
+  }
+
+  test('Base App carries all nine OIDC parameters byte for byte and signs the same URL', async () => {
+    const url = await authorizationUrl();
+    const response = await exercise(url, 302);
+    const location = assertDefined(response.headers.get('location'));
+    expect(location.startsWith(`${url}&rt=`)).toBe(true);
+    const outbound = location.slice(`${url}&rt=`.length);
+    const verified = await jwtVerify(outbound, jumpKeys.publicKey, {
+      algorithms: ['PS256'],
+      issuer: jump,
+      audience: nodes['visa-app-ww'],
+    });
+    expect(verified.payload.url).toBe(url);
+    expect(verified.payload.src).toBe(nodes['base-app-ww']);
+    expect(verified.payload.exp).toBe(Number(verified.payload.iat) + 30);
+  });
+
+  test.each([nodes['visa-org-ww'], 'https://unlisted.umaxica.app'])(
+    'Base App refuses authorization at %s without leaking query values',
+    async (origin) => {
+      await exercise(await authorizationUrl(origin), 400);
+    },
+  );
+
+  test('an Access key cannot impersonate the Governance issuer', async () => {
+    await exercise(await authorizationUrl(), 400, nodes['visa-app-ww']);
+  });
+
+  test('a Governance key cannot impersonate the Access issuer', async () => {
+    mockJwks();
+    await denied(
+      await request(
+        `/?rt=${await token(claim('visa-app-ww', 'base-app-ww'), nodes['base-app-ww'])}`,
+      ),
+    );
+  });
+
+  test('a rejected transfer query does not leak its opaque values', async () => {
+    await exercise(`${await authorizationUrl()}&next=private-query-canary`, 400);
+  });
+
+  test.each([2047, 2048, 2049])('destination URL boundary %i', async (length) => {
+    const base = await authorizationUrl();
+    const prefix = `${base}&padding=`;
+    const url = prefix + 'Q'.repeat(length - prefix.length);
+    expect(url).toHaveLength(length);
+    const response = await exercise(url, length <= 2048 ? 302 : 400);
+    if (length <= 2048)
+      expect(response.headers.get('location')?.startsWith(`${url}&rt=`)).toBe(true);
+  });
+});
+
 describe('former logout path through signed production graph', () => {
   test.each(edges)('%s -> %s logout policy', async (src, dst) => {
     mockJwks();

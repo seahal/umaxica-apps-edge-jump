@@ -17,7 +17,8 @@ permissions:
 
 jobs:
   quality:
-    runs-on: ubuntu-slim
+    # Use the full VM after type-aware lint aborted in oxc_allocator on slim.
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

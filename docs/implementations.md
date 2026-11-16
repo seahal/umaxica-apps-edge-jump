@@ -1,6 +1,8 @@
 # Implemented runtime
 
 Cloudflare Workers production with Hono is the sole supported implementation.
+Fastly support is deferred; its unused SDK and Hono adapter dependencies have
+been removed. No Fastly build or deployment entry point is provided.
 The shared core has explicit Web Standard dependencies and can be adapted later.
 No additional provider, environment authority, local validation bypass, Rails
 implementation or emulator service is implemented here.

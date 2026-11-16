@@ -30,7 +30,7 @@ everything else is an unusable document. The body is streamed and abandoned at
 each `kty: RSA`, `e: AQAB`, `alg: PS256`, `use: sig`, a valid unique `kid` and
 a 3072-bit modulus and exponent 65537; private or symmetric members, a
 duplicate `kid` or any nonconforming key refuse the whole set. Only `kty`, `crv`,
-`x` and `y` reach the importer, so URL-bearing members are never dereferenced.
+`n` and `e` reach the importer, so URL-bearing members are never dereferenced.
 
 HTTPS URLs use WHATWG parsing. Userinfo, private/loopback/link-local/metadata
 hosts, ambiguous control/backslash/percent encodings, trailing-dot hosts and
@@ -77,6 +77,34 @@ can be limited together. No readiness endpoint is exposed.
 Canonical key bindings are required; private-only or alias-only bundles fail 503. Public keysets reject private fields rather than stripping them. The
 active pair is probe checked; import validity of other keys is a distinct check.
 extractable:false restricts CryptoKey export, not absolute PEM/memory leakage.
+
+## URL exposure and accepted token reuse
+
+The owner accepts reuse of valid inbound and outbound tokens because persistent
+storage is unavailable ([ADR 0010](../adr/0010-accept-stateless-token-reuse.md),
+supplementing ADR 0002). No replay store or mandatory one-time jti consumption
+is required. A repeated inbound token produces a fresh outbound jti and a new
+30-second outbound lifetime; a new jti does not prove a unique user action.
+Operation-specific authentication, authorization, CSRF and OAuth checks remain
+the receiver's responsibility. Jump cannot guarantee single execution.
+
+Both inbound and outbound rt appear in URLs. A JWS is signed, not encrypted;
+its destination URL and any embedded query values are readable. Issuers must
+avoid embedding passwords, session/access/refresh tokens, private keys or
+unnecessary personal data in destination URLs. OAuth parameters needed by the
+existing flow still require endpoint-level protection. Logs, APM and error
+trackers on issuers and receivers must redact rt and other sensitive query
+values. Receivers must validate before rendering, then redirect to a clean URL
+with no-store and no-referrer headers; token-bearing pages must not load
+third-party scripts or resources. These are integration requirements, not
+verified receiver implementation claims.
+
+Jump already applies no-store, no-referrer and application log redaction;
+Wrangler config enables platform query redaction. Live enforcement is an
+operational verification. These mitigations cannot remove browser history or
+copied URLs, and URL transport of sensitive values remains an ASVS 14.2.1
+gap. Reuse acceptance does not close that gap. See
+[receiver exposure guidance](receiver-rt-exposure-report.md).
 
 ## 0.4.0 candidate redirect defense
 

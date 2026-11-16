@@ -4,7 +4,7 @@
       "kty": "RSA",
       "n": "xI3g1PD_0ahpQZ5GwnaWMvZ3L_7BGkTnGlyO639NKHwupigLu3v6VOrOWq79X_GNiNVVxu3m9Nf3MLsBFjN56s1QSec3SCJbUjEI_P8oHAYf-fZEL2fRTAS0hkv6WlZgVPrrKgpQquZypME9F1uGrP6j8nM-BdvDwtAGqAReFeALi3YdPoiH1XS9Hp3PS8KxpRq9UOlfGFQlMcx02Mlh8tAGvdvlDd-YtUtn2CgzuHyl5WCRlvVKYtpcytORQuGs95tdJGHlVgT1lYXn2nuyfnSVtY5chT6Oci6XVh_cN7GGvVBs_FYOryQFGOCZPKONRyqaTaM52pEx_Ss23-DdAJE-ZIPsyC5l6pl-84WM_0hXsJvf1GvyJJMuF09vy7MCpY_zbWIp2rdXiBqNo7gBi1TfMxfgmE5YfodmwLrcZgbBQ0mt-s5qba5AA4zvcnkrQWM2HW15pmxk0Kd1ZtFxyrKsKOHAcfOamvE4i2bmgaI8YKLqeJ3mkaG5eNFcXmfR",
       "e": "AQAB",
-      "kid": "fastly-active-2026-05",
+      "kid": "fixture-active-2026-05",
       "alg": "PS256",
       "use": "sig"
     },
@@ -20,7 +20,7 @@
       "kty": "RSA",
       "n": "sgvXTxlXd3ieio8yz2gZwxpeU74Yyh9p7wbIqFYgvpOpzHecLHdobNLqJ--TZJJ7b07GCb-qce12F3aDzSqeSMOkqh8-WX158AMYHuoY3-cVgDPMjKH3X6VnrSWH-FXoLlhLaTusOqDnMcqzYjBTBqEEiSe_T3GXtmdnfrF-ydq2lXIaNim0cj7-vkqsqEtW7v9_Ez8TNqYyR1HT6h5z8ySp7n0ZKlNaA-yRhU8LeQMFFoSeYU01PfrE6DlBoiTVCQLMeNJvNocjEZ2Ffz48OfBq2NubV9VotxGyXqS4rc84n4FagROaf29BZM4HZ4rV_wu3pEsrgCAAkctilE3SSlXjdjeTk9sud6uGPdIrfjM7Si3a_WMeQ1s24X0897h0rW6qdX5R-cVESgvbCDDhkGcVwlRMv_uGMUGIq3UVz1dBORY-SQM-8Cn_yJ7KIyPTbnV5zkiubuiQWcbui-TmJSP0rSamw6_atdI9Yo6gFrrj5dWv7-5cntUyROMaoCPn",
       "e": "AQAB",
-      "kid": "fastly-grace-2026-04",
+      "kid": "fixture-grace-2026-04",
       "alg": "PS256",
       "use": "sig"
     }

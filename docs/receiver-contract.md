@@ -26,6 +26,20 @@ authz, CSRF, state, nonce, PKCE, authorization-code and transaction-state checks
 A fresh Jump jti from repeated evaluation must not permit double execution of
 the same receiver-owned transaction. No Jump consumption API or src_jti exists.
 
+Token reuse within the validity window is an owner-accepted risk because
+persistent storage is unavailable ([ADR 0010](../adr/0010-accept-stateless-token-reuse.md)).
+This contract does not mandate a replay store or one-time jti consumption.
+The operation checks above remain mandatory; Jump supplies no single-execution
+guarantee. A receiver needing that guarantee must establish it independently.
+
+Validate token-bearing requests before rendering HTML and promptly redirect to
+a URL without rt. Set Cache-Control: no-store and Referrer-Policy: no-referrer
+on the token-bearing response. Redact rt and sensitive OAuth query values in
+access logs, reverse proxies, APM and error tracking. Do not load third-party
+resources on token-bearing pages. URL cleanup reduces subsequent exposure but
+cannot undo ingress logging or browser history. See
+[URL exposure guidance](receiver-rt-exposure-report.md).
+
 If redirecting again, independently validate next/return_to/redirect_uri and
 other destinations. Being included in a signed URL is insufficient authorization
 for a downstream redirect. Receiver trust, revocation, idempotency and clock/cache
@@ -57,6 +71,15 @@ code. Pre-deployment acceptance is USER_REPORTED complete, separately from these
 specific contract gaps. See [release closure](operations/release-closure.md).
 
 ## Candidate service 0.4.0
+
+For Base App -> Visa authorization, the receiver owns validation of the OIDC
+query and any embedded state or Handoff JWS/JWE. Jump treats these values as
+opaque and preserves the destination query bytes before appending `rt`.
+The source is the Base origin (`https://www.umaxica.app` for APP), even though
+Governance now owns that surface. The existing realm-specific registry edges
+apply; no dedicated Governance issuer origin has been added.
+Local carrier tests do not prove the real Base signer, Visa receiver or their
+JWKS endpoints interoperable. Verify those in the owning repositories.
 
 The fixture service version is 0.4.0; JWT schema is still 1. Canonical query
 serialization and 30-second outbound TTL are unchanged. The

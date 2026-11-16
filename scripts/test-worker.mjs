@@ -108,7 +108,6 @@ const signInput = (src, dst, typ = 'JWT', path = '/receive?state=keep&q=a%20b') 
     .sign(pairs.get(nodes[src]).privateKey);
 };
 let runtime;
-let sampleInput;
 try {
   runtime = new Miniflare(convertV4MiniflareOptions(options));
   for (const [src, dst] of edges) {
@@ -128,7 +127,6 @@ try {
     })
       .setProtectedHeader({ typ: 'JWT', alg: 'PS256', kid: 'issuer' })
       .sign(pairs.get(nodes[src]).privateKey);
-    sampleInput ??= input;
     const response = await runtime.dispatchFetch(`${origin}/?rt=${input}`, {
       redirect: 'manual',
       headers: { 'CF-Connecting-IP': '203.0.113.7' },
@@ -136,7 +134,8 @@ try {
     assert.equal(response.status, 302);
     assert.equal(response.headers.get('cache-control'), 'no-store');
     assert.equal(response.headers.get('set-cookie'), null);
-    const location = new URL(response.headers.get('location'));
+    const rawLocation = response.headers.get('location');
+    const location = new URL(rawLocation);
     assert.equal(location.origin, nodes[dst]);
     assert.equal(location.searchParams.getAll('rt').length, 1);
     const verified = await jwtVerify(location.searchParams.get('rt'), jumpPair.publicKey, {
@@ -144,24 +143,29 @@ try {
       audience: nodes[dst],
       algorithms: ['PS256'],
     });
-    location.searchParams.delete('rt');
-    assert.equal(verified.payload.url, location.href);
+    const target = `${nodes[dst]}/receive?state=keep&q=a%20b`;
+    assert.equal(verified.payload.url, target, 'signed destination preserves original query');
+    assert.equal(
+      rawLocation,
+      `${target}&rt=${location.searchParams.get('rt')}`,
+      'Location appends RT without rewriting the original query',
+    );
     assert.equal(verified.payload.rpl, 'reuse');
     assert.equal(verified.payload.src, nodes[src]);
     assert.equal(verified.payload.exp - verified.payload.iat, 30);
   }
-  // Exercise path aliases through real allowed edges, not origin-policy rejection.
+  // Exercise direct-path syntax through allowed edges, not origin-policy rejection.
   const destinations = new Set();
   for (const [src, dst] of edges) {
-    if (dst === 'palm-app-jp' || destinations.has(dst)) continue;
+    if (destinations.has(dst)) continue;
     destinations.add(dst);
-    for (const path of ['/sign/out.html/', '/sign/out.json/', '/sign/out%2Ehtml/', '/sign/out//']) {
+    for (const path of ['/sign/out//', '/sign/out%2F', '/sign/out%5C', '/sign/out/../']) {
       const input = await signInput(src, dst, 'JWT', path);
       const response = await runtime.dispatchFetch(`${origin}/?rt=${input}`, {
         redirect: 'manual',
         headers: { 'CF-Connecting-IP': '203.0.113.7' },
       });
-      assert.equal(response.status, 400, 'path aliases rejected in workerd');
+      assert.equal(response.status, 400, 'ambiguous direct paths rejected in workerd');
       assert.equal(response.headers.get('location'), null);
       assert.equal(response.headers.get('cache-control'), 'no-store');
       assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
@@ -169,9 +173,14 @@ try {
       assert(!(await response.text()).includes(input));
     }
     for (const path of [
+      '/sign/out',
+      '/sign/out.html/',
+      '/sign/out.json/',
+      '/sign/out%2Ehtml/',
       '/sign/outbox',
       '/articles/example.html',
       '/oauth/authorize?state=a%5Cb&nonce=n',
+      '/oauth/authorize?state=a%20b&nonce=a+b&scope=openid%20profile',
     ]) {
       const input = await signInput(src, dst, 'JWT', path);
       const response = await runtime.dispatchFetch(`${origin}/?rt=${input}`, {
@@ -179,19 +188,25 @@ try {
         headers: { 'CF-Connecting-IP': '203.0.113.7' },
       });
       assert.equal(response.status, 302, 'normal paths and opaque OAuth state survive');
-      const location = new URL(response.headers.get('location'));
+      const rawLocation = response.headers.get('location');
+      const location = new URL(rawLocation);
       assert.equal(location.searchParams.getAll('rt').length, 1);
       const { payload } = await jwtVerify(location.searchParams.get('rt'), jumpPair.publicKey, {
         issuer: origin,
         audience: nodes[dst],
         algorithms: ['PS256'],
       });
-      location.searchParams.delete('rt');
-      assert.equal(location.href, `${nodes[dst]}${path}`);
-      assert.equal(payload.url, location.href);
+      const target = `${nodes[dst]}${path}`;
+      const separator = path.includes('?') ? '&' : '?';
+      assert.equal(payload.url, target, 'accepted signed path and query preserved');
+      assert.equal(
+        rawLocation,
+        `${target}${separator}rt=${location.searchParams.get('rt')}`,
+        'accepted Location appends only the returned RT',
+      );
     }
   }
-  assert.equal(destinations.size, 12, 'all denylisted origins exercised');
+  assert.equal(destinations.size, Object.keys(nodes).length, 'all fixture origins exercised');
   for (const method of ['GET', 'HEAD']) {
     const response = await runtime.dispatchFetch(`${origin}/favicon.ico?rt%5Bx%5D=private`, {
       method,
@@ -405,7 +420,9 @@ try {
       }
     }
     if (label === 'limiter throw navigation') {
-      const accepted = await runtime.dispatchFetch(`${origin}/?rt=${sampleInput}`, {
+      // Earlier runtime scenarios may have consumed the input's 30-second TTL.
+      const freshInput = await signInput(...edges[0]);
+      const accepted = await runtime.dispatchFetch(`${origin}/?rt=${freshInput}`, {
         redirect: 'manual',
         headers: { 'CF-Connecting-IP': '203.0.113.7' },
       });
@@ -484,7 +501,7 @@ try {
   runtime = undefined;
   // eslint-disable-next-line no-console -- concise runtime verification result.
   console.log(
-    'workerd: 20 signed edges, JWKS reuse, Fetch Metadata, wrong-path rt, signing material, limiter and deadline contracts passed',
+    `workerd: ${edges.length} signed edges, JWKS reuse, Fetch Metadata, wrong-path rt, signing material, limiter and deadline contracts passed`,
   );
 } catch (error) {
   // eslint-disable-next-line no-console -- error code only, never raw exception text.

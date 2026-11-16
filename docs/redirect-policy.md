@@ -32,6 +32,15 @@ See [RFC 6749 Appendix A.5](https://www.rfc-editor.org/rfc/rfc6749.html#appendix
 
 ## Static path denial
 
+The existing `base-app-ww` -> `visa-app-ww` edge permits
+`https://visa.umaxica.app/oauth/authorize`. The authorization query remains
+opaque: `response_type`, `client_id`, `redirect_uri`, `code_challenge`,
+`code_challenge_method`, `state`, `nonce`, `scope` and `ri` retain their original
+query bytes, including percent-escape case and `%20` versus `+`. Jump appends
+one fresh `rt`; the outbound signed `url` excludes that appended parameter.
+This does not add edges, authorize a ceremony or validate an embedded Handoff.
+The same Base App issuer cannot reach Visa ORG or unlisted origins.
+
 `src/core/redirect_policy.ts` validates and freezes its static rules at module
 initialization. Origins must be canonical HTTPS origins; paths must pass strict
 syntax and cannot end with a slash except `/`. Exact rules match the configured
