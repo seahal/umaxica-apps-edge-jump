@@ -170,3 +170,20 @@ package-lock.json
 .claude/
 .pnpm-store/
 .vitest/
+
+
+# Credentials and machine-local settings: never commit
+mise.local.toml
+.env.local
+.env.*.local
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# direnv: credentials and per-machine overrides (never commit)
+/.envrc.credential
+/.envrc.local
