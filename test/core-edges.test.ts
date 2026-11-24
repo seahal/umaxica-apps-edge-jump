@@ -2,15 +2,14 @@ import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { describe, expect, test, vi } from 'vite-plus/test';
 import { PRODUCTION_SERVICE_ORIGIN } from './app-fixture';
 import { raceAbort } from '../src/core/deadline';
-import { escapeHtml } from '../src/core/escape';
 import { fetchRegistryJwks } from '../src/core/fetch_jwks';
 import { handleJump, type JumpDeps } from '../src/core/handle_jump';
 import { parseJumpJwks, validateJumpJwks } from '../src/core/jump_jwks';
 import { JwksCache } from '../src/core/jwks_cache';
-import { renderErrorPage, renderUnavailablePage } from '../src/core/page';
+import { localeFromAcceptLanguage } from '../src/core/i18n';
+import { renderRateLimitPage } from '../src/core/page';
 import { assertDestinationPolicy } from '../src/core/policy';
 import { publicErrorResponse, publicJumpError } from '../src/core/public_error';
-import { renderError } from '../src/core/render_error';
 import { sanitizeSecurityLog } from '../src/core/security_log';
 import { JumpError, type InboundJumpClaim, type IssuerConfig } from '../src/core/types';
 import { normalizeUrl, validateServiceOrigin } from '../src/core/normalize_url';
@@ -109,11 +108,6 @@ describe('handleJump query and signer edges', () => {
 });
 
 describe('small helpers', () => {
-  test('escapeHtml treats nullish as empty', () => {
-    expect(escapeHtml(null)).toBe('');
-    expect(escapeHtml(undefined)).toBe('');
-  });
-
   test('raceAbort rejects when the signal is already aborted', async () => {
     const controller = new AbortController();
     controller.abort();
@@ -122,10 +116,18 @@ describe('small helpers', () => {
     });
   });
 
-  test('default-locale page renderers', () => {
-    expect(renderErrorPage()).toContain('lang="ja"');
-    expect(renderUnavailablePage()).toContain('lang="ja"');
-    expect(renderError()).toContain('lang="ja"');
+  test('Accept-Language negotiation is shared by early and routed responses', () => {
+    expect(localeFromAcceptLanguage(null)).toBe('ja');
+    expect(localeFromAcceptLanguage('fr, en-US;q=0.9')).toBe('en');
+    expect(localeFromAcceptLanguage('ja;q=0.8, en;q=0.8')).toBe('ja');
+    expect(localeFromAcceptLanguage('en;q=0')).toBe('ja');
+    expect(localeFromAcceptLanguage('en;q=1.1, ja;q=bad')).toBe('ja');
+    expect(renderRateLimitPage()).toContain('lang="ja"');
+  });
+
+  test('Accept-Language parsing is bounded by header length and entry count', () => {
+    expect(localeFromAcceptLanguage(`${'x'.repeat(512)},en`)).toBe('ja');
+    expect(localeFromAcceptLanguage(`${Array<string>(16).fill('fr').join(',')},en`)).toBe('ja');
   });
 
   test('unknown internal codes map to internal_error', () => {
@@ -133,12 +135,28 @@ describe('small helpers', () => {
     expect(publicErrorResponse('rate_limited').status).toBe(429);
   });
 
-  test('unknown dst is rejected by policy', () => {
-    const target = normalizeUrl(
-      'https://docs.example.com/',
-      { edge: 'cloudflare', production: true },
-      PRODUCTION_SERVICE_ORIGIN,
+  test('app errors use the configured audit logger', async () => {
+    const auditLog = vi.fn();
+    const app = createProductionApp({
+      registry: { [ISSUER.iss]: ISSUER },
+      jwksCache: new JwksCache(async () => ({ keys: [] })),
+      config: { serviceOrigin: PRODUCTION_SERVICE_ORIGIN },
+      auditLog,
+    });
+    const response = await app.request(`${PRODUCTION_SERVICE_ORIGIN}/.well-known/jwks.json`);
+    expect(response.status).toBe(503);
+    expect(auditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        result: 'rejected',
+        reason: 'signer_unavailable',
+        request_id: expect.any(String),
+        status: 503,
+      }),
     );
+  });
+
+  test('unknown dst is rejected by policy', () => {
+    const target = normalizeUrl('https://docs.example.com/', PRODUCTION_SERVICE_ORIGIN);
     const claim = { iss: ISSUER.iss, dst: 'other' } as unknown as InboundJumpClaim;
     expect(() => assertDestinationPolicy(claim, ISSUER, target)).toThrow(JumpError);
   });
@@ -313,7 +331,7 @@ describe('fetchRegistryJwks edges', () => {
   });
 
   test('network errors carry safe diagnostic metadata', async () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.stubGlobal('fetch', async () => {
       throw new TypeError('x', { cause: Object.assign(new Error('c'), { code: 42 }) });
     });
@@ -456,7 +474,7 @@ describe('fetchRegistryJwks error metadata', () => {
       },
     ],
   ])('%s', async (_label, impl) => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const error = vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.stubGlobal('fetch', impl);
     try {
       await expect(fetchRegistryJwks(ISSUER)).rejects.toBeInstanceOf(JumpError);

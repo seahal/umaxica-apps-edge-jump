@@ -273,7 +273,7 @@ describe('Fetch Metadata policy on /?rt=', () => {
   });
 
   test.each([
-    ['/', 302],
+    ['/', 404],
     ['/about', 200],
     ['/health', 200],
     ['/health.json', 200],
@@ -282,7 +282,7 @@ describe('Fetch Metadata policy on /?rt=', () => {
     ['/robots.txt', 200],
     ['/sitemap.xml', 200],
     ['/favicon.ico', 204],
-    ['/missing', 302],
+    ['/missing', 404],
   ])('%s is outside the policy', async (path, status) => {
     const h = await harness();
     const hostile = {
@@ -396,6 +396,7 @@ describe('Fetch Metadata policy behind the Cloudflare adapter', () => {
     const response = await h.send({ 'Sec-Fetch-Mode': 'cors' });
     expect(response.status).toBe(429);
     expect(response.headers.get('X-Jump-Error')).toBe('rate_limited');
+    expect(response.headers.get('Retry-After')).toBe('60');
     expect(output.join('\n')).not.toContain('non_navigation_request');
   });
 

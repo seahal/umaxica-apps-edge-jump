@@ -219,9 +219,10 @@ test.describe('browser navigation matrix on /?rt=', () => {
   });
 });
 
-test('bare entry reaches About while invalid tokens remain on an error page', async ({ page }) => {
-  await page.goto(`${jumpBase}/`);
-  await expect(page).toHaveURL(`${jumpBase}/about`);
+test('bare entry is not found while invalid tokens remain on an error page', async ({ page }) => {
+  const bare = await page.goto(`${jumpBase}/`);
+  expect(bare?.status()).toBe(404);
+  await expect(page).toHaveURL(`${jumpBase}/`);
   for (const token of ['', 'abc.def', 'a.b.c']) {
     const response = await page.goto(`${jumpBase}/?rt=${token}`);
     expect(response?.status()).toBe(400);

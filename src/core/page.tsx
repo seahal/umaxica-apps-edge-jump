@@ -72,16 +72,8 @@ export function renderHealthPage(
   });
 }
 
-export function renderErrorPage(locale: Locale = 'ja', now = new Date()) {
-  return renderSplashPage('invalid', locale, now);
-}
-
 export function renderRateLimitPage(locale: Locale = 'ja', now = new Date()) {
   return renderSplashPage('rate', locale, now);
-}
-
-export function renderUnavailablePage(locale: Locale = 'ja', now = new Date()) {
-  return renderSplashPage('unavailable', locale, now);
 }
 
 export function renderSplashPage(kind: SplashKind, locale: Locale = 'ja', now = new Date()) {
@@ -170,7 +162,7 @@ function renderDocument({
       <body class={bodyClass}>
         {splash ? null : (
           <header>
-            <a href="/">UMAXICA</a>
+            <a href="/about">UMAXICA</a>
           </header>
         )}
         {children}

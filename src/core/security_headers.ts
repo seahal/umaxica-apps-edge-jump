@@ -55,9 +55,8 @@ export function jumpSecureHeaders() {
 
 /**
  * The same protection set as `jumpSecureHeaders` + `responseHygiene`, as a plain
- * header record, for HTML responses produced outside the Hono app — today only
- * the Cloudflare rate-limit rejection, which must answer before the app is
- * constructed. Both are serialized from the constants above, and
+ * header record for the Cloudflare adapter to apply to every Worker response.
+ * Both are serialized from the constants above, and
  * `expectSecurityHeaders` in test/jump.test.ts asserts the two paths stay equal.
  */
 export const STANDALONE_HTML_SECURITY_HEADERS: Record<string, string> = {

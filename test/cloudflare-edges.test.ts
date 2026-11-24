@@ -13,9 +13,18 @@ async function keyPair(kid: string) {
   };
 }
 
-function request(env: CloudflareEnv, path = '/.well-known/jwks.json', method = 'GET') {
+function request(
+  env: CloudflareEnv,
+  path = '/.well-known/jwks.json',
+  method = 'GET',
+  headers: Record<string, string> = {},
+  origin = ORIGIN,
+) {
   return worker.fetch(
-    new Request(`${ORIGIN}${path}`, { method, headers: { 'CF-Connecting-IP': '203.0.113.7' } }),
+    new Request(`${origin}${path}`, {
+      method,
+      headers: { 'CF-Connecting-IP': '203.0.113.7', ...headers },
+    }),
     {
       UMAXICA_JUMP_ORIGIN: ORIGIN,
       UMAXICA_JUMP_ENVIRONMENT: 'production',
@@ -32,9 +41,147 @@ afterEach(() => {
 });
 
 describe('cloudflare adapter edges', () => {
-  test('an over-long kid fails closed', async () => {
-    const res = await request({ UMAXICA_JUMP_PRIVATE_KEY_KID: 'k'.repeat(129) });
+  test.each(['k'.repeat(129), 'bad\nkid', 'bad\u0085kid'])(
+    'an invalid private key kid fails closed: %s',
+    async (kid) => {
+      const res = await request({ UMAXICA_JUMP_PRIVATE_KEY_KID: kid });
+      expect(res.status).toBe(503);
+    },
+  );
+
+  test('a public JWKS kid with control characters is rejected', async () => {
+    const key = await keyPair('bad\nkid');
+    const res = await request({
+      UMAXICA_JUMP_PRIVATE_KEY_KID: 'active',
+      UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({ keys: [key.jwk] }),
+    });
     expect(res.status).toBe(503);
+  });
+
+  test('early 405 uses the shared Accept-Language negotiation', async () => {
+    const res = await request({}, '/', 'POST', {
+      'Accept-Language': 'fr, en-US;q=0.9, ja;q=0.8',
+    });
+    expect(res.status).toBe(405);
+    expect(res.headers.get('Content-Language')).toBe('en');
+  });
+
+  test('rate limiting responds with Retry-After', async () => {
+    const res = await request({ JUMP_RATE_LIMITER: { limit: async () => ({ success: false }) } });
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBe('60');
+  });
+
+  test('bare root and unknown non-GET Worker routes return 404', async () => {
+    const root = await request({}, '/');
+    const unknown = await request({}, '/missing-route', 'POST');
+    expect(root.status).toBe(404);
+    expect(root.headers.get('Location')).toBeNull();
+    expect(unknown.status).toBe(404);
+    expect(unknown.headers.get('Location')).toBeNull();
+  });
+
+  test('early rejection logs include request id, result, and status', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const res = await request({ UMAXICA_JUMP_ORIGIN: 'not an origin' });
+      const records = warn.mock.calls
+        .map(([line]) => JSON.parse(String(line)) as Record<string, unknown>)
+        .filter((entry) => entry.event === 'jump_reject');
+      expect(res.status).toBe(503);
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({
+        event: 'jump_reject',
+        result: 'rejected',
+        reason: 'invalid_service_origin',
+        status: 503,
+      });
+      expect(records[0]?.request_id).toBe(res.headers.get('X-Request-ID'));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test.each([
+    ['invalid_environment', { UMAXICA_JUMP_ENVIRONMENT: 'unexpected' }],
+    ['limiter_binding_missing', { JUMP_RATE_LIMITER: undefined }],
+    ['missing_active_kid', {}],
+  ])('%s early rejection log has request metadata', async (reason, env) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const res = await request(env as unknown as CloudflareEnv);
+      const records = warn.mock.calls
+        .map(([line]) => JSON.parse(String(line)) as Record<string, unknown>)
+        .filter((entry) => entry.event === 'jump_reject');
+      expect(res.status).toBe(503);
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({ result: 'rejected', reason, status: 503 });
+      expect(records[0]?.request_id).toBe(res.headers.get('X-Request-ID'));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test.each([
+    ['request_origin_mismatch', {}, 'https://other.example.net', {}],
+    [
+      'limiter_response_invalid',
+      {
+        JUMP_RATE_LIMITER: {
+          limit: async () => ({ success: 'invalid' as unknown as boolean }),
+        },
+      },
+      ORIGIN,
+      {},
+    ],
+    ['invalid_client_ip', {}, ORIGIN, { 'CF-Connecting-IP': 'invalid ip' }],
+  ])('%s early rejection emits one detailed log', async (reason, env, origin, headers) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const res = await request(
+        env as CloudflareEnv,
+        '/.well-known/jwks.json',
+        'GET',
+        headers as Record<string, string>,
+        origin as string,
+      );
+      const records = warn.mock.calls
+        .map(([line]) => JSON.parse(String(line)) as Record<string, unknown>)
+        .filter((entry) => entry.event === 'jump_reject');
+      expect(res.status).toBe(reason === 'request_origin_mismatch' ? 400 : 503);
+      expect(records).toHaveLength(1);
+      expect(records[0]).toMatchObject({ reason, result: 'rejected', status: res.status });
+      expect(records[0]?.request_id).toBe(res.headers.get('X-Request-ID'));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  test('the published JWKS drops extension attributes and keeps allowed key_ops', async () => {
+    const key = await keyPair('active');
+    const inputJwk = {
+      ...key.jwk,
+      key_ops: ['verify'],
+      x5u: 'https://internal.invalid/private.json',
+      x5c: ['internal-certificate'],
+      internal_label: 'do-not-publish',
+    };
+    const res = await request({
+      UMAXICA_JUMP_PRIVATE_KEY_PEM: key.pem,
+      UMAXICA_JUMP_PRIVATE_KEY_KID: 'active',
+      UMAXICA_JUMP_PUBLIC_JWKS: JSON.stringify({ keys: [inputJwk] }),
+    });
+    const body = (await res.json()) as { keys: Record<string, unknown>[] };
+    expect(res.status).toBe(200);
+    expect(body.keys[0]).toEqual({
+      kty: 'RSA',
+      n: key.jwk.n,
+      e: 'AQAB',
+      kid: 'active',
+      alg: 'PS256',
+      use: 'sig',
+      key_ops: ['verify'],
+    });
   });
 
   test('HEAD on a static asset has no body', async () => {

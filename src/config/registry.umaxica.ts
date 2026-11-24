@@ -68,13 +68,11 @@ export function buildRegistry(
 ): IssuerRegistry {
   const origins = new Map<string, string>();
   const seenOrigins = new Set<string>();
-  // A non-domain identity is sufficient here; no implicit production identity.
-  const runtime = { edge: 'cloudflare', production: true } as const;
   for (const [id, origin] of nodeTable) {
     if (!/^[a-z]{4}-[a-z]{3}-[a-z]{2}$/.test(id) || origins.has(id) || seenOrigins.has(origin))
       throw new Error('invalid_node_table');
     if (isDeniedDomain(new URL(origin).hostname)) throw new Error('invalid_node_table');
-    normalizeOrigin(origin, runtime, 'https://registry-validation.invalid');
+    normalizeOrigin(origin, 'https://registry-validation.invalid');
     origins.set(id, origin);
     seenOrigins.add(origin);
   }

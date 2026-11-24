@@ -179,6 +179,7 @@ mise.local.toml
 .dev.vars
 .dev.vars.*
 !.dev.vars.example
+wrangler-secrets.json
 *.pem
 *.key
 *.p12

@@ -69,10 +69,16 @@ decoding, JWKS fetch or signing. The response is the coarse 400
 `fetch` always sends `Sec-Fetch-Mode: cors` (and nothing else), which is partial
 metadata and is therefore refused on `/?rt=` like a browser `fetch()`.
 
-Rate limiting uses only the Cloudflare Workers native binding
-(`wrangler.jsonc` `ratelimits`, keyed on CF-Connecting-IP). It is coarse abuse
-control, not an authentication, authorization or replay boundary; shared IPs
-can be limited together. No readiness endpoint is exposed.
+Rate limiting runs as Hono middleware on dynamic requests after request, origin,
+method and entry-query checks and before route handlers. It uses only the
+Cloudflare Workers native binding (`wrangler.jsonc` `ratelimits`): IPv4 keys use
+the address as supplied by Cloudflare, while IPv6 keys use its canonical `/64`
+prefix. Static assets remain outside the Worker because `run_worker_first` is
+false. This is coarse abuse control, not an authentication, authorization or
+replay boundary; clients sharing an address or IPv6 `/64` can be limited
+together. Binding-call exceptions follow ADR 0009 and fail open; missing or
+invalid bindings and client addresses fail closed. No readiness endpoint is
+exposed.
 
 Canonical key bindings are required; private-only or alias-only bundles fail 503. Public keysets reject private fields rather than stripping them. The
 active pair is probe checked; import validity of other keys is a distinct check.

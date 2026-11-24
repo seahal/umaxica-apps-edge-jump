@@ -1,7 +1,22 @@
 export type Locale = 'ja' | 'en';
 
-export function asLocale(value: string | undefined): Locale {
-  return value === 'en' ? 'en' : 'ja';
+export function localeFromAcceptLanguage(value: string | null | undefined): Locale {
+  if (!value) return 'ja';
+  const preferences = value
+    .slice(0, 512)
+    .split(',')
+    .slice(0, 16)
+    .flatMap((part, index) => {
+      const [language = '', ...parameters] = part.trim().split(';');
+      const languageCode = /^(en|ja)(?:-|$)/i.exec(language)?.[1]?.toLowerCase();
+      if (languageCode !== 'en' && languageCode !== 'ja') return [];
+      const qualityParameter = parameters.find((parameter) => /^\s*q\s*=/i.test(parameter));
+      const quality = qualityParameter === undefined ? 1 : Number(qualityParameter.split('=')[1]);
+      if (!Number.isFinite(quality) || quality <= 0 || quality > 1) return [];
+      return [{ locale: languageCode as Locale, quality, index }];
+    });
+  preferences.sort((left, right) => right.quality - left.quality || left.index - right.index);
+  return preferences[0]?.locale ?? 'ja';
 }
 
 export const messages = {

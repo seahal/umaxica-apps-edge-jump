@@ -89,6 +89,7 @@ const options = {
     return Response.json(publicSets.get(request.url));
   },
 };
+
 const signInput = (src, dst, typ = 'JWT', path = '/receive?state=keep&q=a%20b') => {
   const now = Math.floor(Date.now() / 1000);
   return new SignJWT({
@@ -316,17 +317,22 @@ try {
   assert(!logs.some((message) => /sec-fetch|"cors"|prerender/i.test(message)), 'no raw metadata');
 
   // Whole-entry deadline: an issuer JWKS slower than 1000ms.
-  const [slowSrc, slowDst] = edges.find(([source]) => source !== src);
-  slowJwksUrl = `${nodes[slowSrc]}/.well-known/jwks.json`;
+  const slowEdges = [];
+  for (const edge of edges) {
+    if (edge[0] === src || slowEdges.some(([source]) => source === edge[0])) continue;
+    slowEdges.push(edge);
+    if (slowEdges.length === 2) break;
+  }
   logs.length = 0;
-  for (const method of ['GET', 'GET']) {
+  for (const [slowSrc, slowDst] of slowEdges) {
+    slowJwksUrl = `${nodes[slowSrc]}/.well-known/jwks.json`;
     const started = performance.now();
     const response = await runtime.dispatchFetch(
       `${origin}/?rt=${await signInput(slowSrc, slowDst)}`,
-      { method, redirect: 'manual', headers: navigation },
+      { method: 'GET', redirect: 'manual', headers: navigation },
     );
     const elapsed = performance.now() - started;
-    assert.equal(response.status, 504, `${method} slow JWKS`);
+    assert.equal(response.status, 504, `slow JWKS for ${slowSrc}`);
     assert.equal(response.headers.get('x-jump-error'), 'deadline_exceeded');
     assert.equal(response.headers.get('location'), null);
     assert.equal(response.headers.get('set-cookie'), null);
@@ -336,6 +342,15 @@ try {
   }
   await new Promise((resolve) => setTimeout(resolve, 1800));
   assert(!logs.some((message) => message.includes('jump_accept')), 'no late acceptance log');
+  const deadlineRejects = logs.filter((message) => {
+    try {
+      const entry = JSON.parse(message);
+      return entry.event === 'jump_reject' && entry.reason === 'deadline_exceeded';
+    } catch {
+      return false;
+    }
+  });
+  assert.equal(deadlineRejects.length, slowEdges.length, 'one rejection log per timed-out request');
   slowJwksUrl = undefined;
   await runtime.dispose();
   runtime = undefined;
@@ -389,6 +404,14 @@ try {
       assert.equal(response.headers.get('cache-control'), 'no-store', label);
       assert.equal(response.headers.get('location'), null, label);
       assert.equal(response.headers.get('x-robots-tag'), 'noindex, nofollow, noarchive', label);
+      if (status === 429) {
+        assert.equal(response.headers.get('retry-after'), '60', label);
+        assert.equal(response.headers.get('content-language'), 'ja', label);
+        assert(
+          logs.some((message) => message.includes('"reason":"rate_limited"')),
+          'rate limit rejection must be audited',
+        );
+      }
       const text = await response.text();
       if (method === 'HEAD') assert.equal(text, '', label);
       else if (status === 200 && path === '/.well-known/jwks.json') {
@@ -484,18 +507,29 @@ try {
   }
   await runtime.dispose();
   runtime = undefined;
-  // `/ready` is not a production interface: it must fall through to notFound.
+  // Unknown paths stay 404 for every method; the bare Jump entry is also 404.
   runtime = new Miniflare(convertV4MiniflareOptions(options));
+  for (const path of ['/ready', '/missing']) {
+    for (const method of ['GET', 'HEAD', 'POST', 'OPTIONS']) {
+      const response = await runtime.dispatchFetch(`${origin}${path}`, {
+        method,
+        redirect: 'manual',
+        headers: { 'CF-Connecting-IP': '203.0.113.7' },
+      });
+      assert.equal(response.status, 404, `${method} ${path}`);
+      assert.equal(response.headers.get('location'), null, `${method} ${path}`);
+      assert.equal(response.headers.get('content-type'), null, `${method} ${path}`);
+      await response.text();
+    }
+  }
   for (const method of ['GET', 'HEAD']) {
-    const response = await runtime.dispatchFetch(`${origin}/ready`, {
+    const response = await runtime.dispatchFetch(`${origin}/`, {
       method,
       redirect: 'manual',
       headers: { 'CF-Connecting-IP': '203.0.113.7' },
     });
-    assert.equal(response.status, 302, `${method} /ready`);
-    assert.equal(new URL(response.headers.get('location'), origin).pathname, '/about');
-    assert.notEqual(response.headers.get('content-type'), 'application/json');
-    await response.text();
+    assert.equal(response.status, 404, `${method} /`);
+    assert.equal(response.headers.get('location'), null, `${method} /`);
   }
   await runtime.dispose();
   runtime = undefined;

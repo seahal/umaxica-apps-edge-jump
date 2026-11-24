@@ -78,8 +78,8 @@ test('jwks reuses the checked bundle without network or repeated private import'
 test.each(['GET', 'HEAD'])('%s /ready is not a production interface', async (method) => {
   for (const settings of [env, { ...env, UMAXICA_JUMP_PRIVATE_KEY_PEM: '' }]) {
     const response = await request('/ready', settings, method);
-    expect(response.status).toBe(302);
-    expect(response.headers.get('location')).toBe('/about');
+    expect(response.status).toBe(404);
+    expect(response.headers.get('location')).toBeNull();
     expect(response.headers.get('content-type')).not.toBe('application/json');
     const text = await response.text();
     expect(text).not.toContain('ready');
@@ -193,9 +193,7 @@ test('alternate origin follows discovery and self-link rejection', async () => {
     expect(text).not.toContain('https://jump.umaxica.net');
     expect(text).not.toContain('/ready');
   }
-  expect(() =>
-    normalizeUrl(`${origin}/receive`, { edge: 'cloudflare', production: true }, origin),
-  ).toThrow();
+  expect(() => normalizeUrl(`${origin}/receive`, origin)).toThrow();
 });
 test('alternate origin governs inbound aud and outbound iss', async () => {
   const issuer = await generateKeyPair('PS256', { extractable: true, modulusLength: 3072 });

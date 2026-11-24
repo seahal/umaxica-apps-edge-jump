@@ -13,6 +13,7 @@ const server = serve({
       const response = publicErrorResponse(
         pathname.endsWith('/rate') ? 'rate_limited' : 'signer_unavailable',
       );
+      if (pathname.endsWith('/rate')) response.headers.set('Retry-After', '60');
       for (const [name, value] of Object.entries(STANDALONE_HTML_SECURITY_HEADERS))
         response.headers.set(name, value);
       return response;

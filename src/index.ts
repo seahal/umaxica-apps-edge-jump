@@ -1,5 +1,4 @@
 import { Hono, type Context } from 'hono';
-import { languageDetector, type LanguageVariables } from 'hono/language';
 import { logger } from 'hono/logger';
 import { trimTrailingSlash } from 'hono/trailing-slash';
 import {
@@ -10,22 +9,23 @@ import {
 } from './core/handle_jump';
 import { isNonNavigationRequest } from './core/fetch_metadata';
 import { healthJson, renderHealthHtml, wantsJson } from './core/health';
-import { asLocale, type Locale } from './core/i18n';
+import { localeFromAcceptLanguage, type Locale } from './core/i18n';
 import { JwksCache, type FetchJwks } from './core/jwks_cache';
 import { validateJumpJwks, type JumpJwks } from './core/jump_jwks';
-import { publicErrorResponse, publicJumpError } from './core/public_error';
+import { clientRateLimitKey, type RateLimiter, type RateLimiterSource } from './core/rate_limit';
+import { publicErrorHeaders, publicErrorResponse, publicJumpError } from './core/public_error';
 import { emitSecurityLog } from './core/security_log';
-import { renderErrorPage } from './core/page';
+import { renderRateLimitPage } from './core/page';
 import { renderAbout } from './core/render_about';
 import { renderRobots, renderSitemap } from './core/render_discovery';
 import { jumpSecureHeaders, responseHygiene } from './core/security_headers';
 import { validateServiceOrigin, normalizeOrigin, hasMalformedRtQuery } from './core/normalize_url';
-import { throwIfAborted } from './core/deadline';
+import { raceAbort, throwIfAborted } from './core/deadline';
 import { NoopOutboundSigner, type OutboundSigner } from './core/sign_outbound';
 import { isJumpEnvironment } from './core/token_profile';
 import { JumpError, type JumpConfig, type IssuerRegistry, type RuntimeInfo } from './core/types';
 
-type RequestVariables = LanguageVariables & {
+type RequestVariables = {
   deadlineSignal: AbortSignal;
   requestId: string;
   adapterContext?: AdapterContext;
@@ -38,9 +38,14 @@ export type AppOptions = Omit<Partial<JumpDeps>, 'config'> & {
   auditLog?: AuditLog;
   config?: Partial<JumpConfig>;
   jumpJwks?: JumpJwks;
-  signerForRequest?: (env: object, signal: AbortSignal) => OutboundSigner;
-  jumpJwksForRequest?: (env: object, signal: AbortSignal) => Promise<JumpJwks | undefined>;
+  signerForRequest?: (env: object, signal: AbortSignal, requestId: string) => OutboundSigner;
+  jumpJwksForRequest?: (
+    env: object,
+    signal: AbortSignal,
+    requestId: string,
+  ) => Promise<JumpJwks | undefined>;
   deadlineMs?: number;
+  rateLimiter?: RateLimiterSource;
 };
 
 const adapterContexts = new WeakMap<Request, AdapterContext>();
@@ -67,21 +72,12 @@ export function createApp(options: AppOptions = {}) {
   }
   const app = new Hono<AppEnv>({ strict: true });
   app.use('*', logger(redactLogLine));
-  app.use(
-    '*',
-    languageDetector({
-      supportedLanguages: ['ja', 'en'],
-      fallbackLanguage: 'ja',
-      order: ['header'],
-      caches: false,
-    }),
-  );
   app.use('*', internalRequestId());
   app.use('*', responseHygiene);
   app.use('*', jumpSecureHeaders());
   app.use('*', requestDeadline(options.deadlineMs ?? 1000));
   app.use('*', async (c, next) => {
-    if (c.req.method !== 'GET' && c.req.method !== 'HEAD') {
+    if (c.req.method !== 'GET' && c.req.method !== 'HEAD' && isKnownRoute(c.req.path)) {
       const response = publicErrorResponse('method_not_allowed', requestLocale(c));
       response.headers.set('Allow', 'GET, HEAD');
       return response;
@@ -90,10 +86,88 @@ export function createApp(options: AppOptions = {}) {
       return publicErrorResponse('malformed', requestLocale(c));
     await next();
   });
+  const appAuditLog = options.auditLog ?? auditLog;
+  app.use('*', async (c, next) => {
+    if (options.rateLimiter === undefined) return next();
+
+    const rejectClosed = (reason: string) => {
+      const response = publicErrorResponse('signer_unavailable', requestLocale(c));
+      appAuditLog({
+        level: 'warn',
+        event: 'jump_reject',
+        result: 'rejected',
+        reason,
+        request_id: c.get('requestId'),
+        status: response.status,
+      });
+      return response;
+    };
+
+    let limiter: RateLimiter | null;
+    try {
+      limiter =
+        typeof options.rateLimiter === 'function'
+          ? options.rateLimiter(c.env)
+          : options.rateLimiter;
+    } catch {
+      return rejectClosed('limiter_binding_unavailable');
+    }
+    if (!limiter || typeof limiter.limit !== 'function')
+      return rejectClosed('limiter_binding_missing');
+
+    const key = clientRateLimitKey(c.req.header('CF-Connecting-IP'));
+    if (!key) return rejectClosed('invalid_client_ip');
+
+    const signal = c.get('deadlineSignal');
+    let result: unknown;
+    try {
+      result = await raceAbort(
+        Promise.resolve().then(() => limiter.limit({ key })),
+        signal,
+      );
+      throwIfAborted(signal);
+    } catch {
+      throwIfAborted(signal);
+      emitSecurityLog({
+        level: 'warn',
+        event: 'jump_rate_limit_skipped',
+        reason: 'limiter_call_exception',
+        request_id: c.get('requestId'),
+        result: 'skipped',
+        rate_limit_outcome: 'skipped',
+      });
+      return next();
+    }
+
+    if (
+      !result ||
+      typeof result !== 'object' ||
+      !('success' in result) ||
+      typeof result.success !== 'boolean'
+    ) {
+      return rejectClosed('limiter_response_invalid');
+    }
+    if (result.success) return next();
+
+    const locale = requestLocale(c);
+    const response = new Response(renderRateLimitPage(locale), {
+      status: 429,
+      headers: { ...publicErrorHeaders('rate_limited', locale), 'Retry-After': '60' },
+    });
+    appAuditLog({
+      level: 'warn',
+      event: 'jump_reject',
+      result: 'rejected',
+      reason: 'rate_limited',
+      request_id: c.get('requestId'),
+      status: response.status,
+    });
+    return response;
+  });
   app.use('*', trimSlashExceptRoot());
 
   app.on(['GET', 'HEAD'], '/', async (c) => {
-    if (!new URL(c.req.url).search) return c.redirect('/about');
+    if (!new URL(c.req.url).search) return c.body(null, 404);
     const locale = requestLocale(c);
     // The token entry is a top-level document navigation, which is always GET.
     if (c.req.method !== 'GET') {
@@ -101,11 +175,11 @@ export function createApp(options: AppOptions = {}) {
       rejected.headers.set('Allow', 'GET');
       return rejected;
     }
-    // Defense in depth, after method/query validation and the adapter's rate
+    // Defense in depth, after method/query validation and the rate-limit
     // limiter, before any token decoding, JWKS fetch or signing.
     if (isNonNavigationRequest(c.req.raw.headers)) {
       const rejected = publicErrorResponse('non_navigation_request', locale);
-      (options.auditLog ?? auditLog)({
+      appAuditLog({
         level: 'warn',
         event: 'jump_reject',
         result: 'rejected',
@@ -122,7 +196,7 @@ export function createApp(options: AppOptions = {}) {
       registry,
       jwksCache,
       runtime,
-      signer: options.signerForRequest?.(c.env, signal) ?? signer,
+      signer: options.signerForRequest?.(c.env, signal, c.get('requestId')) ?? signer,
       config,
       signal,
       locale,
@@ -138,7 +212,7 @@ export function createApp(options: AppOptions = {}) {
     throwIfAborted(signal);
     /* v8 ignore next -- handleJump always reports an audit entry */
     const entry = pendingAudit ?? auditEntryForResponse(response);
-    (options.auditLog ?? auditLog)({
+    appAuditLog({
       ...entry,
       request_id: c.get('requestId'),
       ...cfRayFields(c.req.header('CF-Ray')),
@@ -147,17 +221,6 @@ export function createApp(options: AppOptions = {}) {
     });
     return response;
   });
-
-  /* v8 ignore start -- defensive: the method middleware rejects non-GET/HEAD first */
-  app.all('/', (c) =>
-    c.body(renderErrorPage(requestLocale(c)), 405, {
-      Allow: 'GET, HEAD',
-      'Content-Language': requestLocale(c),
-      'Content-Type': 'text/html; charset=utf-8',
-      'X-Jump-Error': 'method_not_allowed',
-    }),
-  );
-  /* v8 ignore stop */
 
   const healthHtml = (c: Context<AppEnv>) => {
     const locale = requestLocale(c);
@@ -180,34 +243,24 @@ export function createApp(options: AppOptions = {}) {
   );
   app.get('/.well-known/jwks.json', async (c) => {
     const requestJwks = options.jumpJwksForRequest
-      ? await options.jumpJwksForRequest(c.env, c.get('deadlineSignal'))
+      ? await options.jumpJwksForRequest(c.env, c.get('deadlineSignal'), c.get('requestId'))
       : jumpJwks;
     if (!requestJwks) throw new JumpError('signer_unavailable', 'jump jwks not configured');
     return json(c, requestJwks);
   });
 
   app.notFound((c) => {
-    // Trailing-slash 404s are rewritten to 301 by `trimTrailingSlash`.
-    if (c.req.path.length > 1 && c.req.path.endsWith('/') && !/^\/+$/.test(c.req.path)) {
-      return c.body(null, 404);
-    }
-    // Humans hitting a mistyped path land on About. JSON and non-GET clients
-    // get a plain 404 so machine probes are not fed an HTML document.
-    const method = c.req.method;
-    if ((method === 'GET' || method === 'HEAD') && !wantsJson(c.req.header('Accept') ?? null)) {
-      return c.redirect('/about', 302);
-    }
     return c.body(null, 404);
   });
 
   app.onError((error, c) => {
     const jumpError = error instanceof JumpError ? error : new JumpError('internal_error');
     const pub = publicJumpError(jumpError.code);
-    auditLog({
+    appAuditLog({
       level: 'warn',
       event: 'jump_reject',
       result: 'rejected',
-      reason: jumpError.code,
+      reason: jumpError.rejectionReason ?? jumpError.code,
       request_id: c.get('requestId'),
       ...cfRayFields(c.req.header('CF-Ray')),
       status: pub.status,
@@ -237,7 +290,7 @@ export function resolveJumpConfig(
 }
 
 function requestLocale(c: Context<AppEnv>): Locale {
-  return asLocale(c.get('language'));
+  return localeFromAcceptLanguage(c.req.header('Accept-Language'));
 }
 
 function html(c: Context, body: string, locale: Locale) {
@@ -294,18 +347,27 @@ function internalRequestId() {
   };
 }
 
-/**
- * `trimTrailingSlash` rewrites a 404 into a 301 to the same URL minus one
- * trailing slash — query string included. For an all-slashes path that means
- * `GET //?rt=<jwt>` answers 301 with the inbound token echoed into `Location`,
- * on a status the jump contract does not define. Paths that collapse to the
- * jump route skip that rewrite and fall through to notFound, which 302s to
- * `/about` without the query; `/about/` and friends still normalize.
- */
+const KNOWN_ROUTES = new Set([
+  '/',
+  '/about',
+  '/health',
+  '/health.json',
+  '/health.html',
+  '/favicon.ico',
+  '/robots.txt',
+  '/sitemap.xml',
+  '/.well-known/jwks.json',
+]);
+
+export function isKnownRoute(pathname: string) {
+  const path = pathname.endsWith('/') && pathname.length > 1 ? pathname.slice(0, -1) : pathname;
+  return KNOWN_ROUTES.has(path);
+}
+
 function trimSlashExceptRoot() {
   const trim = trimTrailingSlash();
   return async (c: Context<AppEnv>, next: () => Promise<void>) => {
-    if (/^\/+$/.test(c.req.path)) return next();
+    if (!c.req.path.endsWith('/') || !isKnownRoute(c.req.path)) return next();
     return trim(c, next);
   };
 }
@@ -381,7 +443,7 @@ function auditEntryForResponse(response: Response): JumpAuditLogEntry {
 function validateRegistry(registry: IssuerRegistry, runtime: RuntimeInfo, serviceOrigin: string) {
   for (const [name, issuer] of Object.entries(registry)) {
     if (name !== issuer.iss) throw new Error('registry issuer key mismatch');
-    normalizeOrigin(issuer.iss, runtime, serviceOrigin);
+    normalizeOrigin(issuer.iss, serviceOrigin);
     if (issuer.jwks_uri !== `${issuer.iss}/.well-known/jwks.json`)
       throw new Error('invalid_jwks_uri');
     // normalizeOrigin above already rejects these; kept as a second line of defence.
@@ -393,7 +455,7 @@ function validateRegistry(registry: IssuerRegistry, runtime: RuntimeInfo, servic
       throw new Error('issuer must be an exact origin');
     /* v8 ignore stop */
     for (const destination of issuer.allowed_dst_internal) {
-      normalizeOrigin(destination, runtime, serviceOrigin);
+      normalizeOrigin(destination, serviceOrigin);
       /* v8 ignore start -- normalizeOrigin above already rejects these */
       const url = new URL(destination);
       if (runtime.production && url.protocol !== 'https:')

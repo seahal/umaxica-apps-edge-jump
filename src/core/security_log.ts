@@ -16,6 +16,14 @@ const ALLOWED_FIELDS = new Set([
   'status',
   'latency_ms',
   'error_name',
+  'cause_name',
+  'cause_code',
+  'upstream_status',
+  'binding',
+  'private_key_present',
+  'kid_present',
+  'jwks_present',
+  'import_pkcs8_ok',
   'rate_limit_outcome',
 ]);
 

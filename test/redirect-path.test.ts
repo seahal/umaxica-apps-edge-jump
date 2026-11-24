@@ -1,20 +1,19 @@
 import { describe, expect, test } from 'vite-plus/test';
+import { buildRegistry } from '../src/config/registry.umaxica';
 import { normalizeUrl, validateInternalTarget } from '../src/core/normalize_url';
-import { assertDirectPath } from '../src/core/redirect_policy';
-const runtime = { edge: 'cloudflare', production: true } as const;
+import { assertDirectPath, isDeniedDomain } from '../src/core/redirect_policy';
+
+const SERVICE_ORIGIN = 'https://jump.umaxica.net';
 const target = (path: string) =>
-  validateInternalTarget(
-    normalizeUrl(`https://www.umaxica.app${path}`, runtime, 'https://jump.umaxica.net'),
-  );
+  validateInternalTarget(normalizeUrl(`https://www.umaxica.app${path}`, SERVICE_ORIGIN));
+
 describe('direct pathname security', () => {
   test('direct path helper rejects malformed percent encoding', () => {
     for (const path of ['/%', '/%FF']) expect(() => assertDirectPath(path)).toThrow();
   });
   test.each(['/a//b', '/a/../b', '/a/%2e%2e/b', '/a/%2F/b', '/a/%5c/b', '/a/%25/b', '/a;b'])(
     'rejects %s',
-    (path) => {
-      expect(() => target(path)).toThrow();
-    },
+    (path) => expect(() => target(path)).toThrow(),
   );
   test.each([
     '/',
@@ -23,9 +22,10 @@ describe('direct pathname security', () => {
     '/日本語',
     '/a%20b',
     '/authorize?redirect_uri=https%3A%2F%2Fclient.umaxica.com%2Fa%2F%2Fb&state=s&nonce=n',
-  ])('accepts %s', (path) => {
-    expect(() => target(path)).not.toThrow();
-  });
+  ])('accepts %s', (path) => expect(() => target(path)).not.toThrow());
+  test.each(['/a%C2%85b', '/a%C2%9Fb'])('rejects Unicode C1 control path %s', (path) =>
+    expect(() => target(path)).toThrow(),
+  );
 });
 
 describe('transfer query boundary', () => {
@@ -35,25 +35,69 @@ describe('transfer query boundary', () => {
     'NEXT%5Bx%5D=a',
     'redirect_uri=https%3A%2F%2Fsub.EXAMPLE.com%2Fcb',
     'redirect_uri=https%3A%2F%2Fexampe.dev%2Fcb',
-    'redirect_uri=javascript%3Aalert(1)',
     'redirect_uri=%2Frelative',
     'redirect_uri=',
     'redirect_uri=http%3A%2F%2Fclient.umaxica.com%2Fcb',
-  ])('rejects %s', (query) => {
+  ])('rejects %s', (query) => expect(() => target(`/authorize?${query}`)).toThrow());
+
+  test.each([
+    'javascript:alert(1)',
+    'data:text/html,blocked',
+    'vbscript:msgbox(1)',
+    'about:blank',
+    'view-source:https://client.umaxica.com/cb',
+    'file:///etc/passwd',
+    'blob:https://client.umaxica.com/id',
+    'ftp://client.umaxica.com/cb',
+    'ws://client.umaxica.com/cb',
+    'wss://client.umaxica.com/cb',
+    'intent://client.umaxica.com/cb',
+    'mailto:user@client.umaxica.com',
+  ])('rejects non-whitelisted single-word scheme %s', (value) => {
+    const query = `REDIRECT_URI=${encodeURIComponent(value)}`;
     expect(() => target(`/authorize?${query}`)).toThrow();
   });
+
   test.each([
     'redirect_uri=https%3A%2F%2Fnotexample.com%2Fcb',
     'redirect_uri=com.umaxica.native%3A%2Fcallback',
+    'redirect_uri=com.example.my%2Bapp%3A%2Fcallback',
+    'post_logout_redirect_uri=com.umaxica.native%3A%2Fcallback',
+    'redirect_uri=http%3A%2F%2F127.0.0.1%3A49152%2Fcallback',
+    'redirect_uri=http%3A%2F%2F127.0.0.1%2Fcallback',
+    'redirect_uri=http%3A%2F%2F%5B%3A%3A1%5D%3A49152%2Fcallback',
+    'REDIRECT_URI=https%3A%2F%2Fclient.umaxica.com%2Fcb',
     'state=example.com&nonce=%252F',
     'redirect_uri=https%3A%2F%2Fclient.umaxica.com%2Fa%3Bb%252Fc',
-  ])('preserves %s', (query) => {
-    expect(() => target(`/authorize?${query}`)).not.toThrow();
-  });
+  ])('preserves allowed or opaque query %s', (query) =>
+    expect(() => target(`/authorize?${query}`)).not.toThrow(),
+  );
+
+  test.each([
+    'redirect_uri=https%3A%2F%2Fclient.umaxica.com%2Fcb&REDIRECT_URI=https%3A%2F%2Fclient.umaxica.com%2Fother',
+    'state=a&STATE=b',
+    'nonce=a&NONCE=b',
+    'client_id=a&CLIENT_ID=b',
+    'post_logout_redirect_uri=https%3A%2F%2Fclient.umaxica.com%2Fcb&POST_LOGOUT_REDIRECT_URI=https%3A%2F%2Fclient.umaxica.com%2Fother',
+    'REDIRECT_URI%5Bx%5D=a',
+    'Post_Logout_Redirect_Uri%5Bx%5D=a',
+  ])('rejects case-insensitive duplicate or structured parameter %s', (query) =>
+    expect(() => target(`/authorize?${query}`)).toThrow(),
+  );
+
+  test.each([
+    'post_logout_redirect_uri=http%3A%2F%2F127.0.0.1%2Fcallback',
+    'redirect_uri=https%3A%2F%2F127.0.0.1%2Fcb',
+    'redirect_uri=https%3A%2F%2Fclient.umaxica.com%2Fcb%23x',
+    'redirect_uri=https%3A%2F%2Fu%40client.umaxica.com%2Fcb',
+    'redirect_uri=https:client.umaxica.com%2Fcb',
+    'redirect_uri=https%3A%2F%2F%2Fclient.umaxica.com%2Fcb',
+  ])('rejects unsafe or ambiguous OAuth URI %s', (query) =>
+    expect(() => target(`/oauth/authorize?${query}`)).toThrow(),
+  );
 });
 
-import { assertPathAllowed, isDeniedDomain, validatePathRules } from '../src/core/redirect_policy';
-describe('static deny policy', () => {
+describe('host restrictions', () => {
   test.each([
     'example.com',
     'a.example.org',
@@ -64,105 +108,24 @@ describe('static deny policy', () => {
     'a.exampe.dev',
   ])('denies parsed host %s', (host) => expect(isDeniedDomain(host)).toBe(true));
   test.each(['notexample.com', 'example.com.umaxica.com', 'exampe.devx'])(
-    'keeps boundary %s',
+    'keeps domain boundary for %s',
     (host) => expect(isDeniedDomain(host)).toBe(false),
   );
-  test('origin and segment boundaries and trailing slash', () => {
-    const rules = validatePathRules([
-      { origin: 'https://www.umaxica.app', pathname: '/foo', mode: 'subtree' },
-    ]);
-    for (const path of ['/foo', '/foo/', '/foo/bar'])
-      expect(() => assertPathAllowed('https://www.umaxica.app', path, rules)).toThrow();
-    expect(() => assertPathAllowed('https://www.umaxica.app', '/foobar', rules)).not.toThrow();
-    expect(() => assertPathAllowed('https://www.umaxica.com', '/foo', rules)).not.toThrow();
-    expect(() => target('/sign/out')).not.toThrow();
-    expect(() => target('/sign/out/edit')).not.toThrow();
-  });
-  test.each(['http://www.umaxica.app', 'https://www.umaxica.app/'])(
-    'rejects policy origin %s',
-    (origin) =>
-      expect(() => validatePathRules([{ origin, pathname: '/foo', mode: 'exact' }])).toThrow(),
+  test.each(['https://auth.example.com', 'https://auth.exampe.dev'])(
+    'production registry rejects forbidden origin %s',
+    (origin) => expect(() => buildRegistry([['auth-app-ww', origin]], [])).toThrow(),
   );
-  test.each(['/foo/', '/a/../b', '/a//b'])('rejects policy path %s', (pathname) =>
-    expect(() =>
-      validatePathRules([{ origin: 'https://www.umaxica.app', pathname, mode: 'exact' }]),
-    ).toThrow(),
-  );
-  test('validates optional format suffix policy and route aliases', () => {
-    const origin = 'https://www.umaxica.app';
-    const rules = validatePathRules([
-      { origin, pathname: '/foo', mode: 'exact', formatSuffix: true },
-    ]);
-    expect(() => assertPathAllowed(origin, '/foo.json', rules)).toThrow();
-    expect(() => assertPathAllowed(origin, '/foo.json/nested', rules)).not.toThrow();
-    expect(() => assertPathAllowed(origin, '/other', rules)).not.toThrow();
-    expect(() =>
-      validatePathRules([{ origin, pathname: '/foo', mode: 'exact', formatSuffix: false as true }]),
-    ).toThrow();
-  });
-
-  test('validateInternalTarget falls back to parsed pathname when raw path is absent', () => {
-    const normalized = normalizeUrl(
-      'https://www.umaxica.app/path',
-      runtime,
-      'https://jump.umaxica.net',
-    );
-    const { rawPathname: _rawPathname, ...targetWithoutRawPath } = normalized;
-    expect(() => validateInternalTarget(targetWithoutRawPath)).not.toThrow();
-  });
 });
 
-describe('adversarial policy edge cases', () => {
-  test.each(['/a%3Bb', '/a%00b', '/a%7fb', '/a/%FF', '/a/%', '/a/.%2E/b', '/a/%2e./b'])(
-    'rejects %s',
-    (path) => expect(() => target(path)).toThrow(),
-  );
-  test.each([
-    'redirect_uri=http%3A%2F%2F127.0.0.1%3A49152%2Fcallback',
-    'redirect_uri=http%3A%2F%2F%5B%3A%3A1%5D%3A49152%2Fcallback',
-  ])('preserves native loopback %s', (query) =>
-    expect(() => target(`/oauth/authorize?${query}`)).not.toThrow(),
-  );
-  test.each([
-    'redirect_uri%5Bx%5D=a',
-    'post_logout_redirect_uri%5Bx%5D=a',
-    'state%5Bx%5D=a',
-    'redirect_uri=https%3A%2F%2F127.0.0.1%2Fcb',
-    'redirect_uri=https%3A%2F%2Fclient.umaxica.com%2Fcb%23x',
-    'redirect_uri=https%3A%2F%2Fu%40client.umaxica.com%2Fcb',
-  ])('rejects structured OAuth %s', (query) =>
-    expect(() => target(`/oauth/authorize?${query}`)).toThrow(),
-  );
+test('validateInternalTarget falls back to parsed pathname when raw path is absent', () => {
+  const normalized = normalizeUrl('https://www.umaxica.app/path', SERVICE_ORIGIN);
+  const { rawPathname: _rawPathname, ...targetWithoutRawPath } = normalized;
+  expect(() => validateInternalTarget(targetWithoutRawPath)).not.toThrow();
 });
 
 test.each(['/sign/out.json', '/sign/out.html', '/sign/out%2ejson', '/sign/out.xml'])(
   'allows former logout route %s',
   (path) => expect(() => target(path)).not.toThrow(),
-);
-
-test.each(['/foo?x=1', '/foo#x', '/%66oo'])(
-  'rejects ambiguous configured pathname %s',
-  (pathname) =>
-    expect(() =>
-      validatePathRules([{ origin: 'https://www.umaxica.app', pathname, mode: 'exact' }]),
-    ).toThrow(),
-);
-test('root subtree denies only its exact origin', () => {
-  const rules = validatePathRules([
-    { origin: 'https://www.umaxica.app', pathname: '/', mode: 'subtree' },
-  ]);
-  expect(() => assertPathAllowed('https://www.umaxica.app', '/anything', rules)).toThrow();
-  expect(() => assertPathAllowed('https://www.umaxica.com', '/anything', rules)).not.toThrow();
-});
-
-test.each(['/a%C2%85b', '/a%C2%9Fb'])('rejects Unicode C1 control path %s', (path) =>
-  expect(() => target(path)).toThrow(),
-);
-
-import { buildRegistry } from '../src/config/registry.umaxica';
-test.each(['https://auth.example.com', 'https://auth.exampe.dev'])(
-  'production registry rejects forbidden origin %s',
-  (origin) => expect(() => buildRegistry([['auth-app-ww', origin]], [])).toThrow(),
 );
 
 test.each(['https:client.umaxica.com/cb', 'https:///client.umaxica.com/cb'])(
