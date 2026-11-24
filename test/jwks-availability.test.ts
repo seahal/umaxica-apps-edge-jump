@@ -106,7 +106,8 @@ const ACCEPTED = { status: 302, error: null };
 const TEMPORARY = { status: 503, error: 'temporarily_unavailable' };
 const DENIED = { status: 400, error: 'invalid_request' };
 
-describe('issuer JWKS availability semantics', () => {
+// PS256 3072-bit key generation per test is slow on CI runners; default 5s is too tight.
+describe('issuer JWKS availability semantics', { timeout: 30_000 }, () => {
   let clock = T0;
   beforeEach(() => {
     clock = T0;
