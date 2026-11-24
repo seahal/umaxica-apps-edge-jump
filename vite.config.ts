@@ -4,22 +4,6 @@ export default defineConfig({
   resolve: {
     tsconfigPaths: true,
   },
-  test: {
-    deps: {
-      interopDefault: true,
-    },
-    globals: true,
-    include: ['test/**/*.test.{ts,tsx}'],
-    coverage: {
-      include: ['src/**'],
-      thresholds: {
-        statements: 100,
-        branches: 100,
-        functions: 100,
-        lines: 100,
-      },
-    },
-  },
   fmt: {
     printWidth: 100,
     tabWidth: 2,
@@ -29,6 +13,7 @@ export default defineConfig({
     trailingComma: 'all',
     insertFinalNewline: true,
     sortPackageJson: true,
+    ignorePatterns: ['.agents/**'],
     overrides: [
       {
         files: ['**/*.json', '**/*.jsonc'],

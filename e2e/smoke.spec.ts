@@ -1,12 +1,11 @@
 import { expect, test, type APIResponse } from '@playwright/test';
 
 test.describe('jump gateway smoke', () => {
-  test('/ returns a 200 response after the about redirect', async ({ page }) => {
+  test('/ without rt is not found and does not redirect', async ({ page }) => {
     const response = await page.goto('/');
 
-    expect(response?.status()).toBe(200);
-    await expect(page).toHaveURL('/about');
-    await expect(page.locator('body')).toContainText('UMAXICA');
+    expect(response?.status()).toBe(404);
+    await expect(page).toHaveURL('/');
   });
 
   test('invalid rt parameter does not redirect to an external URL', async ({ page }) => {
@@ -14,6 +13,13 @@ test.describe('jump gateway smoke', () => {
 
     expect(response?.status()).toBe(400);
     await expect(page).toHaveURL('/?rt=https%3A%2F%2Fevil.example');
+  });
+
+  test('rate limit responses include Retry-After', async ({ request }) => {
+    const response = await request.get('/__e2e/rate');
+
+    expect(response.status()).toBe(429);
+    expect(response.headers()['retry-after']).toBe('60');
   });
 
   test('/about serves the about page', async ({ page }) => {
@@ -91,11 +97,14 @@ test.describe('jump gateway smoke', () => {
     await expect(page.locator('body')).toContainText('jump');
   });
 
-  test('unknown routes redirect to about', async ({ request }) => {
-    const response = await request.get('/not-found');
-
-    expect(response.status()).toBe(200);
-    expect(new URL(response.url()).pathname).toBe('/about');
+  test('unknown routes return 404 for methods and Accept types', async ({ request }) => {
+    for (const method of ['GET', 'HEAD', 'POST', 'OPTIONS']) {
+      for (const accept of ['text/html', 'application/json']) {
+        const response = await request.fetch('/not-found', { method, headers: { Accept: accept } });
+        expect(response.status()).toBe(404);
+        expect(response.headers()['location']).toBeUndefined();
+      }
+    }
   });
 
   test('invalid rt shows a splash card with about and no reload', async ({ page }) => {

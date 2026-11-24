@@ -15,16 +15,10 @@ export function createApp(options: AppOptions = {}) {
     ...options,
   });
 }
-export const normalizeUrl = (
-  input: string,
-  runtime: Parameters<typeof normalize>[1],
-  serviceOrigin = PRODUCTION_SERVICE_ORIGIN,
-) => normalize(input, runtime, serviceOrigin);
-export const normalizeOrigin = (
-  input: string,
-  runtime: Parameters<typeof normalize>[1],
-  serviceOrigin = PRODUCTION_SERVICE_ORIGIN,
-) => origin(input, runtime, serviceOrigin);
+export const normalizeUrl = (input: string, serviceOrigin = PRODUCTION_SERVICE_ORIGIN) =>
+  normalize(input, serviceOrigin);
+export const normalizeOrigin = (input: string, serviceOrigin = PRODUCTION_SERVICE_ORIGIN) =>
+  origin(input, serviceOrigin);
 type VerifyOptions = Parameters<typeof verify>[1];
 /** Positional test shorthand for `verifyJumpJwt`, defaulting to the production `typ`. */
 export const verifyJumpJwt = (

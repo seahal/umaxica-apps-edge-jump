@@ -23,7 +23,7 @@ export default defineConfig({
   ],
   webServer: {
     command: 'node --import vite-plus/register e2e/server.ts',
-    url: baseURL,
+    url: `${baseURL}/health`,
     reuseExistingServer: !isCI,
     timeout: 15_000,
     env: {

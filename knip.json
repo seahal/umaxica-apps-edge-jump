@@ -1,4 +1,5 @@
 {
   "$schema": "./node_modules/knip/schema.json",
-  "entry": ["src/cloudflare.ts", "src/index.ts", "e2e/server.ts", "test/**/*.test.ts"]
+  "entry": ["src/index.ts", "test/**/*.test.ts"],
+  "ignore": ["scripts/measure-carrier-sizes.mjs"]
 }

@@ -77,10 +77,12 @@ export type JumpErrorCode =
 
 export class JumpError extends Error {
   readonly code: JumpErrorCode;
+  readonly rejectionReason: string | undefined;
 
-  constructor(code: JumpErrorCode, message?: string) {
+  constructor(code: JumpErrorCode, message?: string, rejectionReason?: string) {
     const text = message ?? code;
     super(text);
     this.code = code;
+    this.rejectionReason = rejectionReason;
   }
 }

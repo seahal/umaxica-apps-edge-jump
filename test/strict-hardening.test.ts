@@ -933,6 +933,7 @@ describe('Cloudflare adapter deployment environment', () => {
 
 describe('wrangler deployment configuration', () => {
   type Env = {
+    assets?: { run_worker_first?: boolean };
     routes?: unknown[];
     workers_dev?: boolean;
     vars?: Record<string, string>;
@@ -948,6 +949,10 @@ describe('wrangler deployment configuration', () => {
 
   test('production states its environment explicitly', async () => {
     expect((await config()).vars?.UMAXICA_JUMP_ENVIRONMENT).toBe('production');
+  });
+
+  test('static assets remain served outside the Worker', async () => {
+    expect((await config()).assets?.run_worker_first).toBe(false);
   });
 
   test('staging cannot take the production route, origin, key or limiter namespace', async () => {

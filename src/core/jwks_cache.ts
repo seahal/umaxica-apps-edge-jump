@@ -1,5 +1,6 @@
 import { raceAbort, throwIfAborted } from './deadline';
 import { importIssuerJwks, type IssuerKeys } from './issuer_jwks';
+import { emitSecurityLog } from './security_log';
 import { JumpError, type IssuerConfig } from './types';
 
 /** Returns the issuer's JWK Set document; `JwksCache` validates it before use. */
@@ -59,8 +60,15 @@ export class JwksCache {
     if (issuer.revoked_kids?.includes(kid)) {
       // Emergency denylist, evaluated before any cache or fetch so a warm entry
       // cannot outlive a revocation. `kid` here equals a configured value.
-      // eslint-disable-next-line no-console -- issuer and kid only; no token material.
-      console.warn(JSON.stringify({ event: 'jump_revoked_kid_rejected', iss: issuer.iss, kid }));
+      emitSecurityLog({
+        level: 'warn',
+        event: 'jump_revoked_kid_rejected',
+        result: 'rejected',
+        reason: 'revoked_kid',
+        iss: issuer.iss,
+        kid,
+        status: 400,
+      });
       throw new JumpError('invalid_signature', 'revoked kid');
     }
     const set = await this.getJwks(issuer, forceRefresh, signal);

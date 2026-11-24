@@ -336,8 +336,6 @@ describe('rate limiter remains fail-open', () => {
 });
 
 describe('special-use destinations', () => {
-  const runtime = { edge: 'cloudflare', production: true } as const;
-
   test('IPv4 CGNAT, IETF protocol, benchmarking, multicast, and broadcast reject', () => {
     for (const url of [
       'https://100.64.0.1/path',
@@ -346,7 +344,7 @@ describe('special-use destinations', () => {
       'https://224.0.0.1/path',
       'https://255.255.255.255/path',
     ]) {
-      expect(() => normalizeUrl(url, runtime)).toThrow(JumpError);
+      expect(() => normalizeUrl(url)).toThrow(JumpError);
     }
   });
 
@@ -356,16 +354,26 @@ describe('special-use destinations', () => {
       'https://[64:ff9b::10.0.0.1]/path',
       'https://[::ffff:100.64.0.1]/path',
     ]) {
-      expect(() => normalizeUrl(url, runtime)).toThrow(JumpError);
+      expect(() => normalizeUrl(url)).toThrow(JumpError);
     }
   });
 
   test('credentials, unexpected scheme, and non-origin paths still reject', () => {
-    expect(() => normalizeUrl('https://user:pass@app.example.com/path', runtime)).toThrow(
-      JumpError,
+    expect(() => normalizeUrl('https://user:pass@app.example.com/path')).toThrow(JumpError);
+    expect(() => normalizeUrl('javascript:alert(1)')).toThrow(JumpError);
+    expect(() => normalizeUrl('not a url')).toThrow(JumpError);
+  });
+
+  test('non-ASCII query characters reject instead of failing the Location header', () => {
+    for (const url of [
+      'https://docs.example.com/path?q=日本',
+      'https://docs.example.com/path?q=\u00e9',
+    ]) {
+      expect(() => normalizeUrl(url)).toThrow(JumpError);
+    }
+    expect(normalizeUrl('https://docs.example.com/path?q=%E6%97%A5').href).toBe(
+      'https://docs.example.com/path?q=%E6%97%A5',
     );
-    expect(() => normalizeUrl('javascript:alert(1)', runtime)).toThrow(JumpError);
-    expect(() => normalizeUrl('not a url', runtime)).toThrow(JumpError);
   });
 });
 

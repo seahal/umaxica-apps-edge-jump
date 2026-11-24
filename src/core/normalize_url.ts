@@ -1,5 +1,5 @@
-import { assertDirectPath, assertPathAllowed, assertTransferQuery } from './redirect_policy';
-import { JumpError, type RuntimeInfo } from './types';
+import { assertDirectPath, assertTransferQuery } from './redirect_policy';
+import { JumpError } from './types';
 
 export type NormalizedUrl = {
   href: string;
@@ -18,11 +18,7 @@ function containsControlCharacter(input: string) {
   return false;
 }
 
-export function normalizeUrl(
-  input: string,
-  runtime: RuntimeInfo,
-  serviceOrigin: string,
-): NormalizedUrl {
+export function normalizeUrl(input: string, serviceOrigin: string): NormalizedUrl {
   if (
     typeof input !== 'string' ||
     !input ||
@@ -37,6 +33,10 @@ export function normalizeUrl(
   if (!rawParts) throw new JumpError('invalid_url');
   const [, authority = '', rawPathname = '', query = '', fragment = ''] = rawParts;
   if (/\\/.test(authority) || /\\/.test(rawPathname)) throw new JumpError('invalid_url');
+  // The query is copied raw into Location, which only carries ASCII; the path is
+  // re-serialized by URL and stays percent-encoded.
+  if (/[^\x20-\x7e]/.test(query) || /[^\x20-\x7e]/.test(fragment))
+    throw new JumpError('invalid_url');
   try {
     // Validate encoding/controls component by component, without treating opaque
     // OAuth values as paths or using decoded values to construct the destination.
@@ -75,12 +75,8 @@ export function normalizeUrl(
   };
 }
 
-export function normalizeOrigin(
-  input: string,
-  runtime: RuntimeInfo,
-  serviceOrigin: string,
-): string {
-  const parsed = normalizeUrl(input, runtime, serviceOrigin);
+export function normalizeOrigin(input: string, serviceOrigin: string): string {
+  const parsed = normalizeUrl(input, serviceOrigin);
   const originPath = new URL(parsed.href);
   if (originPath.pathname !== '/' || originPath.search || originPath.hash) {
     throw new JumpError('invalid_dst', 'origin allowlist entries must be origins');
@@ -306,7 +302,8 @@ export function validateServiceOrigin(input: unknown): string {
 }
 
 export function isRtKey(name: string) {
-  return name === 'rt' || name.startsWith('rt[');
+  const lowerName = name.toLowerCase();
+  return lowerName === 'rt' || lowerName.startsWith('rt[');
 }
 
 /**
@@ -330,7 +327,6 @@ export function validateInternalTarget(target: NormalizedUrl): NormalizedUrl {
   if (url.hash || target.href.includes('#')) throw new JumpError('invalid_url');
   assertDirectPath(target.rawPathname ?? url.pathname);
   assertDirectPath(url.pathname);
-  assertPathAllowed(target.origin, url.pathname);
   assertTransferQuery(url, isForbiddenServiceHost);
   const single = new Set([
     'redirect_uri',
@@ -347,13 +343,14 @@ export function validateInternalTarget(target: NormalizedUrl): NormalizedUrl {
   ]);
   const seen = new Set<string>();
   for (const name of url.searchParams.keys()) {
+    const lowerName = name.toLowerCase();
     if (
       isRtKey(name) ||
-      [...single].some((key) => name.startsWith(`${key}[`)) ||
-      (single.has(name) && seen.has(name))
+      [...single].some((key) => lowerName.startsWith(`${key}[`)) ||
+      (single.has(lowerName) && seen.has(lowerName))
     )
       throw new JumpError('invalid_url');
-    seen.add(name);
+    seen.add(lowerName);
   }
   return target;
 }

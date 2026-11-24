@@ -24,63 +24,7 @@ export function assertDirectPath(pathname: string) {
     throw new JumpError('invalid_url');
 }
 
-export type PathRule = Readonly<{
-  origin: string;
-  pathname: string;
-  mode: 'exact' | 'subtree';
-  formatSuffix?: true;
-}>;
-
-export function validatePathRules(rules: readonly PathRule[]): readonly PathRule[] {
-  return Object.freeze(
-    rules.map((rule) => {
-      const url = new URL(rule.origin);
-      if (
-        url.protocol !== 'https:' ||
-        url.origin !== rule.origin ||
-        !['exact', 'subtree'].includes(rule.mode) ||
-        (rule.formatSuffix !== undefined && rule.formatSuffix !== true)
-      )
-        throw new Error('invalid_path_policy');
-      assertDirectPath(rule.pathname);
-      if (
-        rule.pathname !== new URL(rule.pathname, rule.origin).pathname ||
-        decodeURIComponent(rule.pathname) !== rule.pathname
-      )
-        throw new Error('invalid_path_policy');
-      if (rule.pathname !== '/' && rule.pathname.endsWith('/'))
-        throw new Error('invalid_path_policy');
-      return Object.freeze({ ...rule });
-    }),
-  );
-}
-
-// No route-specific denials are currently configured. Destinations are governed
-// by issuer allowlists and the explicit source-to-self prohibition.
-export const PATH_DENYLIST = validatePathRules([]);
-
-export function assertPathAllowed(origin: string, pathname: string, rules = PATH_DENYLIST) {
-  pathname = decodeURIComponent(pathname);
-  // Compare route aliases without rewriting the navigation target. Rails can
-  // remove a terminal slash before recognizing a format suffix, so both
-  // transformations must participate in the same denial decision.
-  const routePath = pathname.endsWith('/') ? pathname.slice(0, -1) : pathname;
-  for (const rule of rules) {
-    if (origin !== rule.origin) continue;
-    if (
-      pathname === rule.pathname ||
-      pathname === `${rule.pathname}/` ||
-      (rule.formatSuffix &&
-        routePath.startsWith(`${rule.pathname}.`) &&
-        !routePath.slice(rule.pathname.length).includes('/')) ||
-      (rule.mode === 'subtree' &&
-        (rule.pathname === '/' || pathname.startsWith(`${rule.pathname}/`)))
-    )
-      throw new JumpError('invalid_url');
-  }
-}
-
-export const FORBIDDEN_DOMAINS = Object.freeze([
+const FORBIDDEN_DOMAINS = Object.freeze([
   'example.com',
   'example.org',
   'example.net',
@@ -107,12 +51,13 @@ export function isDeniedDomain(hostname: string) {
 
 export function assertTransferQuery(url: URL, isSpecialHost: (host: string) => boolean) {
   for (const [name, value] of url.searchParams) {
+    const lowerName = name.toLowerCase();
     // No receiving-route contract authorizes these generic redirect controls.
     if (/^(?:next|return_to|return_url|redirect|redirect_url|url|continue)(?:\[|$)/i.test(name))
       throw new JumpError('invalid_url');
     if (/^(?:redirect_uri|post_logout_redirect_uri)\[/i.test(name))
       throw new JumpError('invalid_url');
-    if (name !== 'redirect_uri' && name !== 'post_logout_redirect_uri') continue;
+    if (lowerName !== 'redirect_uri' && lowerName !== 'post_logout_redirect_uri') continue;
     if (!value || /[\s\\]/.test(value) || hasControl(value) || /%(?![a-f0-9]{2})/i.test(value))
       throw new JumpError('invalid_url');
     let nested: URL;
@@ -127,16 +72,17 @@ export function assertTransferQuery(url: URL, isSpecialHost: (host: string) => b
     )
       throw new JumpError('invalid_url');
     const nativeLoopback =
-      name === 'redirect_uri' &&
+      lowerName === 'redirect_uri' &&
       nested.protocol === 'http:' &&
       ['127.0.0.1', '[::1]'].includes(nested.hostname);
+    const privateUseScheme = /^[a-z][a-z0-9+.-]*\.[a-z0-9+.-]+:$/.test(nested.protocol);
     if (
       nested.username ||
       nested.password ||
       nested.hash ||
       value.includes('#') ||
-      ['javascript:', 'data:', 'file:', 'blob:', 'ftp:', 'ws:', 'wss:'].includes(nested.protocol) ||
-      (nested.protocol === 'http:' && !nativeLoopback) ||
+      (nested.protocol !== 'https:' && !nativeLoopback && !privateUseScheme) ||
+      (nested.protocol === 'https:' && !/^https:\/\/[^/?#]+(?:[/?#]|$)/i.test(value)) ||
       (nested.hostname &&
         (isDeniedDomain(nested.hostname) || (!nativeLoopback && isSpecialHost(nested.hostname))))
     )

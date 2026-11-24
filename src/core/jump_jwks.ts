@@ -1,4 +1,4 @@
-import { isSupportedPublicKey } from './issuer_jwks';
+import { isSupportedPublicKey, isValidKid } from './issuer_jwks';
 import type { JWK } from 'jose';
 import { JumpError } from './types';
 
@@ -41,7 +41,7 @@ function validatePublicJwk(value: unknown): JWK {
   if (!isSupportedPublicKey(value) || value.use !== 'sig')
     throw new JumpError('malformed', 'jump jwk profile rejected');
   if (
-    String(value.kid).length > 128 ||
+    !isValidKid(value.kid) ||
     (value.key_ops !== undefined &&
       (!Array.isArray(value.key_ops) ||
         value.key_ops.length !== 1 ||
@@ -51,7 +51,15 @@ function validatePublicJwk(value: unknown): JWK {
   for (const field of PRIVATE_JWK_FIELDS) {
     if (field in value) throw new JumpError('malformed', 'jump private jwk material rejected');
   }
-  return value as JWK;
+  return {
+    kty: value.kty as string,
+    n: value.n as string,
+    e: value.e as string,
+    kid: value.kid,
+    alg: value.alg as string,
+    use: value.use as string,
+    ...(value.key_ops === undefined ? {} : { key_ops: [...(value.key_ops as string[])] }),
+  } as JWK;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

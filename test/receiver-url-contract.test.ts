@@ -3,7 +3,6 @@ import { isRtKey, normalizeUrl, validateInternalTarget } from '../src/core/norma
 import contract from './fixtures/receiver-contract.json';
 
 // Normative WHATWG fixture evaluation only; this is not a Rails receiver or E2E.
-const runtime = { edge: 'cloudflare', production: true } as const;
 const jump = 'https://jump.umaxica.net';
 function matchesSignedUrl(requestUrl: string, signedUrl: string) {
   try {
@@ -12,7 +11,7 @@ function matchesSignedUrl(requestUrl: string, signedUrl: string) {
     if ([...request.searchParams.keys()].some((name) => name !== 'rt' && isRtKey(name)))
       return false;
     request.searchParams.delete('rt');
-    const target = validateInternalTarget(normalizeUrl(request.href, runtime, jump));
+    const target = validateInternalTarget(normalizeUrl(request.href, jump));
     // Output signed URLs already use URLSearchParams serialization.
     return target.href === signedUrl;
   } catch {

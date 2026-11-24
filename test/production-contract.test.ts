@@ -68,7 +68,6 @@ const edges: [Node, Node][] = [
   ['warp-org-jp', 'base-org-ww'],
 ];
 const jump = 'https://jump.umaxica.net';
-const runtime = { edge: 'cloudflare', production: true } as const;
 const now = () => Math.floor(Date.now() / 1000);
 function claim(src: Node = 'auth-app-ww', dst: Node = 'base-app-ww'): InboundJumpClaim {
   return {
@@ -186,7 +185,7 @@ describe('A: exact production graph', () => {
           assertDestinationPolicy(
             claim(src as Node, dst as Node),
             issuer,
-            normalizeUrl(`${destination}/receive`, runtime, jump),
+            normalizeUrl(`${destination}/receive`, jump),
           );
         if (expected) {
           expect(check).not.toThrow();
@@ -208,7 +207,7 @@ describe('A: exact production graph', () => {
             assertDestinationPolicy(
               claim(src, dst),
               assertDefined(registry[nodes[src]]),
-              normalizeUrl(`${nodes[dst]}/receive`, runtime, jump),
+              normalizeUrl(`${nodes[dst]}/receive`, jump),
             );
           if (a === b) expect(check).not.toThrow();
           else expect(check).toThrow();
@@ -732,9 +731,7 @@ describe('construction and runtime defensive policy', () => {
       jwks_uri: `${data.iss}/.well-known/jwks.json`,
       allowed_dst_internal: [data.iss],
     };
-    expect(() =>
-      assertDestinationPolicy(data, issuer, normalizeUrl(data.url, runtime, jump)),
-    ).toThrow();
+    expect(() => assertDestinationPolicy(data, issuer, normalizeUrl(data.url, jump))).toThrow();
   });
   test('prototype names are never registered issuers', async () => {
     const fetch = mockJwks();

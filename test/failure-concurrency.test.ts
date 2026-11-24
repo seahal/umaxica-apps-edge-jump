@@ -100,8 +100,6 @@ describe('K: cancellation and isolated caches', () => {
       'https://www.umaxica.app/?x=%0A',
       'https://www.umaxica.app/%C0%AF',
     ])
-      expect(() =>
-        normalizeUrl(input, { edge: 'cloudflare', production: true }, 'https://jump.umaxica.net'),
-      ).toThrow();
+      expect(() => normalizeUrl(input, 'https://jump.umaxica.net')).toThrow();
   });
 });

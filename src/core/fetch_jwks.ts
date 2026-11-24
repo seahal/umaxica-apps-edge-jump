@@ -1,6 +1,7 @@
 import { raceAbort, throwIfAborted } from './deadline';
 import type { FetchJwks } from './jwks_cache';
 import { JumpError } from './types';
+import { emitSecurityLog } from './security_log';
 
 export const MAX_JWKS_BYTES = 64 * 1024;
 /**
@@ -78,19 +79,17 @@ function logJwksFetchFailure(
   upstreamStatus?: number,
   error?: unknown,
 ) {
-  // eslint-disable-next-line no-console -- only registry issuer and coarse failure metadata.
-  console.error(
-    JSON.stringify({
-      event: 'jump_jwks_fetch_failed',
-      result: 'failed',
-      iss: issuer,
-      reason,
-      stage,
-      ...(upstreamStatus === undefined ? {} : { upstream_status: upstreamStatus }),
-      ...safeErrorMetadata(error),
-      latency_ms: Math.round(performance.now() - started),
-    }),
-  );
+  emitSecurityLog({
+    level: 'warn',
+    event: 'jump_jwks_fetch_failed',
+    result: 'failed',
+    iss: issuer,
+    reason,
+    stage,
+    ...(upstreamStatus === undefined ? {} : { upstream_status: upstreamStatus }),
+    ...safeErrorMetadata(error),
+    latency_ms: Math.round(performance.now() - started),
+  });
 }
 
 function safeErrorMetadata(error: unknown) {

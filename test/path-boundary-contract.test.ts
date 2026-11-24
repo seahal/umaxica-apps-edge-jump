@@ -3,14 +3,12 @@ import { beforeAll, describe, expect, test, vi } from 'vite-plus/test';
 import { createApp } from '../src';
 import { registry } from '../src/config/registry.umaxica';
 import { normalizeUrl, validateInternalTarget } from '../src/core/normalize_url';
-import { assertPathAllowed, PATH_DENYLIST, validatePathRules } from '../src/core/redirect_policy';
 import { JoseOutboundSigner } from '../src/core/sign_outbound';
 import { assertDefined } from './assert-defined';
 import graph from './fixtures/production-graph.json';
 
 const SERVICE_ORIGIN = 'https://jump.umaxica.net';
 const NOW = 1_800_000_000;
-const runtime = { edge: 'cloudflare', production: true } as const;
 const formerLogoutPaths = [
   '/sign/out',
   '/sign/out/',
@@ -69,7 +67,7 @@ beforeAll(async () => {
 });
 
 function fixture(origin: string) {
-  // Each destination must have a real allowed edge; origin denial cannot mask path-policy failures.
+  // Each destination must have a real allowed edge, so origin denial cannot mask path checks.
   const issuer = assertDefined(
     Object.values(registry).find((entry) => entry.allowed_dst_internal.includes(origin)),
   );
@@ -105,20 +103,11 @@ function fixture(origin: string) {
   return { request, sign, auditLog, issuer };
 }
 
-test('no route-specific denial remains configured', () => {
-  expect(PATH_DENYLIST).toEqual([]);
-});
-
 describe.each(origins)('path boundary at %s', (origin) => {
-  test.each(formerLogoutPaths)('policy allows former logout route %s', (path) => {
-    expect(() => assertPathAllowed(origin, path)).not.toThrow();
-  });
   test.each(ambiguous)(
     'syntax rejects ambiguous input %s before normalization hides it',
     (path) => {
-      expect(() =>
-        validateInternalTarget(normalizeUrl(origin + path, runtime, SERVICE_ORIGIN)),
-      ).toThrow();
+      expect(() => validateInternalTarget(normalizeUrl(origin + path, SERVICE_ORIGIN))).toThrow();
     },
   );
   test.each(ambiguous)('signed Hono request rejects %s without signing', async (path) => {
@@ -170,12 +159,4 @@ describe.each(origins)('path boundary at %s', (origin) => {
         expect(location.searchParams.get(name)).toBe(expected.searchParams.get(name));
     },
   );
-});
-
-test('format suffix matching remains opt-in, case-sensitive at the base path and origin-specific', () => {
-  const origin = 'https://www.umaxica.app';
-  const rules = validatePathRules([{ origin, pathname: '/sign/out', mode: 'exact' }]);
-  expect(() => assertPathAllowed(origin, '/sign/out.html/', rules)).not.toThrow();
-  expect(() => assertPathAllowed(origin, '/SIGN/out.html/')).not.toThrow();
-  expect(() => assertPathAllowed('https://palm-jp.umaxica.app', '/sign/out.html/')).not.toThrow();
 });

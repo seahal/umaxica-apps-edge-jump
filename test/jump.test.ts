@@ -18,7 +18,6 @@ import { registry as umaxicaRegistry } from '../src/config/registry.umaxica';
 import { createApp, type AppOptions } from './app-fixture';
 import { createApp as productionApp } from '../src';
 import { fetchRegistryJwks } from '../src/core/fetch_jwks';
-import { escapeAttribute, escapeHtml } from '../src/core/escape';
 import actualWorker, { resetIsolateCachesForTest } from '../src/cloudflare';
 import { handleJump } from '../src/core/handle_jump';
 import { healthJson, renderHealthHtml, wantsJson } from '../src/core/health';
@@ -74,11 +73,9 @@ const cloudflareWorker = {
 
 const NOW = 1_800_000_000;
 
-test('security constants and escaping helpers retain their public contract', () => {
+test('security constants retain their public contract', () => {
   expect(CLOCK_SKEW_SECONDS).toBe(5);
   expect(MAX_INBOUND_TTL_SECONDS).toBe(30);
-  expect(escapeHtml('<&>')).toBe('&lt;&amp;&gt;');
-  expect(escapeAttribute('"&')).toBe('&quot;&amp;');
 });
 
 type Fixture = {
@@ -413,12 +410,13 @@ describe('jump gateway routes', () => {
     expect(source).not.toContain('FASTLY_SERVICE_VERSION');
   });
 
-  test('GET / redirects to about when rt is absent', async () => {
+  test('GET / without rt is not found', async () => {
     const { app } = await fixture();
-    const res = await app.request('https://jump.example.net/');
-
-    expect(res.status).toBe(302);
-    expect(res.headers.get('Location')).toBe('/about');
+    for (const method of ['GET', 'HEAD']) {
+      const res = await app.request('https://jump.example.net/', { method });
+      expect(res.status).toBe(404);
+      expect(res.headers.get('Location')).toBeNull();
+    }
   });
 
   test('GET / processes invalid rt query parameters through guardrails', async () => {
@@ -445,7 +443,7 @@ describe('jump gateway routes', () => {
     const healthHtml = await html.text();
     expect(healthHtml).toContain('<meta name="robots" content="noindex,nofollow,noarchive"/>');
     expect(healthHtml).toContain('<title>サーバー状態 — UMAXICA (NET)</title>');
-    expect(healthHtml).toContain('<header><a href="/">UMAXICA</a></header>');
+    expect(healthHtml).toContain('<header><a href="/about">UMAXICA</a></header>');
     expect(healthHtml).toContain('<h1>status</h1>');
     expect(healthHtml).toContain('<dt>status</dt><dd>OK</dd>');
     expect(healthHtml).toContain('<dt>service</dt><dd>jump</dd>');
@@ -469,7 +467,7 @@ describe('jump gateway routes', () => {
     expect(ja.headers.get('Content-Language')).toBe('ja');
     const jaHtml = await ja.text();
     expect(jaHtml).toContain('<title>サイトについて — UMAXICA (NET)</title>');
-    expect(jaHtml).toContain('<header><a href="/">UMAXICA</a></header>');
+    expect(jaHtml).toContain('<header><a href="/about">UMAXICA</a></header>');
     expect(jaHtml).toContain('<footer>© 2026 UMAXICA</footer>');
     expect(en.headers.get('Content-Language')).toBe('en');
     expect(await en.text()).toContain('<html lang="en">');
@@ -680,7 +678,7 @@ describe('jump gateway routes', () => {
 
   test('cloudflare worker signs internal redirect rt with configured kid', async () => {
     const setup = await cloudflareInternalRedirectFixture();
-    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const info = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
       const res = await fetchCloudflareWorker(`/?rt=${setup.inboundToken}`, {
         UMAXICA_JUMP_PRIVATE_KEY_PEM: `  ${setup.jumpPrivatePem.replaceAll('\n', '\\n')}  `,
@@ -712,9 +710,8 @@ describe('jump gateway routes', () => {
         url: 'https://jp.umaxica.app/',
       });
       const infoLines = info.mock.calls.map(([message]) => String(message)).join('\n');
-      expect(infoLines).toContain('"signer_configured":true');
-      expect(infoLines).toContain('"signer_kid":"cloudflare-active-2026-05"');
-      expect(infoLines).toContain('"private_key_imported":true');
+      expect(infoLines).toContain('"event":"jump_signer_configured"');
+      expect(infoLines).toContain('"kid":"cloudflare-active-2026-05"');
       expect(infoLines).not.toContain('jwks_derived_from_private_key');
     } finally {
       setup.restore();
@@ -962,19 +959,18 @@ describe('jump gateway routes', () => {
     expect(error).not.toContain('<header>');
   });
 
-  test('unknown GET paths redirect to about; JSON and POST stay 404', async () => {
+  test('unknown paths are 404 for every method and Accept header', async () => {
     const { app } = await fixture();
-    const html = await app.request('https://jump.example.net/no-such-page');
-    expect(html.status).toBe(302);
-    expect(html.headers.get('Location')).toBe('/about');
-    const json = await app.request('https://jump.example.net/no-such-page', {
-      headers: { Accept: 'application/json' },
-    });
-    expect(json.status).toBe(404);
-    expect(json.headers.get('Location')).toBeNull();
-    const posted = await app.request('https://jump.example.net/no-such-page', { method: 'POST' });
-    expect(posted.status).toBe(405);
-    expect(posted.headers.get('Location')).toBeNull();
+    for (const method of ['GET', 'HEAD', 'POST', 'OPTIONS']) {
+      for (const accept of ['text/html', 'application/json']) {
+        const response = await app.request('https://jump.example.net/no-such-page', {
+          method,
+          headers: { Accept: accept },
+        });
+        expect(response.status).toBe(404);
+        expect(response.headers.get('Location')).toBeNull();
+      }
+    }
   });
 
   test('product and splash CSS hashes are pinned in CSP', () => {
@@ -1721,10 +1717,7 @@ describe('jump token validation', () => {
   });
 
   test('IDN hostnames retain canonical ASCII identity', () => {
-    const normalized = normalizeUrl('https://xn--r8jz45g.example/path', {
-      edge: 'cloudflare',
-      production: true,
-    });
+    const normalized = normalizeUrl('https://xn--r8jz45g.example/path');
     expect(normalized).toMatchObject({
       hostname: 'xn--r8jz45g.example',
     });
@@ -1736,24 +1729,12 @@ describe('jump token validation', () => {
       'http://example.com/a',
       'https://example.com./a',
     ])
-      expect(() => normalizeUrl(value, { edge: 'cloudflare', production: true })).toThrow(
-        JumpError,
-      );
+      expect(() => normalizeUrl(value)).toThrow(JumpError);
   });
 
   test('public IP and public IPv6 hosts are allowed through URL normalization', () => {
-    expect(
-      normalizeUrl('https://192.0.2.1/path', {
-        edge: 'cloudflare',
-        production: true,
-      }).hostname,
-    ).toBe('192.0.2.1');
-    expect(
-      normalizeUrl('https://[2001:db8::1]/path', {
-        edge: 'cloudflare',
-        production: true,
-      }).hostname,
-    ).toBe('[2001:db8::1]');
+    expect(normalizeUrl('https://192.0.2.1/path').hostname).toBe('192.0.2.1');
+    expect(normalizeUrl('https://[2001:db8::1]/path').hostname).toBe('[2001:db8::1]');
   });
 
   test('localhost and additional private IPv4 ranges reject', () => {
@@ -1764,17 +1745,12 @@ describe('jump token validation', () => {
       'https://172.16.0.1/path',
       'https://0.0.0.0/path',
     ]) {
-      expect(() => normalizeUrl(url, { edge: 'cloudflare', production: true })).toThrow(JumpError);
+      expect(() => normalizeUrl(url)).toThrow(JumpError);
     }
   });
 
   test('normalizeOrigin requires origin-only allowlist entries', () => {
-    expect(() =>
-      normalizeOrigin('https://example.com/path', {
-        edge: 'cloudflare',
-        production: true,
-      }),
-    ).toThrow(JumpError);
+    expect(() => normalizeOrigin('https://example.com/path')).toThrow(JumpError);
   });
 
   test('userinfo reject', async () => {
@@ -1818,7 +1794,7 @@ describe('jump token validation', () => {
 
   test('malformed IPv6 rejected when runtime parser accepts bracket form', () => {
     for (const url of ['https://[::1::2]/', 'https://[2001:db8::1::2]/']) {
-      expect(() => normalizeUrl(url, { edge: 'cloudflare', production: true })).toThrow(JumpError);
+      expect(() => normalizeUrl(url)).toThrow(JumpError);
     }
   });
 
@@ -2096,10 +2072,7 @@ describe('jump token validation', () => {
   });
 
   test('direct policy helpers reject disabled external and unknown destinations', () => {
-    const target = normalizeUrl('https://app.example.com/path', {
-      edge: 'cloudflare',
-      production: true,
-    });
+    const target = normalizeUrl('https://app.example.com/path');
     const issuer = {
       iss: 'https://app.example.com',
       jwks_uri: 'https://app.example.com/.well-known/jwks.json',
@@ -2442,7 +2415,7 @@ describe('request deadline', () => {
 
   test('an aborted upstream fetch is classified as deadline, not as an upstream fault', async () => {
     const previousFetch = globalThis.fetch;
-    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const error = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const controller = new AbortController();
     globalThis.fetch = (async () => {
       controller.abort();
@@ -2547,7 +2520,7 @@ describe('issuer JWKS transport hardening', () => {
   });
 
   test('an upstream 5xx is temporary, a 4xx is a protocol violation', async () => {
-    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const error = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     try {
       await withFetch(() => new Response('', { status: 503 }), expectRejection('jwks_unavailable'));
       await withFetch(() => new Response('', { status: 429 }), expectRejection('jwks_unavailable'));
@@ -2571,7 +2544,7 @@ describe('issuer JWKS transport hardening', () => {
     // Workers supports `manual`, not `error`. Returning the redirect response
     // lets the normal non-2xx validation reject it without following Location.
     const previousFetch = globalThis.fetch;
-    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const error = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const seen: RequestInit[] = [];
     globalThis.fetch = (async (_url: string, init: RequestInit) => {
       seen.push(init);
@@ -2600,7 +2573,7 @@ describe('issuer JWKS transport hardening', () => {
 
   test('JWKS failure logs only safe native cause metadata', async () => {
     const previousFetch = globalThis.fetch;
-    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const error = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     globalThis.fetch = (async () => {
       const cause = Object.assign(new Error('private upstream detail'), { code: 'EHOSTUNREACH' });
       throw new TypeError('URL and token must not be logged', { cause });
@@ -2719,10 +2692,11 @@ describe('route, rate limit, and request id contracts', () => {
     await workerFetch('/.well-known/jwks.json', env, ip);
     await workerFetch('/about', env, ip);
     await workerFetch('/health', env, ip);
+    await workerFetch('/unknown-route', env, ip);
 
-    expect(jump.limit).toHaveBeenCalledTimes(4);
+    expect(jump.limit).toHaveBeenCalledTimes(5);
     // Keyed on the provider-determined client IP, never on a client-supplied header.
-    expect(jump.keys).toEqual(Array(4).fill('203.0.113.9'));
+    expect(jump.keys).toEqual(Array(5).fill('203.0.113.9'));
   });
 
   test('a client cannot redirect its rate limit onto another address', async () => {
@@ -2735,11 +2709,11 @@ describe('route, rate limit, and request id contracts', () => {
     expect(jump.keys).toEqual(['203.0.113.9']);
   });
 
-  test('static assets are metered and still carry the security headers', async () => {
+  test('static assets bypass the Worker limiter and still carry the security headers', async () => {
     const { jump, env } = limiterEnv();
     const res = await workerFetch('/favicon.ico', env, { 'CF-Connecting-IP': '203.0.113.9' });
     expect(res.status).toBe(204);
-    expect(jump.limit).toHaveBeenCalledTimes(1);
+    expect(jump.limit).not.toHaveBeenCalled();
     expect(res.headers.get('X-Request-ID')).toBeTruthy();
     expect(res.headers.get('X-Frame-Options')).toBe('DENY');
   });
@@ -3047,16 +3021,15 @@ describe('UMAXICA title contract', () => {
 
     expect(ja.status).toBe(429);
     expect(ja.headers.get('Content-Type')).toContain('text/html');
+    expect(ja.headers.get('Retry-After')).toBe('60');
     assertTitleContract(await ja.text(), `アクセスが集中しています ${EM_DASH} ${TITLE_BRAND}`);
 
     expect(en.status).toBe(429);
+    expect(en.headers.get('Retry-After')).toBe('60');
     assertTitleContract(await en.text(), `Too many requests ${EM_DASH} ${TITLE_BRAND}`);
   });
 
-  // The 429 answers before the Hono app is built, so it cannot inherit
-  // jumpSecureHeaders/responseHygiene. Assert it against the very same helper
-  // the in-app HTML routes use, so the two paths cannot drift apart.
-  test('rate limit HTML carries the same protections as in-app HTML', async () => {
+  test('Hono rate limit HTML carries the same protections as other HTML routes', async () => {
     const limited = await cloudflareWorker.fetch(
       new Request('https://jump.example.net/?rt=a.b.c', {
         headers: { 'CF-Connecting-IP': '192.0.2.1' },
@@ -3217,7 +3190,7 @@ describe('UMAXICA title contract', () => {
 
   test('a warm isolate reuses the JWKS cache and the imported signer across requests', async () => {
     const setup = await cloudflareInternalRedirectFixture();
-    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const info = vi.spyOn(console, 'log').mockImplementation(() => {});
     try {
       const env = {
         UMAXICA_JUMP_PRIVATE_KEY_PEM: setup.jumpPrivatePem,
@@ -3236,7 +3209,7 @@ describe('UMAXICA title contract', () => {
 
       const signerConfigured = info.mock.calls
         .map(([message]) => String(message))
-        .filter((line) => line.includes('"signer_configured":true'));
+        .filter((line) => line.includes('"event":"jump_signer_configured"'));
       expect(signerConfigured).toHaveLength(1);
 
       // A fresh `env` reference in the same isolate: the issuer JWKS is still
@@ -3247,7 +3220,7 @@ describe('UMAXICA title contract', () => {
       expect(
         info.mock.calls
           .map(([message]) => String(message))
-          .filter((line) => line.includes('"signer_configured":true')),
+          .filter((line) => line.includes('"event":"jump_signer_configured"')),
       ).toHaveLength(2);
     } finally {
       setup.restore();
@@ -3304,8 +3277,8 @@ describe('UMAXICA title contract', () => {
     expect(favicon.status).toBe(204);
 
     const root = await app.request('https://jump.example.net/');
-    expect(root.status).toBe(302);
-    expect(root.headers.get('Location')).toBe('/about');
+    expect(root.status).toBe(404);
+    expect(root.headers.get('Location')).toBeNull();
 
     const jwks = await app.request('https://jump.example.net/.well-known/jwks.json');
     expect(jwks.headers.get('Content-Type')).toContain('application/json');
