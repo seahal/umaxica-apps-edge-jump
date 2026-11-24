@@ -8,6 +8,13 @@ import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { exportJWK, exportPKCS8, generateKeyPair, jwtVerify, SignJWT } from 'jose';
 const runtimeConfig = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
 assert.match(runtimeConfig, /"redact_query_string"\s*:\s*true/, 'query redaction configured');
+assert.match(runtimeConfig, /"run_worker_first"\s*:\s*false/, 'assets stay asset-first');
+assert.match(
+  runtimeConfig,
+  /"not_found_handling"\s*:\s*"404-page"/,
+  '404 asset fallback configured',
+);
+const static404 = await readFile(new URL('../public/404.html', import.meta.url), 'utf8');
 const { nodes, edges } = JSON.parse(
   await readFile(new URL('../test/fixtures/production-graph.json', import.meta.url), 'utf8'),
 );
@@ -43,6 +50,7 @@ const bundle = await build({
         if (env.TEST_LIMIT_MODE === 'throw') settings.JUMP_RATE_LIMITER = { limit: async () => { throw new Error('test-provider-exception'); } };
         if (env.TEST_LIMIT_MODE === 'missing') delete settings.JUMP_RATE_LIMITER;
         if (env.TEST_LATE_ASSETS) settings.ASSETS = { fetch: async () => { await new Promise(r => setTimeout(r, 1200)); return new Response(null, { status: 302, headers: { Location: 'https://late.example', 'Set-Cookie': 'late=1' } }); } };
+        if (env.TEST_STATIC_404) settings.ASSETS = { fetch: async request => new Response(request.method === 'HEAD' ? null : ${JSON.stringify(static404)}, { status: 404, headers: { 'Content-Type': 'text/html; charset=utf-8' } }) };
         return worker.fetch(request, settings, ctx);
       } };`,
   },
@@ -530,6 +538,55 @@ try {
     });
     assert.equal(response.status, 404, `${method} /`);
     assert.equal(response.headers.get('location'), null, `${method} /`);
+  }
+  await runtime.dispose();
+  runtime = undefined;
+  runtime = new Miniflare(
+    convertV4MiniflareOptions({
+      ...options,
+      bindings: { ...options.bindings, TEST_STATIC_404: true },
+    }),
+  );
+  for (const path of ['/', '/missing']) {
+    for (const method of ['GET', 'HEAD']) {
+      const response = await runtime.dispatchFetch(`${origin}${path}`, {
+        method,
+        redirect: 'manual',
+        headers: {
+          Accept: 'text/html',
+          'CF-Connecting-IP': '203.0.113.7',
+        },
+      });
+      assert.equal(response.status, 404, `${method} ${path} static fallback`);
+      assert.match(response.headers.get('content-type') ?? '', /^text\/html/, `${method} ${path}`);
+      assert.match(
+        response.headers.get('content-security-policy') ?? '',
+        /default-src 'none'/,
+        `${method} ${path}`,
+      );
+      assert.equal(response.headers.get('cache-control'), 'no-store', `${method} ${path}`);
+      assert.equal(response.headers.get('x-content-type-options'), 'nosniff', `${method} ${path}`);
+      assert.equal(response.headers.get('x-frame-options'), 'DENY', `${method} ${path}`);
+      assert.equal(
+        response.headers.get('x-robots-tag'),
+        'noindex, nofollow, noarchive',
+        `${method} ${path}`,
+      );
+      const body = await response.text();
+      if (method === 'HEAD') assert.equal(body, '', `${method} ${path}`);
+      else assert.equal(body, static404, `${method} ${path}`);
+    }
+  }
+  for (const path of ['/', '/missing']) {
+    const json = await runtime.dispatchFetch(`${origin}${path}`, {
+      redirect: 'manual',
+      headers: {
+        Accept: 'application/json',
+        'CF-Connecting-IP': '203.0.113.7',
+      },
+    });
+    assert.equal(json.status, 404, `JSON ${path}`);
+    assert.equal(await json.text(), '', `JSON ${path}`);
   }
   await runtime.dispose();
   runtime = undefined;

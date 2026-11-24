@@ -31,7 +31,11 @@ type RequestVariables = {
   adapterContext?: AdapterContext;
 };
 export type AdapterContext = { requestId: string; signal: AbortSignal };
-type AppEnv = { Bindings: object; Variables: RequestVariables };
+type AssetsBinding = { fetch(request: Request): Promise<Response> };
+type AppEnv = {
+  Bindings: object & { ASSETS?: AssetsBinding };
+  Variables: RequestVariables;
+};
 
 export type AppOptions = Omit<Partial<JumpDeps>, 'config'> & {
   fetchJwks?: FetchJwks;
@@ -167,7 +171,7 @@ export function createApp(options: AppOptions = {}) {
   app.use('*', trimSlashExceptRoot());
 
   app.on(['GET', 'HEAD'], '/', async (c) => {
-    if (!new URL(c.req.url).search) return c.body(null, 404);
+    if (!new URL(c.req.url).search) return notFoundResponse(c);
     const locale = requestLocale(c);
     // The token entry is a top-level document navigation, which is always GET.
     if (c.req.method !== 'GET') {
@@ -249,9 +253,7 @@ export function createApp(options: AppOptions = {}) {
     return json(c, requestJwks);
   });
 
-  app.notFound((c) => {
-    return c.body(null, 404);
-  });
+  app.notFound(notFoundResponse);
 
   app.onError((error, c) => {
     const jumpError = error instanceof JumpError ? error : new JumpError('internal_error');
@@ -291,6 +293,23 @@ export function resolveJumpConfig(
 
 function requestLocale(c: Context<AppEnv>): Locale {
   return localeFromAcceptLanguage(c.req.header('Accept-Language'));
+}
+
+async function notFoundResponse(c: Context<AppEnv>) {
+  const { method } = c.req;
+  const assets = c.env?.ASSETS;
+  if (
+    (method !== 'GET' && method !== 'HEAD') ||
+    wantsJson(c.req.header('Accept') ?? null) ||
+    !assets
+  )
+    return c.body(null, 404);
+
+  const response = await assets.fetch(c.req.raw);
+  return new Response(method === 'HEAD' ? null : response.body, {
+    status: 404,
+    headers: response.headers,
+  });
 }
 
 function html(c: Context, body: string, locale: Locale) {

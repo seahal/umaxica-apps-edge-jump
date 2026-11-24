@@ -973,6 +973,82 @@ describe('jump gateway routes', () => {
     }
   });
 
+  test.each(['/', '/no-such-page'])(
+    'browser GET %s uses the secured static 404 asset',
+    async (path) => {
+      const { app } = await fixture();
+      const staticPage = readFileSync(new URL('../public/404.html', import.meta.url), 'utf8');
+      const fetchAsset = vi.fn(
+        async () =>
+          new Response(staticPage, {
+            status: 404,
+            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          }),
+      );
+      const response = await app.fetch(
+        new Request(`https://jump.example.net${path}`, {
+          headers: { Accept: 'text/html' },
+        }),
+        { ASSETS: { fetch: fetchAsset } },
+        {} as ExecutionContext,
+      );
+
+      expect(response.status).toBe(404);
+      expect(await response.text()).toBe(staticPage);
+      expect(fetchAsset).toHaveBeenCalledOnce();
+      expectSecurityHeaders(response);
+      expect(staticPage).toMatch(/<meta name="robots" content="noindex,nofollow,noarchive"\s*\/?>/);
+      expect(staticPage).toContain(`<style>${SPLASH_PAGE_CSS}</style>`);
+      expect(staticPage).toContain('href="/about"');
+      expect(staticPage).not.toContain('<script');
+    },
+  );
+
+  test('browser HEAD uses the static 404 asset without a response body', async () => {
+    const { app } = await fixture();
+    const fetchAsset = vi.fn(
+      async () =>
+        new Response('static 404 body', {
+          status: 404,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        }),
+    );
+    const response = await app.fetch(
+      new Request('https://jump.example.net/no-such-page', {
+        method: 'HEAD',
+        headers: { Accept: 'text/html' },
+      }),
+      { ASSETS: { fetch: fetchAsset } },
+      {} as ExecutionContext,
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe('');
+    expect(fetchAsset).toHaveBeenCalledOnce();
+    expectSecurityHeaders(response);
+  });
+
+  test.each([
+    ['JSON request with assets', 'GET', 'application/json', true],
+    ['GET without assets', 'GET', 'text/html', false],
+    ['non-GET request with assets', 'POST', 'text/html', true],
+  ])('%s keeps the empty 404 contract', async (_label, method, accept, withAssets) => {
+    const { app } = await fixture();
+    const fetchAsset = vi.fn(async () => new Response('unexpected asset', { status: 404 }));
+    const response = await app.fetch(
+      new Request('https://jump.example.net/no-such-page', {
+        method,
+        headers: { Accept: accept },
+      }),
+      withAssets ? { ASSETS: { fetch: fetchAsset } } : {},
+      {} as ExecutionContext,
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe('');
+    expect(fetchAsset).not.toHaveBeenCalled();
+  });
+
   test('product and splash CSS hashes are pinned in CSP', () => {
     expect(createHash('sha256').update(PRODUCT_PAGE_CSS).digest('base64')).toBe(
       PRODUCT_PAGE_CSS_SHA256,
