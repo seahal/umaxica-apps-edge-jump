@@ -14,7 +14,11 @@ import { createApp, resolveJumpConfig } from '../src';
 import worker, { resetIsolateCachesForTest, type CloudflareEnv } from '../src/cloudflare';
 import { fetchRegistryJwks, MAX_JWKS_BYTES } from '../src/core/fetch_jwks';
 import { handleJump } from '../src/core/handle_jump';
-import { importIssuerJwks, MAX_ISSUER_JWKS_KEYS } from '../src/core/issuer_jwks';
+import {
+  importIssuerJwks,
+  MAX_ISSUER_JWKS_KEYS,
+  MAX_ISSUER_PS256_KEYS,
+} from '../src/core/issuer_jwks';
 import { JwksCache } from '../src/core/jwks_cache';
 import { JoseOutboundSigner } from '../src/core/sign_outbound';
 import { tokenTypes } from '../src/core/token_profile';
@@ -446,10 +450,37 @@ describe('issuer JWK Set profile', () => {
       'cur',
       'next',
     ]);
-    const max = await Promise.all(
-      Array.from({ length: MAX_ISSUER_JWKS_KEYS }, (_, i) => jwk({ kid: `k${i}` })),
-    );
-    expect((await importIssuerJwks({ keys: max })).size).toBe(MAX_ISSUER_JWKS_KEYS);
+    const rsa = await jwk();
+    const { publicKey } = await generateKeyPair('ES256');
+    const ec = { ...(await exportJWK(publicKey)), alg: 'ES256', use: 'sig' };
+    const max = Array.from({ length: MAX_ISSUER_JWKS_KEYS }, (_, i) => ({
+      ...(i < MAX_ISSUER_PS256_KEYS ? rsa : ec),
+      kid: `k${i}`,
+    }));
+    expect((await importIssuerJwks({ keys: max })).size).toBe(MAX_ISSUER_PS256_KEYS);
+    await expect(importIssuerJwks({ keys: [...max, ec] })).rejects.toMatchObject({
+      code: 'jwks_bad_gateway',
+      message: 'jwks key count rejected',
+    });
+    max[MAX_ISSUER_PS256_KEYS] = { ...rsa, kid: 'extra-rsa' };
+    await expect(importIssuerJwks({ keys: max })).rejects.toMatchObject({
+      code: 'jwks_bad_gateway',
+      message: 'jwks PS256 key count rejected',
+    });
+  });
+
+  test('rejects private material even on skipped keys', async () => {
+    const rsa = await jwk();
+    const { publicKey } = await generateKeyPair('ES256');
+    const ec = { ...(await exportJWK(publicKey)), alg: 'ES256', kid: 'ec', use: 'sig' };
+    for (const field of ['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k']) {
+      await expect(
+        importIssuerJwks({ keys: [rsa, { ...ec, [field]: null }] }),
+      ).rejects.toMatchObject({
+        code: 'jwks_bad_gateway',
+        message: 'private jwk material rejected',
+      });
+    }
   });
 
   test('remote-reference members are ignored, never dereferenced', async () => {
@@ -472,14 +503,6 @@ describe('issuer JWK Set profile', () => {
     ['keys missing', async () => ({})],
     ['keys not an array', async () => ({ keys: {} })],
     ['empty set', async () => ({ keys: [] })],
-    [
-      'too many keys',
-      async () => ({
-        keys: await Promise.all(
-          Array.from({ length: MAX_ISSUER_JWKS_KEYS + 1 }, (_, i) => jwk({ kid: `k${i}` })),
-        ),
-      }),
-    ],
     ['non-object entry', async () => ({ keys: [await jwk(), 'key'] })],
     ['duplicate kid', async () => ({ keys: [await jwk({ kid: 'd' }), await jwk({ kid: 'd' })] })],
     ['private d', async () => ({ keys: [await jwk({ d: 'AAAA' })] })],

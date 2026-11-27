@@ -1,11 +1,10 @@
 import { importJWK } from 'jose';
 import { JumpError } from './types';
 
-/**
- * Upper bound on keys in one issuer JWK Set: previous, current and next signing
- * key during a prepublish-first rotation, plus one slot for an emergency key.
- */
-export const MAX_ISSUER_JWKS_KEYS = 4;
+/** Total slots for simultaneous PS256 and OIDC key rotations. */
+export const MAX_ISSUER_JWKS_KEYS = 8;
+/** Previous, current, next and one emergency Jump verification key. */
+export const MAX_ISSUER_PS256_KEYS = 4;
 const MAX_KID_LENGTH = 128;
 
 const PRIVATE_JWK_FIELDS = ['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k'] as const;
@@ -32,22 +31,27 @@ export function hasControlCharacter(value: string) {
 }
 
 /**
- * Validates a fetched issuer JWK Set and imports every key.
- *
- * The set is accepted whole or not at all: every entry must be a supported
- * PS256/RSA-3072 verification key. Only public key parameters
- * reach the importer; remote references are never dereferenced.
+ * Checks the entire set for shape and private material, then imports only
+ * explicitly labeled PS256 keys. Invalid PS256 keys reject the whole set.
+ * Only public parameters reach the importer; remote references are ignored.
  */
 export async function importIssuerJwks(value: unknown): Promise<IssuerKeys> {
   if (!isRecord(value) || !Array.isArray(value.keys)) throw rejected('jwks shape rejected');
   const entries: unknown[] = value.keys;
   if (entries.length === 0 || entries.length > MAX_ISSUER_JWKS_KEYS)
     throw rejected('jwks key count rejected');
-  const keys = new Map<string, CryptoKey>();
+  const candidates: Record<string, unknown>[] = [];
   for (const entry of entries) {
     if (!isRecord(entry)) throw rejected('jwk shape rejected');
     if (PRIVATE_JWK_FIELDS.some((field) => Object.hasOwn(entry, field)))
       throw rejected('private jwk material rejected');
+    if (entry.alg === 'PS256') candidates.push(entry);
+  }
+  if (candidates.length === 0 || candidates.length > MAX_ISSUER_PS256_KEYS)
+    throw rejected('jwks PS256 key count rejected');
+
+  const keys = new Map<string, CryptoKey>();
+  for (const entry of candidates) {
     if (
       !isSupportedPublicKey(entry) ||
       entry.use !== 'sig' ||

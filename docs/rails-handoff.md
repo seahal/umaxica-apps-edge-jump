@@ -68,10 +68,11 @@ Confirm each, or report what differs.
   `application/json` (optionally `; charset=utf-8`). Any other type, parameter,
   status (including 204 and 3xx) or a body over 64 KiB is an unusable document;
   5xx and 429 are treated as temporary outages.
-- Publish 1–4 keys, each `kty: RSA`, `e: AQAB`, `alg: PS256`, `use: sig`,
-  unique `kid` of 1–128 characters without control characters. A key that does
-  not match (other algorithms, `use: enc`, absent `use`) refuses the whole set,
-  so an issuer JWKS used for other purposes must be split.
+- Publish up to 8 entries, including 1–4 Jump keys, each with `kty: RSA`,
+  a 3072-bit modulus, `e: AQAB`, `alg: PS256`, `use: sig` and a unique
+  `kid` of 1–128 characters without control characters. OIDC keys such as
+  ES256 can share the set. Jump skips them, but private or symmetric key
+  parameters in any entry and invalid PS256 profiles reject the entire set.
 - Prepublish a new `kid` more than 30 seconds (Jump's cache TTL) plus any HTTP
   cache lifetime before signing with it. A not-yet-cached `kid` costs one forced
   refresh, limited to one per 10 seconds per issuer; unknown kids inside that

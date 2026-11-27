@@ -26,11 +26,13 @@ that caller’s wait and does not cancel the shared fetch.
 Only status 200 with `application/jwk-set+json` or `application/json` (optional
 `charset=utf-8`) is usable; 5xx/429 and network errors are temporary outages,
 everything else is an unusable document. The body is streamed and abandoned at
-64 KiB of decoded bytes regardless of `Content-Length`. A set holds 1–4 keys,
-each `kty: RSA`, `e: AQAB`, `alg: PS256`, `use: sig`, a valid unique `kid` and
-a 3072-bit modulus and exponent 65537; private or symmetric members, a
-duplicate `kid` or any nonconforming key refuse the whole set. Only `kty`, `crv`,
-`n` and `e` reach the importer, so URL-bearing members are never dereferenced.
+64 KiB of decoded bytes regardless of `Content-Length`. The set may contain
+up to 8 entries, all objects without private or symmetric key parameters.
+Jump skips entries not labeled `alg: PS256` and requires 1–4 PS256 keys. Each
+must have `kty: RSA`, `e: AQAB`, `use: sig`, a valid, unique `kid`, and a
+3072-bit modulus. If present, `key_ops` must be exactly `["verify"]`. Any
+invalid PS256 key rejects the whole set. Only `kty`, `n` and `e` reach the
+importer, so URL-bearing members are never dereferenced.
 
 HTTPS URLs use WHATWG parsing. Userinfo, private/loopback/link-local/metadata
 hosts, ambiguous control/backslash/percent encodings, trailing-dot hosts and
