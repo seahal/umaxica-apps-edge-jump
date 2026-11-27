@@ -3,17 +3,15 @@
 // requires internal TCP listeners. Do not replace workerd with a Node-only fake.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { get } from 'node:http';
 import { build } from 'esbuild';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { exportJWK, exportPKCS8, generateKeyPair, jwtVerify, SignJWT } from 'jose';
 const runtimeConfig = await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
 assert.match(runtimeConfig, /"redact_query_string"\s*:\s*true/, 'query redaction configured');
-assert.match(runtimeConfig, /"run_worker_first"\s*:\s*false/, 'assets stay asset-first');
-assert.match(
-  runtimeConfig,
-  /"not_found_handling"\s*:\s*"404-page"/,
-  '404 asset fallback configured',
-);
+const { assets } = JSON.parse(runtimeConfig.replaceAll(/^\s*\/\/.*$/gm, ''));
+assert.deepEqual(assets.run_worker_first, ['/*', '!/favicon.ico']);
+assert.equal(assets.not_found_handling, '404-page');
 const static404 = await readFile(new URL('../public/404.html', import.meta.url), 'utf8');
 const { nodes, edges } = JSON.parse(
   await readFile(new URL('../test/fixtures/production-graph.json', import.meta.url), 'utf8'),
@@ -41,7 +39,7 @@ const bundle = await build({
         // Node's fetch (undici) always sends Sec-Fetch-Mode: cors and cannot send
         // "navigate". Drop that artifact and take the browser headers under test
         // from X-Test-Sec-* instead.
-        { const headers = new Headers(request.headers);
+        if (!env.TEST_NATIVE_NAVIGATION) { const headers = new Headers(request.headers);
           headers.delete('Sec-Fetch-Mode');
           for (const [name, value] of request.headers) if (name.startsWith('x-test-sec-')) { headers.delete(name); headers.set(name.slice(7), value); }
           request = new Request(request, { headers }); }
@@ -116,8 +114,83 @@ const signInput = (src, dst, typ = 'JWT', path = '/receive?state=keep&q=a%20b') 
     .setProtectedHeader({ typ, alg: 'PS256', kid: 'issuer' })
     .sign(pairs.get(nodes[src]).privateKey);
 };
+// Node HTTP preserves Sec-Fetch-Mode at the Miniflare router, before the Worker.
+function navigate(runtimeUrl, path) {
+  return new Promise((resolve, reject) => {
+    get(
+      new URL(path, runtimeUrl),
+      {
+        headers: {
+          'MF-Original-URL': origin + path,
+          'CF-Connecting-IP': '203.0.113.7',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'cross-site',
+          'Sec-Fetch-Dest': 'document',
+          Accept: 'text/html',
+        },
+      },
+      async (response) => {
+        try {
+          const chunks = [];
+          for await (const chunk of response) chunks.push(chunk);
+          resolve({
+            status: response.statusCode,
+            headers: response.headers,
+            body: Buffer.concat(chunks),
+          });
+        } catch (error) {
+          reject(error);
+        }
+      },
+    ).on('error', reject);
+  });
+}
+
 let runtime;
 try {
+  runtime = new Miniflare(
+    convertV4MiniflareOptions({
+      ...options,
+      name: 'jump-navigation-test',
+      bindings: { ...options.bindings, TEST_NATIVE_NAVIGATION: true },
+      assets: {
+        directory: assets.directory,
+        binding: assets.binding,
+        run_worker_first: assets.run_worker_first,
+        routerConfig: { has_user_worker: true },
+        assetConfig: { not_found_handling: assets.not_found_handling },
+      },
+    }),
+  );
+  const runtimeUrl = await runtime.ready;
+  for (const path of ['/', '/missing']) {
+    const response = await navigate(runtimeUrl, path);
+    assert.equal(response.status, 404, `navigation ${path} returns 404 (got ${response.status})`);
+    assert(response.headers['x-request-id'], '404 goes through Worker');
+    assert.equal(response.body.toString(), static404, 'navigation serves the HTML 404 asset');
+  }
+  const invalid = await navigate(runtimeUrl, '/?rt=invalid');
+  assert.equal(invalid.status, 400, 'invalid navigation reaches Jump');
+  assert.equal(invalid.headers['x-jump-error'], 'invalid_request');
+  const [navigationSource, navigationDestination] = edges[0];
+  const accepted = await navigate(
+    runtimeUrl,
+    '/?rt=' + (await signInput(navigationSource, navigationDestination)),
+  );
+  assert.equal(accepted.status, 302, 'signed navigation redirects');
+  const destination = new URL(accepted.headers.location);
+  assert.equal(destination.origin, nodes[navigationDestination], 'signed navigation destination');
+  assert.equal(destination.pathname, '/receive', 'signed navigation destination path');
+  for (const path of ['/about', '/health']) {
+    assert.equal((await navigate(runtimeUrl, path)).status, 200, `navigation to ${path}`);
+  }
+  const favicon = await navigate(runtimeUrl, '/favicon.ico');
+  assert.equal(favicon.status, 200, 'favicon is served');
+  assert.equal(favicon.headers['x-request-id'], undefined, 'favicon bypasses Worker');
+  assert(favicon.body.equals(await readFile(new URL('../public/favicon.ico', import.meta.url))));
+  await runtime.dispose();
+  runtime = undefined;
+
   runtime = new Miniflare(convertV4MiniflareOptions(options));
   for (const [src, dst] of edges) {
     const now = Math.floor(Date.now() / 1000);
