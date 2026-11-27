@@ -166,8 +166,10 @@ an approved edge. Nothing in the request can widen that decision.
 - Each issuer's JWKS URL is fixed at `<origin>/.well-known/jwks.json`. No token
   value ever selects a network destination. JWKS fetches bypass caches, refuse
   redirects and non-200 answers, accept only JWK Set or JSON media types, and
-  stop reading at 64 KiB. A set must hold 1–4 PS256/RSA-3072 `use: sig` keys or it
-  is refused whole.
+  stop reading at 64 KiB. A set can contain at most 8 entries, including 1–4
+  PS256/RSA-3072 `use: sig` keys. Other algorithms are skipped, but a malformed
+  entry shape, private key material in any entry, or an invalid PS256 key
+  causes the whole set to be refused.
 - Unverified decoding is used only for shape checks and key lookup. No
   authorization decision precedes signature verification.
 - The Jump signing key is one active PS256 private key with an explicit public

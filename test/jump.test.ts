@@ -2702,16 +2702,12 @@ describe('issuer JWKS transport hardening', () => {
   test.each([
     ['use enc', (key: JWK) => ({ ...key, use: 'enc' })],
     ['missing use', ({ use: _use, ...key }: JWK) => key],
-    ['alg ES256', (key: JWK) => ({ ...key, alg: 'ES256' })],
-  ])(
-    'a key that cannot verify an PS256 jump token (%s) rejects the whole set',
-    async (_l, edit) => {
-      const keys = [await validJwk(), edit(await validJwk({ kid: 'other' }))];
-      await withFetch(() => Response.json({ keys }), expectKeysetRejection());
-    },
-  );
+  ])('a PS256 key with an invalid profile (%s) rejects the whole set', async (_l, edit) => {
+    const keys = [await validJwk(), edit(await validJwk({ kid: 'other' }))];
+    await withFetch(() => Response.json({ keys }), expectKeysetRejection());
+  });
 
-  test('a P-256 key labelled P-384 rejects the whole set', async () => {
+  test('a P-256 key labelled PS256 rejects the whole set', async () => {
     const p256 = await generateKeyPair('ES256');
     const keys = [
       await validJwk(),

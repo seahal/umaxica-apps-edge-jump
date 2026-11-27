@@ -118,8 +118,10 @@ must be accepted by issuers and receivers before production is redeployed (see
   set; integer NumericDates (fractions are no longer accepted); `jti` ≤128
   printable ASCII; `url` ≤2048 characters.
 - Issuer JWKS: status 200 only; `application/jwk-set+json` or `application/json`
-  with at most `charset=utf-8`; 1–4 keys, every key PS256/RSA-3072 with `use: sig`
-  (absent `use` is no longer accepted) or the whole set is refused.
+  with at most `charset=utf-8`. Up to 8 entries are allowed, with 1–4 keys
+  explicitly labeled PS256. Each PS256 key must meet the RSA-3072 profile
+  and include `use: sig`. Other algorithms are ignored only after checking
+  every entry is an object and none contain private key parameters.
 - `dst: external` is refused for every issuer (ADR 0007 runtime phase).
 - Production `wrangler.jsonc` gains `UMAXICA_JUMP_ENVIRONMENT=production`; a
   Worker without it answers 503.

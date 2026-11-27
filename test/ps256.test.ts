@@ -8,20 +8,20 @@ import { JoseOutboundSigner } from '../src/core/sign_outbound';
 import type { OutboundJumpClaim } from '../src/core/types';
 
 describe('PS256 only', () => {
-  test('imports a PS256 rotation set and verifies PS256 return signatures', async () => {
+  test('imports only PS256 from a mixed issuer set and verifies PS256 signatures', async () => {
     const rsa = await generateKeyPair('PS256', { modulusLength: 3072 });
-    const ec = await generateKeyPair('PS256', { modulusLength: 3072 });
+    const ec = await generateKeyPair('ES256');
     const jwks = {
       keys: [
         { ...(await exportJWK(rsa.publicKey)), kid: 'rsa', alg: 'PS256', use: 'sig' },
-        { ...(await exportJWK(ec.publicKey)), kid: 'ec', alg: 'PS256', use: 'sig' },
+        { ...(await exportJWK(ec.publicKey)), kid: 'ec', alg: 'ES256', use: 'sig' },
       ],
     };
-    expect(validateJumpJwks(jwks).keys).toHaveLength(2);
+    expect(() => validateJumpJwks(jwks)).toThrow();
     const keys = await importIssuerJwks(jwks);
     const rsaKey = keys.get('rsa');
-    const ecKey = keys.get('ec');
-    if (!rsaKey || !ecKey) throw new Error('missing imported keys');
+    expect([...keys.keys()]).toEqual(['rsa']);
+    if (!rsaKey) throw new Error('missing imported key');
     const now = 1800000000;
     const issuer = {
       iss: 'https://auth.umaxica.app',
@@ -56,15 +56,18 @@ describe('PS256 only', () => {
     const token = await signer.sign({} as OutboundJumpClaim, 'JWT');
     const result = await jwtVerify(token, rsaKey, { algorithms: ['PS256'] });
     expect(result.protectedHeader.alg).toBe('PS256');
-    await expect(jwtVerify(token, ecKey, { algorithms: ['PS256'] })).rejects.toThrow();
+    await expect(importIssuerJwks({ keys: [jwks.keys[1]] })).rejects.toMatchObject({
+      code: 'jwks_bad_gateway',
+      message: 'jwks PS256 key count rejected',
+    });
   });
-  test('rejects genuine ES384 tokens before JWKS lookup and rejects EC public keys', async () => {
-    const pair = await generateKeyPair('ES384');
-    const key = { ...(await exportJWK(pair.publicKey)), kid: 'legacy', alg: 'ES384', use: 'sig' };
+  test.each(['ES256', 'ES384'])('rejects genuine %s tokens before JWKS lookup', async (alg) => {
+    const pair = await generateKeyPair(alg);
+    const key = { ...(await exportJWK(pair.publicKey)), kid: 'legacy', alg, use: 'sig' };
     await expect(importIssuerJwks({ keys: [key] })).rejects.toThrow();
     expect(() => validateJumpJwks({ keys: [key] })).toThrow();
     const token = await new SignJWT({})
-      .setProtectedHeader({ typ: 'JWT', alg: 'ES384', kid: 'legacy' })
+      .setProtectedHeader({ typ: 'JWT', alg, kid: 'legacy' })
       .sign(pair.privateKey);
     let fetched = false;
     await expect(
